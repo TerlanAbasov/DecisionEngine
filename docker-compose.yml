@@ -1,0 +1,44 @@
+# Full stack: Postgres + backend (this repo) + frontend (EngineUI repo).
+# Assumes the EngineUI repo is cloned as a sibling directory:
+#   git clone https://github.com/TerlanAbasov/DecisionEngine
+#   git clone https://github.com/TerlanAbasov/EngineUI
+#   cd DecisionEngine && docker compose up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: quantplat
+      POSTGRES_USER: quant
+      POSTGRES_PASSWORD: quant
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quant -d quantplat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/quantplat
+      DB_USER: quant
+      DB_PASS: quant
+      QUANTPLAT_DATA-SOURCE: synthetic   # set to 'ib' once your IB client is wired
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ../EngineUI
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:
