@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    # No fallback defaults here (unlike application-local.yml): fail fast on a
+    # missing DB_URL/DB_USER/DB_PASS rather than silently trying quant/quant.
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
+  jpa:
+    hibernate:
+      ddl-auto: validate        # schema is owned by Liquibase (see changelog/master.yaml)
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  liquibase:
+    enabled: true
+    change-log: classpath:/changelog/master.yaml
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+
+quantplat:
+  data-source: synthetic         # synthetic | ib | alpaca
+  default-history-years: 6.5
+  ib:
+    host: 127.0.0.1
+    port: 7497
+    client-id: 17
+  alpaca:
+    api-key-id: ${ALPACA_API_KEY_ID:}
+    api-secret-key: ${ALPACA_API_SECRET_KEY:}
+    data-base-url: https://data.alpaca.markets
+    feed: iex                    # iex (free) | sip (paid subscription)
+  poll:
+    enabled: true
+    interval-ms: 900000           # 15 min
+    initial-delay-ms: 10000
+  execution-engine:
+    base-url: ${EXECUTION_ENGINE_URL:}   # e.g. http://localhost:8081 — blank disables forwarding
+    auto-forward: false                  # true = every new LONG/SHORT signal is pushed automatically
+    exchange: SMART
+    quote-currency: USD
+    asset-class: STK
+  cors-allowed-origins: http://localhost:5173

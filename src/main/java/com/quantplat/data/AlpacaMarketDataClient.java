@@ -1,0 +1,107 @@
+package com.quantplat.data;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.quantplat.domain.PriceBarEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Alpaca Market Data (https://data.alpaca.markets) daily bars. Active when
+ * quantplat.data-source=alpaca. Needs an Alpaca account (paper is fine): set
+ * quantplat.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).
+ */
+@Component
+@ConditionalOnProperty(name = "quantplat.data-source", havingValue = "alpaca")
+public class AlpacaMarketDataClient implements MarketDataClient {
+
+    private static final Logger log = LoggerFactory.getLogger(AlpacaMarketDataClient.class);
+
+    @Value("${quantplat.alpaca.api-key-id:}")
+    private String apiKeyId;
+    @Value("${quantplat.alpaca.api-secret-key:}")
+    private String apiSecretKey;
+    @Value("${quantplat.alpaca.feed:iex}")
+    private String feed;
+    @Value("${quantplat.default-history-years:6.5}")
+    private double years;
+
+    private final RestClient restClient;
+
+    public AlpacaMarketDataClient(
+            @Value("${quantplat.alpaca.data-base-url:https://data.alpaca.markets}") String baseUrl) {
+        this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+    }
+
+    @Override
+    public List<PriceBarEntity> fetchHistory(String symbol) {
+        if (apiKeyId.isBlank() || apiSecretKey.isBlank()) {
+            throw new IllegalStateException(
+                "Alpaca data source selected but no credentials configured. Set "
+                + "quantplat.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+        }
+
+        Instant end = Instant.now();
+        Instant start = end.minusSeconds(Math.round(years * 365.25 * 86400));
+        List<PriceBarEntity> out = new ArrayList<>();
+        String pageToken = null;
+        do {
+            AlpacaBarsResponse page = fetchPage(symbol, start, end, pageToken);
+            if (page == null || page.bars() == null) break;
+            for (AlpacaBar b : page.bars()) {
+                LocalDate barDate = Instant.parse(b.t()).atZone(ZoneOffset.UTC).toLocalDate();
+                out.add(new PriceBarEntity(symbol, barDate, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca"));
+            }
+            pageToken = page.nextPageToken();
+        } while (pageToken != null);
+
+        log.info("Fetched {} bars for {} from Alpaca ({} feed)", out.size(), symbol, feed);
+        return out;
+    }
+
+    private AlpacaBarsResponse fetchPage(String symbol, Instant start, Instant end, String pageToken) {
+        return restClient.get()
+                .uri(uri -> uri.path("/v2/stocks/{symbol}/bars")
+                        .queryParam("timeframe", "1Day")
+                        .queryParam("start", start)
+                        .queryParam("end", end)
+                        .queryParam("limit", 10000)
+                        .queryParam("adjustment", "raw")
+                        .queryParam("feed", feed)
+                        .queryParamIfPresent("page_token", Optional.ofNullable(pageToken))
+                        .build(symbol))
+                .header("APCA-API-KEY-ID", apiKeyId)
+                .header("APCA-API-SECRET-KEY", apiSecretKey)
+                .retrieve()
+                .body(AlpacaBarsResponse.class);
+    }
+
+    @Override
+    public String source() {
+        return "alpaca";
+    }
+
+    private record AlpacaBar(
+            @JsonProperty("t") String t,
+            @JsonProperty("o") double o,
+            @JsonProperty("h") double h,
+            @JsonProperty("l") double l,
+            @JsonProperty("c") double c,
+            @JsonProperty("v") double v) {
+    }
+
+    private record AlpacaBarsResponse(
+            @JsonProperty("bars") List<AlpacaBar> bars,
+            @JsonProperty("next_page_token") String nextPageToken) {
+    }
+}

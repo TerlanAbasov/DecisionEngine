@@ -1,0 +1,47 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-backtest-run-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: backtest_run
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: strategy_name
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: symbols_csv
+                                    type: TEXT
+                            -   column:
+                                    name: start_date
+                                    type: DATE
+                            -   column:
+                                    name: end_date
+                                    type: DATE
+                            -   column:
+                                    name: capital
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: commission_bps
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: slippage_bps
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: allow_short
+                                    type: BOOLEAN
+                            -   column:
+                                    name: status
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: created_at
+                                    type: TIMESTAMP

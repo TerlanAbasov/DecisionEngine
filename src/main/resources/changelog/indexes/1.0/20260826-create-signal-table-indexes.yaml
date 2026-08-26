@@ -1,0 +1,18 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-signal-table-indexes
+            author: Tarlan Abasov
+            changes:
+                -   createIndex:
+                        indexName: ix_signal_strategy
+                        tableName: signal
+                        columns:
+                            -   column:
+                                    name: strategy_name
+
+                -   createIndex:
+                        indexName: ix_signal_symbol
+                        tableName: signal
+                        columns:
+                            -   column:
+                                    name: symbol

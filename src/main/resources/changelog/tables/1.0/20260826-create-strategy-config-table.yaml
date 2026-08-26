@@ -1,0 +1,40 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-strategy-config-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: strategy_config
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: name
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                                        unique: true
+                                        uniqueConstraintName: uk_strategy_name
+                            -   column:
+                                    name: category
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: direction
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: description
+                                    type: VARCHAR(512)
+                            -   column:
+                                    name: enabled
+                                    type: BOOLEAN
+                                    defaultValueBoolean: true
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: params_json
+                                    type: TEXT

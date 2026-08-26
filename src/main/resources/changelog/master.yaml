@@ -1,0 +1,23 @@
+databaseChangeLog:
+    -   include:
+            file: changelog/tables/1.0/20260826-create-strategy-config-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-universe-symbol-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-price-bar-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-backtest-run-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-backtest-result-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-trade-table.yaml
+    -   include:
+            file: changelog/tables/1.0/20260826-create-signal-table.yaml
+    -   include:
+            file: changelog/indexes/1.0/20260826-create-price-bar-table-indexes.yaml
+    -   include:
+            file: changelog/indexes/1.0/20260826-create-backtest-run-table-indexes.yaml
+    -   include:
+            file: changelog/indexes/1.0/20260826-create-trade-table-indexes.yaml
+    -   include:
+            file: changelog/indexes/1.0/20260826-create-signal-table-indexes.yaml

@@ -1,0 +1,22 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-universe-symbol-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: universe_symbol
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                                        unique: true
+                                        uniqueConstraintName: uk_universe_symbol

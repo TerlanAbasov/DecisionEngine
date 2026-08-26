@@ -3,9 +3,13 @@ package com.quantplat.service;
 import com.quantplat.data.MarketDataService;
 import com.quantplat.domain.SignalEntity;
 import com.quantplat.dto.Dtos.SignalDto;
+import com.quantplat.execution.ExecutionEngineClient;
 import com.quantplat.repository.SignalRepository;
 import com.quantplat.strategy.BarSeries;
 import com.quantplat.strategy.TradingStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,17 +19,25 @@ import java.util.*;
 @Service
 public class ScannerService {
 
+    private static final Logger log = LoggerFactory.getLogger(ScannerService.class);
+
     private final MarketDataService marketData;
     private final StrategyService strategies;
     private final UniverseService universe;
     private final SignalRepository signalRepo;
+    private final ExecutionEngineClient executionEngine;
+
+    @Value("${quantplat.execution-engine.auto-forward:false}")
+    private boolean autoForward;
 
     public ScannerService(MarketDataService marketData, StrategyService strategies,
-                          UniverseService universe, SignalRepository signalRepo) {
+                          UniverseService universe, SignalRepository signalRepo,
+                          ExecutionEngineClient executionEngine) {
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
         this.signalRepo = signalRepo;
+        this.executionEngine = executionEngine;
     }
 
     @Transactional
@@ -77,7 +89,21 @@ public class ScannerService {
         signalRepo.saveAll(toSave);
         out.sort(Comparator.comparing(SignalDto::isNew).reversed()
                 .thenComparing(SignalDto::strategy).thenComparing(SignalDto::symbol));
+
+        if (autoForward && executionEngine.isConfigured()) forwardNewSignals(out);
         return out;
+    }
+
+    /** Best-effort forward of newly-flipped, non-FLAT signals; one failure doesn't stop the rest. */
+    private void forwardNewSignals(List<SignalDto> signals) {
+        for (SignalDto s : signals) {
+            if (!s.isNew() || "FLAT".equals(s.signal())) continue;
+            try {
+                executionEngine.sendAlert(s);
+            } catch (Exception e) {
+                log.warn("Auto-forward to ExecutionEngine failed for {} {}: {}", s.strategy(), s.symbol(), e.getMessage());
+            }
+        }
     }
 
     public List<SignalDto> latest() {

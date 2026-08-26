@@ -1,0 +1,44 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-signal-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: signal
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: strategy_name
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: signal
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: weight
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: bars_in_state
+                                    type: INTEGER
+                            -   column:
+                                    name: is_new
+                                    type: BOOLEAN
+                            -   column:
+                                    name: close_px
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: as_of_date
+                                    type: DATE
+                            -   column:
+                                    name: created_at
+                                    type: TIMESTAMP

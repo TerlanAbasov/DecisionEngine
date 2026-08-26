@@ -1,0 +1,48 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-price-bar-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: price_bar
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: bar_date
+                                    type: DATE
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: open
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: high
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: low
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: close
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: volume
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: source
+                                    type: VARCHAR(255)
+
+                -   addUniqueConstraint:
+                        tableName: price_bar
+                        columnNames: symbol, bar_date
+                        constraintName: uk_symbol_date

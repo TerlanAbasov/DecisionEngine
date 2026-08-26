@@ -10,6 +10,6 @@ RUN gradle bootJar --no-daemon -x test
 # --- run stage ---
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /app/build/libs/quantplat-backend-0.1.0.jar app.jar
+COPY --from=build /app/build/libs/*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

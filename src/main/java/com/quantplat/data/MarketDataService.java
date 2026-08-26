@@ -36,6 +36,23 @@ public class MarketDataService {
         return bars.size();
     }
 
+    /**
+     * Cheaper alternative to {@link #refresh} for periodic polling: re-fetches the
+     * client's full history but only persists bars newer than what's cached, instead
+     * of deleting and re-inserting everything on every poll tick.
+     */
+    @Transactional
+    public int pollLatest(String symbol) {
+        LocalDate cachedThrough = repo.findTopBySymbolOrderByBarDateDesc(symbol)
+                .map(PriceBarEntity::getBarDate)
+                .orElse(null);
+        List<PriceBarEntity> bars = client.fetchHistory(symbol);
+        List<PriceBarEntity> newBars = (cachedThrough == null) ? bars
+                : bars.stream().filter(b -> b.getBarDate().isAfter(cachedThrough)).toList();
+        repo.saveAll(newBars);
+        return newBars.size();
+    }
+
     @Transactional
     public BarSeries getBars(String symbol, LocalDate start, LocalDate end) {
         ensureSymbol(symbol);

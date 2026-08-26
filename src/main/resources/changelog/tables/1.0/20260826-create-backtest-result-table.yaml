@@ -1,0 +1,39 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-backtest-result-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: backtest_result
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: run_id
+                                    type: BIGINT
+                                    constraints:
+                                        nullable: false
+                                        unique: true
+                                        foreignKeyName: fk_result_run
+                                        referencedTableName: backtest_run
+                                        referencedColumnNames: id
+                            -   column:
+                                    name: metrics_json
+                                    type: TEXT
+                            -   column:
+                                    name: dates_json
+                                    type: TEXT
+                            -   column:
+                                    name: equity_json
+                                    type: TEXT
+                            -   column:
+                                    name: benchmark_json
+                                    type: TEXT
+                            -   column:
+                                    name: drawdown_json
+                                    type: TEXT

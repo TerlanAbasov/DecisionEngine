@@ -1,15 +1,17 @@
 # QuantPlat — Java/Spring Boot + React + PostgreSQL
 
 A research-grade quant trading & backtesting platform. Scan a stock universe with
-31+ strategies, toggle each on/off, backtest against 5+ years of Interactive
-Brokers data over any date range, and get a per-strategy performance report.
+100 strategies, toggle each on/off, backtest against 5+ years of market data
+over any date range, and get a per-strategy performance report.
 
 Built as the **research/signal layer** upstream of a live execution engine
-(e.g. a Java IB `ExecutionEngine`): this side decides *what* to trade; your
-execution engine decides *how* to fill it.
+(a Java IB `ExecutionEngine`): this side decides *what* to trade — a new LONG/SHORT
+signal can be forwarded straight into ExecutionEngine's order pipeline (see
+[ExecutionEngine integration](#executionengine-integration) below); your execution
+engine decides *how* to fill it.
 
 - **Backend:** Java 21, Spring Boot 3.3, Spring Data JPA (Gradle build)
-- **Database:** PostgreSQL (H2 for zero-setup local dev)
+- **Database:** PostgreSQL, versioned with Liquibase
 - **Frontend:** React 18 + Vite + Recharts
 - **Data:** Interactive Brokers (pluggable) with a realistic synthetic generator for offline dev
 
@@ -17,7 +19,7 @@ execution engine decides *how* to fill it.
 
 ## Yes, it has a database
 
-Seven PostgreSQL tables, managed by JPA (`schema-reference.sql` documents them):
+Seven PostgreSQL tables, versioned with Liquibase (`src/main/resources/changelog/`):
 
 | Table | Purpose |
 |---|---|
@@ -43,10 +45,13 @@ docker compose up --build
 
 ### Option B — local dev
 ```bash
-# backend (in-memory H2, zero setup)
+# postgres (or point DB_URL/DB_USER/DB_PASS at an existing instance)
+docker run -d -p 5432:5432 -e POSTGRES_DB=quantplat -e POSTGRES_USER=quant -e POSTGRES_PASSWORD=quant postgres:16-alpine
+
+# backend — no --spring.profiles.active needed, defaults to the `local` profile
+# (application-local.yml: jdbc:postgresql://localhost:5432/quantplat, quant/quant)
 cd backend
-./gradlew bootRun --args='--spring.profiles.active=dev'
-#   H2 console: http://localhost:8080/h2-console
+./gradlew bootRun
 
 # frontend
 cd frontend
@@ -54,11 +59,12 @@ npm install
 npm run dev            # http://localhost:5173 (proxies /api to :8080)
 ```
 
-For PostgreSQL locally instead of H2, start Postgres and run without the `dev`
-profile (defaults: `jdbc:postgresql://localhost:5432/quantplat`, `quant`/`quant`,
-override via `DB_URL`/`DB_USER`/`DB_PASS`).
+Config lives in three profile files: `application.yml` (always loaded, just the app
+name), `application-local.yml` (default — real Postgres with dev-friendly fallback
+credentials), and `application-prod.yml` (same shape, but `DB_URL`/`DB_USER`/`DB_PASS`
+are required with no fallback — run with `--spring.profiles.active=prod`).
 
-On first start the app seeds the 31 strategies and a default universe, and lazily
+On first start the app seeds the 100 strategies and a default universe, and lazily
 generates/caches synthetic bars the first time a symbol is backtested.
 
 ---
@@ -81,34 +87,89 @@ must be a valid contract.
 
 ---
 
-## Using real Interactive Brokers data
+## Real market data: Alpaca (or Interactive Brokers)
 
-Data access is behind the `MarketDataClient` interface with two implementations,
-selected by `quantplat.data-source`:
+Data access is behind the `MarketDataClient` interface, selected by `quantplat.data-source`:
 
 - `synthetic` (default) — realistic offline bars, no dependencies.
+- `alpaca` — pulls daily bars from [Alpaca Market Data](https://alpaca.markets/) (`AlpacaMarketDataClient`).
+  Set `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (a free paper account works — the
+  data API only needs the key pair, not a funded account). Uses the free `iex` feed by
+  default; switch to `sip` via `quantplat.alpaca.feed` if you have a paid subscription.
 - `ib` — wire your existing Java IB `ExecutionEngine` (or a TWS API client) inside
   `IbMarketDataClient.fetchHistory()`: request 5+ years of daily TRADES bars,
-  map each to a `PriceBarEntity(source="ib")`, return the list. The service layer
-  persists them to `price_bar`, so IB is only hit on first load or an explicit
-  refresh (`POST /api/market-data/pull?symbols=AAPL,MSFT`).
+  map each to a `PriceBarEntity(source="ib")`, return the list.
 
-Set the source via env (`QUANTPLAT_DATA-SOURCE=ib`) or `application.yml`.
+The service layer caches bars in `price_bar`, so the source is only hit on first load,
+an explicit refresh (`POST /api/market-data/pull?symbols=AAPL,MSFT`), or a poll tick.
+
+Set the source via env (`QUANTPLAT_DATASOURCE=alpaca` — note: no dash, Spring's
+relaxed env-var binding strips it) or `application-local.yml`.
+
+### Polling loop
+
+`MarketDataPoller` runs on a schedule (`quantplat.poll.interval-ms`, default 15 min):
+it refreshes the universe's bars from the active data source and re-runs the strategy
+scan, so `/api/signals` reflects fresh decisions without a manual `/api/scan` call. One
+symbol failing to fetch doesn't stop the others. Disable with `quantplat.poll.enabled=false`.
 
 ---
 
-## Strategy catalog (31 + pairs)
+## Strategy catalog (100 + pairs)
 
-- **Trend (7):** sma_cross, ema_cross, macd, triple_ma, adx_trend, supertrend, kalman_trend
-- **Mean reversion (6):** rsi2, rsi14, bollinger_reversion, zscore_reversion, williams_r, stochastic
-- **Momentum (5):** roc_momentum, high_52w_breakout, dual_momentum, vol_scaled_momentum, rsi_momentum
-- **Breakout (6):** donchian, turtle_system, keltner_breakout, atr_channel_breakout, bollinger_squeeze, nr7_breakout
-- **Volume (3):** obv_trend, vwap_reversion, volume_spike_breakout
-- **Hybrid/pattern/seasonal (4):** macd_rsi_combo, dual_ma_atr_stop, gap_reversion, seasonality_tom
+- **Trend (20):** sma_cross, ema_cross, macd, triple_ma, adx_trend, supertrend, kalman_trend,
+  hull_ma_trend, dema_cross, tema_cross, vwma_trend, aroon_trend, vortex_trend, trix_signal,
+  linreg_slope, parabolic_sar, ema_ribbon, elder_ray, coppock_curve, donchian_midline
+- **Mean reversion (18):** rsi2, rsi14, bollinger_reversion, zscore_reversion, williams_r,
+  stochastic, cci_reversion, mfi_reversion, cmo_reversion, bollinger_pctb, rsi21, rsi2_extreme,
+  dpo_reversion, keltner_reversion, vwap_band_reversion, atr_band_reversion, ultimate_oscillator,
+  stoch_rsi
+- **Momentum (15):** roc_momentum, high_52w_breakout, dual_momentum, vol_scaled_momentum,
+  rsi_momentum, multi_horizon_momentum, macd_histogram_slope, force_index, cci_momentum,
+  aroon_oscillator, roc_acceleration, hull_momentum, trix_momentum, streak_momentum, ma_stack_momentum
+- **Breakout (16):** donchian, turtle_system, keltner_breakout, atr_channel_breakout,
+  bollinger_squeeze, nr7_breakout, cci_breakout, vortex_breakout, donchian_squeeze,
+  volatility_expansion_breakout, pivot_point_breakout, camarilla_breakout,
+  range_expansion_breakout, three_bar_breakout, macd_zero_cross, linreg_channel_breakout
+- **Volume (10):** obv_trend, vwap_reversion, volume_spike_breakout, mfi_trend,
+  chaikin_money_flow, ease_of_movement, accum_distribution, volume_price_trend,
+  relative_volume_zscore, vwma_volume_cross
+- **Hybrid (8):** macd_rsi_combo, dual_ma_atr_stop, triple_confirmation, trend_volume_combo,
+  breakout_momentum_combo, rsi_pullback_trend_filter, adaptive_regime_switch, supertrend_rsi_combo
+- **Pattern (6):** gap_reversion, inside_bar_breakout, outside_bar_reversal,
+  consecutive_trend_bars, hammer_reversal, wide_range_bar_fade
+- **Seasonal (7):** seasonality_tom, day_of_week_filter, january_effect, sell_in_may,
+  quarter_end_effect, santa_claus_rally, mid_month_effect
 - **Stat-arb:** pairs_trading (market-neutral, `POST /api/backtests/pairs`)
 
 Add one by extending `AbstractStrategy` and adding it to `StrategyCatalog.all()` —
 it then appears in the API, UI toggles, scanner, and backtests automatically.
+`StrategyCatalogTest` runs every catalog entry against synthetic data on every build,
+checking for exceptions, NaN leaks, and out-of-range signals.
+
+---
+
+## ExecutionEngine integration
+
+`ExecutionEngineClient` forwards a decided LONG/SHORT signal to your Java IB
+`ExecutionEngine`'s TradingView-webhook-shaped alert intake
+(`POST /api/v1/alerts/tv-hook`), which feeds its existing alert -> order pipeline
+(`AlertScheduler` -> `StrategyService` -> `TradeService` -> a live IB order). FLAT
+signals are never forwarded — that webhook only models entries, not closes.
+
+- `EXECUTION_ENGINE_URL` (`quantplat.execution-engine.base-url`) — ExecutionEngine's base
+  URL (e.g. `http://localhost:8081`). Blank (default) disables forwarding entirely;
+  `GET /api/execution/status` reports whether it's configured.
+- `quantplat.execution-engine.auto-forward` (default `false`) — when `true`, every newly-flipped
+  LONG/SHORT signal from `ScannerService.scan()` (manual `/api/scan` calls and the poller's
+  scheduled scans alike) is pushed automatically. One symbol failing to forward doesn't stop
+  the rest.
+- `POST /api/execution/send` — push one specific signal on demand, regardless of the
+  auto-forward setting. Body is a `SignalDto` (the same shape `/api/scan` and `/api/signals`
+  already return).
+- `quantplat.execution-engine.exchange` / `quote-currency` / `asset-class` — defaults
+  (`SMART` / `USD` / `STK`) filled into the alert payload; DecisionEngine doesn't track
+  these per-symbol today.
 
 ---
 
@@ -138,6 +199,8 @@ it then appears in the API, UI toggles, scanner, and backtests automatically.
 | `GET /api/backtests?strategy=` | history of runs |
 | `POST /api/scan` | current signals across enabled strategies |
 | `GET /api/signals` | most recent persisted signals |
+| `GET /api/execution/status` | whether ExecutionEngine forwarding is configured |
+| `POST /api/execution/send` | forward one signal to ExecutionEngine now |
 
 ---
 
@@ -146,11 +209,12 @@ it then appears in the API, UI toggles, scanner, and backtests automatically.
 ```
 backend/   Spring Boot app
   src/main/java/com/quantplat/
-    strategy/        pure-Java indicators, framework, 31 strategies (+ pairs)
+    strategy/        pure-Java indicators, framework, 100 strategies (+ pairs)
     engine/          next-bar backtester, metrics
     domain/          JPA entities (7 tables)
     repository/      Spring Data repositories
-    data/            MarketDataClient (synthetic + IB), MarketDataService
+    data/            MarketDataClient (synthetic + Alpaca + IB), MarketDataService, MarketDataPoller
+    execution/       ExecutionEngineClient — forwards signals to ExecutionEngine's alert intake
     service/         strategy / backtest / scanner / universe services
     web/             REST controllers
     config/          CORS + startup seeder

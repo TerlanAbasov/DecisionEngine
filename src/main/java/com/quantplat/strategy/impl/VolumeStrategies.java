@@ -50,3 +50,100 @@ class VolumeSpikeBreakout extends AbstractStrategy {
         return clean(hold(in, out, null, null));
     }
 }
+
+class MfiTrend extends AbstractStrategy {
+    public String name() { return "mfi_trend"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "Money Flow Index as a trend gauge: long above 50, short below."; }
+    public Map<String, Double> defaultParams() { return Map.of("n", 14.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] m = Indicators.mfi(b, pi(pr, "n"));
+        return clean(regime(gt(m, 50), lt(m, 50)));
+    }
+}
+
+class ChaikinMoneyFlow extends AbstractStrategy {
+    public String name() { return "chaikin_money_flow"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "Chaikin Money Flow sign: accumulation vs distribution pressure."; }
+    public Map<String, Double> defaultParams() { return Map.of("n", 20.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] c = Indicators.cmf(b, pi(pr, "n"));
+        return clean(regime(gt(c, 0), lt(c, 0)));
+    }
+}
+
+class EaseOfMovement extends AbstractStrategy {
+    public String name() { return "ease_of_movement"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "Ease of Movement: price advancing on low volume vs the reverse."; }
+    public Map<String, Double> defaultParams() { return Map.of("n", 14.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] e = Indicators.emv(b, pi(pr, "n"));
+        return clean(regime(gt(e, 0), lt(e, 0)));
+    }
+}
+
+class AccumDistribution extends AbstractStrategy {
+    public String name() { return "accum_distribution"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "Accumulation/Distribution line versus its EMA."; }
+    public Map<String, Double> defaultParams() { return Map.of("emaN", 20.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] ad = Indicators.adLine(b);
+        double[] adEma = Indicators.ema(ad, pi(pr, "emaN"));
+        return clean(regime(gt(ad, adEma), lt(ad, adEma)));
+    }
+}
+
+class VolumePriceTrend extends AbstractStrategy {
+    public String name() { return "volume_price_trend"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "Volume Price Trend line versus its EMA."; }
+    public Map<String, Double> defaultParams() { return Map.of("emaN", 20.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] vpt = Indicators.vpt(b);
+        double[] vptEma = Indicators.ema(vpt, pi(pr, "emaN"));
+        return clean(regime(gt(vpt, vptEma), lt(vpt, vptEma)));
+    }
+}
+
+class RelativeVolumeZscore extends AbstractStrategy {
+    public String name() { return "relative_volume_zscore"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_only"; }
+    public String description() { return "Buy an up-close on a volume z-score spike; exit back below trend."; }
+    public Map<String, Double> defaultParams() { return Map.of("n", 20.0, "entry", 2.0, "exitMa", 10.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] z = Indicators.zscore(b.volume, pi(pr, "n"));
+        boolean[] up = gt(b.close, shift1(b.close));
+        boolean[] in = and(gt(z, p(pr, "entry")), up);
+        double[] exitMa = Indicators.sma(b.close, pi(pr, "exitMa"));
+        return clean(hold(in, lt(b.close, exitMa), null, null));
+    }
+}
+
+class VwmaVolumeConfirm extends AbstractStrategy {
+    public String name() { return "vwma_volume_cross"; }
+    public String category() { return "volume"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "VWMA cross confirmed by above-average volume on the flip bar."; }
+    public Map<String, Double> defaultParams() { return Map.of("fast", 10.0, "slow", 30.0, "volN", 20.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] f = Indicators.vwma(b, pi(pr, "fast"));
+        double[] s = Indicators.vwma(b, pi(pr, "slow"));
+        double[] avgV = Indicators.sma(b.volume, pi(pr, "volN"));
+        int len = b.size();
+        boolean[] hiVol = new boolean[len];
+        for (int i = 0; i < len; i++) hiVol[i] = !nan(avgV[i]) && b.volume[i] > avgV[i];
+        boolean[] crossUp = and(gt(f, s), shift1(lt(f, s)));
+        boolean[] crossDn = and(lt(f, s), shift1(gt(f, s)));
+        boolean[] in = and(crossUp, hiVol), si = and(crossDn, hiVol);
+        return clean(hold(in, lt(f, s), si, gt(f, s)));
+    }
+}

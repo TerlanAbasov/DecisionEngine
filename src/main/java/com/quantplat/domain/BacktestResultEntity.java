@@ -23,7 +23,7 @@ public class BacktestResultEntity {
     @Column(columnDefinition = "text")
     private String metricsJson;
 
-    /** JSON arrays serialised as text (portable across Postgres/H2). */
+    /** JSON arrays serialised as text. */
     @Column(columnDefinition = "text")
     private String datesJson;
     @Column(columnDefinition = "text")

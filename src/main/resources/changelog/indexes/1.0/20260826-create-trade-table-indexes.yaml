@@ -1,0 +1,11 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-trade-table-indexes
+            author: Tarlan Abasov
+            changes:
+                -   createIndex:
+                        indexName: ix_trade_run
+                        tableName: trade
+                        columns:
+                            -   column:
+                                    name: run_id

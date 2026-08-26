@@ -1,0 +1,11 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-price-bar-table-indexes
+            author: Tarlan Abasov
+            changes:
+                -   createIndex:
+                        indexName: ix_price_symbol
+                        tableName: price_bar
+                        columns:
+                            -   column:
+                                    name: symbol

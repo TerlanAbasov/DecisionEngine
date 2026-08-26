@@ -1,0 +1,11 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-backtest-run-table-indexes
+            author: Tarlan Abasov
+            changes:
+                -   createIndex:
+                        indexName: ix_run_strategy
+                        tableName: backtest_run
+                        columns:
+                            -   column:
+                                    name: strategy_name

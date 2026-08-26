@@ -1,0 +1,47 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260826-create-trade-table
+            author: Tarlan Abasov
+            changes:
+                -   createTable:
+                        tableName: trade
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: run_id
+                                    type: BIGINT
+                                    constraints:
+                                        nullable: false
+                                        foreignKeyName: fk_trade_run
+                                        referencedTableName: backtest_run
+                                        referencedColumnNames: id
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: side
+                                    type: VARCHAR(255)
+                            -   column:
+                                    name: entry_date
+                                    type: DATE
+                            -   column:
+                                    name: exit_date
+                                    type: DATE
+                            -   column:
+                                    name: entry_px
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: exit_px
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: bars
+                                    type: INTEGER
+                            -   column:
+                                    name: return_pct
+                                    type: DOUBLE PRECISION
