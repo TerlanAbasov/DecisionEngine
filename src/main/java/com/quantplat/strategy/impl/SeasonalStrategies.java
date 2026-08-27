@@ -2,7 +2,8 @@ package com.quantplat.strategy.impl;
 
 import com.quantplat.strategy.AbstractStrategy;
 import com.quantplat.strategy.BarSeries;
-import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Map;
 
 class SeasonalityTom extends AbstractStrategy {
@@ -14,7 +15,10 @@ class SeasonalityTom extends AbstractStrategy {
     public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
         int n = b.size(), pre = pi(pr, "pre"), post = pi(pr, "post");
         int[] ym = new int[n];
-        for (int i = 0; i < n; i++) ym[i] = b.date[i].getYear() * 12 + b.date[i].getMonthValue();
+        for (int i = 0; i < n; i++) {
+            ZonedDateTime d = b.date[i].atZone(ZoneOffset.UTC);
+            ym[i] = d.getYear() * 12 + d.getMonthValue();
+        }
         int[] posIn = new int[n], fromEnd = new int[n];
         for (int i = 0; i < n; i++) posIn[i] = (i == 0 || ym[i] != ym[i - 1]) ? 0 : posIn[i - 1] + 1;
         for (int i = n - 1; i >= 0; i--) fromEnd[i] = (i == n - 1 || ym[i] != ym[i + 1]) ? 0 : fromEnd[i + 1] + 1;
@@ -35,7 +39,7 @@ class DayOfWeekFilter extends AbstractStrategy {
         int len = b.size();
         double[] sig = new double[len];
         for (int i = 0; i < len; i++)
-            sig[i] = b.date[i].getDayOfWeek().getValue() == avoid ? 0 : 1;
+            sig[i] = b.date[i].atZone(ZoneOffset.UTC).getDayOfWeek().getValue() == avoid ? 0 : 1;
         return clean(sig);
     }
 }
@@ -49,7 +53,7 @@ class JanuaryEffect extends AbstractStrategy {
     public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
         int len = b.size();
         double[] sig = new double[len];
-        for (int i = 0; i < len; i++) sig[i] = b.date[i].getMonthValue() == 1 ? 1 : 0;
+        for (int i = 0; i < len; i++) sig[i] = b.date[i].atZone(ZoneOffset.UTC).getMonthValue() == 1 ? 1 : 0;
         return clean(sig);
     }
 }
@@ -64,7 +68,7 @@ class SellInMay extends AbstractStrategy {
         int len = b.size();
         double[] sig = new double[len];
         for (int i = 0; i < len; i++) {
-            int m = b.date[i].getMonthValue();
+            int m = b.date[i].atZone(ZoneOffset.UTC).getMonthValue();
             sig[i] = (m >= 11 || m <= 4) ? 1 : 0;
         }
         return clean(sig);
@@ -80,7 +84,10 @@ class QuarterEndEffect extends AbstractStrategy {
     public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
         int n = b.size(), days = pi(pr, "days");
         int[] qtr = new int[n];
-        for (int i = 0; i < n; i++) qtr[i] = b.date[i].getYear() * 4 + (b.date[i].getMonthValue() - 1) / 3;
+        for (int i = 0; i < n; i++) {
+            ZonedDateTime d = b.date[i].atZone(ZoneOffset.UTC);
+            qtr[i] = d.getYear() * 4 + (d.getMonthValue() - 1) / 3;
+        }
         int[] fromEnd = new int[n];
         for (int i = n - 1; i >= 0; i--) fromEnd[i] = (i == n - 1 || qtr[i] != qtr[i + 1]) ? 0 : fromEnd[i + 1] + 1;
         double[] sig = new double[n];
@@ -99,14 +106,17 @@ class SantaClausRally extends AbstractStrategy {
         int n = b.size(), pre = pi(pr, "preDays"), post = pi(pr, "postDays");
         double[] sig = new double[n];
         for (int i = 0; i < n; i++) {
-            LocalDate d = b.date[i];
+            ZonedDateTime d = b.date[i].atZone(ZoneOffset.UTC);
             if (d.getMonthValue() == 12) {
                 int fromEnd = 0;
-                for (int j = i + 1; j < n && b.date[j].getMonthValue() == 12; j++) fromEnd++;
+                for (int j = i + 1; j < n && b.date[j].atZone(ZoneOffset.UTC).getMonthValue() == 12; j++) fromEnd++;
                 if (fromEnd < pre) sig[i] = 1;
             } else if (d.getMonthValue() == 1) {
                 int posIn = 0;
-                for (int j = i - 1; j >= 0 && b.date[j].getYear() == d.getYear() && b.date[j].getMonthValue() == 1; j--) posIn++;
+                for (int j = i - 1; j >= 0; j--) {
+                    ZonedDateTime dj = b.date[j].atZone(ZoneOffset.UTC);
+                    if (dj.getYear() == d.getYear() && dj.getMonthValue() == 1) posIn++; else break;
+                }
                 if (posIn < post) sig[i] = 1;
             }
         }
@@ -124,7 +134,7 @@ class MidMonthEffect extends AbstractStrategy {
         int from = pi(pr, "from"), to = pi(pr, "to"), n = b.size();
         double[] sig = new double[n];
         for (int i = 0; i < n; i++) {
-            int dom = b.date[i].getDayOfMonth();
+            int dom = b.date[i].atZone(ZoneOffset.UTC).getDayOfMonth();
             sig[i] = (dom >= from && dom <= to) ? 1 : 0;
         }
         return clean(sig);

@@ -4,14 +4,14 @@ import com.quantplat.strategy.BarSeries;
 import com.quantplat.strategy.TradingStrategy;
 import com.quantplat.strategy.impl.PairsStrategy;
 
-import java.time.LocalDate;
+import java.time.Instant;
 import java.util.*;
 
 /** Vectorised, next-bar backtesting engine. */
 public final class Backtester {
 
     /** Per-symbol computed series aligned to the symbol's own dates. */
-    private record Series(LocalDate[] dates, double[] net, double[] bench,
+    private record Series(Instant[] dates, double[] net, double[] bench,
                           double[] absPos, List<TradeResult> trades) {}
 
     private Series computeSeries(BarSeries b, TradingStrategy strat,
@@ -39,7 +39,7 @@ public final class Backtester {
         return new Series(b.date, net, bench, absPos, trades);
     }
 
-    private List<TradeResult> extractTrades(double[] pos, double[] close, LocalDate[] date,
+    private List<TradeResult> extractTrades(double[] pos, double[] close, Instant[] date,
                                             String symbol, double costRate) {
         List<TradeResult> out = new ArrayList<>();
         int cur = 0, ei = -1;
@@ -79,7 +79,7 @@ public final class Backtester {
         List<Series> series = new ArrayList<>();
         List<String> symbols = new ArrayList<>();
         List<TradeResult> allTrades = new ArrayList<>();
-        TreeSet<LocalDate> allDates = new TreeSet<>();
+        TreeSet<Instant> allDates = new TreeSet<>();
         for (BarSeries b : data) {
             Series s = computeSeries(b, strat, params, cfg);
             series.add(s);
@@ -87,16 +87,16 @@ public final class Backtester {
             allTrades.addAll(s.trades);
             allDates.addAll(Arrays.asList(s.dates));
         }
-        LocalDate[] dates = allDates.toArray(new LocalDate[0]);
-        List<Map<LocalDate, Double>> netMaps = new ArrayList<>(), benchMaps = new ArrayList<>(), posMaps = new ArrayList<>();
+        Instant[] dates = allDates.toArray(new Instant[0]);
+        List<Map<Instant, Double>> netMaps = new ArrayList<>(), benchMaps = new ArrayList<>(), posMaps = new ArrayList<>();
         for (Series s : series) {
-            Map<LocalDate, Double> nm = new HashMap<>(), bm = new HashMap<>(), pm = new HashMap<>();
+            Map<Instant, Double> nm = new HashMap<>(), bm = new HashMap<>(), pm = new HashMap<>();
             for (int i = 0; i < s.dates.length; i++) { nm.put(s.dates[i], s.net[i]); bm.put(s.dates[i], s.bench[i]); pm.put(s.dates[i], s.absPos[i]); }
             netMaps.add(nm); benchMaps.add(bm); posMaps.add(pm);
         }
         double[] net = new double[dates.length], bench = new double[dates.length], absPos = new double[dates.length];
         for (int i = 0; i < dates.length; i++) {
-            LocalDate d = dates[i];
+            Instant d = dates[i];
             double sn = 0, sb = 0, sp = 0; int c = 0;
             for (int k = 0; k < series.size(); k++) {
                 Double v = netMaps.get(k).get(d);
@@ -113,9 +113,9 @@ public final class Backtester {
 
     public BacktestOutput runPairs(BarSeries a, BarSeries b, PairsStrategy strat, BacktestConfig cfg) {
         // align on common dates
-        Map<LocalDate, Integer> ib = new HashMap<>();
+        Map<Instant, Integer> ib = new HashMap<>();
         for (int i = 0; i < b.date.length; i++) ib.put(b.date[i], i);
-        List<LocalDate> common = new ArrayList<>();
+        List<Instant> common = new ArrayList<>();
         List<Double> ca = new ArrayList<>(), cb = new ArrayList<>();
         for (int i = 0; i < a.date.length; i++) {
             Integer j = ib.get(a.date[i]);
@@ -142,7 +142,7 @@ public final class Backtester {
             bench[i] = 0.5 * ra + 0.5 * rb;
             absPos[i] = Math.abs(posA[i]);
         }
-        LocalDate[] dates = common.toArray(new LocalDate[0]);
+        Instant[] dates = common.toArray(new Instant[0]);
         double[] closeA = new double[n];
         for (int i = 0; i < n; i++) closeA[i] = pa[i];
         List<TradeResult> trades = extractTrades(posA, closeA, dates, a.symbol + "/" + b.symbol, costRate);

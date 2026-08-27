@@ -11,6 +11,7 @@ import com.quantplat.strategy.impl.PairsStrategy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -189,9 +190,9 @@ public class BacktestService {
                 o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown, trades);
     }
 
-    private List<String> datesToStrings(LocalDate[] dates) {
+    private List<String> datesToStrings(Instant[] dates) {
         List<String> out = new ArrayList<>(dates.length);
-        for (LocalDate d : dates) out.add(d.toString());
+        for (Instant d : dates) out.add(d.toString());
         return out;
     }
 

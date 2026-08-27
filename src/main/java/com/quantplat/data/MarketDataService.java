@@ -6,7 +6,9 @@ import com.quantplat.strategy.BarSeries;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /** Loads bars from the DB cache, fetching from the active client on a miss. */
@@ -43,12 +45,12 @@ public class MarketDataService {
      */
     @Transactional
     public int pollLatest(String symbol) {
-        LocalDate cachedThrough = repo.findTopBySymbolOrderByBarDateDesc(symbol)
-                .map(PriceBarEntity::getBarDate)
+        Instant cachedThrough = repo.findTopBySymbolOrderByBarTimeDesc(symbol)
+                .map(PriceBarEntity::getBarTime)
                 .orElse(null);
         List<PriceBarEntity> bars = client.fetchHistory(symbol);
         List<PriceBarEntity> newBars = (cachedThrough == null) ? bars
-                : bars.stream().filter(b -> b.getBarDate().isAfter(cachedThrough)).toList();
+                : bars.stream().filter(b -> b.getBarTime().isAfter(cachedThrough)).toList();
         repo.saveAll(newBars);
         return newBars.size();
     }
@@ -56,9 +58,14 @@ public class MarketDataService {
     @Transactional
     public BarSeries getBars(String symbol, LocalDate start, LocalDate end) {
         ensureSymbol(symbol);
-        List<PriceBarEntity> rows = (start != null && end != null)
-                ? repo.findBySymbolAndBarDateBetweenOrderByBarDate(symbol, start, end)
-                : repo.findBySymbolOrderByBarDate(symbol);
+        List<PriceBarEntity> rows;
+        if (start != null && end != null) {
+            Instant from = start.atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant to = end.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().minusNanos(1);
+            rows = repo.findBySymbolAndBarTimeBetweenOrderByBarTime(symbol, from, to);
+        } else {
+            rows = repo.findBySymbolOrderByBarTime(symbol);
+        }
         return toBarSeries(symbol, rows);
     }
 
@@ -68,11 +75,11 @@ public class MarketDataService {
 
     private BarSeries toBarSeries(String symbol, List<PriceBarEntity> rows) {
         int n = rows.size();
-        LocalDate[] date = new LocalDate[n];
+        Instant[] date = new Instant[n];
         double[] o = new double[n], h = new double[n], l = new double[n], c = new double[n], v = new double[n];
         for (int i = 0; i < n; i++) {
             PriceBarEntity b = rows.get(i);
-            date[i] = b.getBarDate();
+            date[i] = b.getBarTime();
             o[i] = b.getOpen(); h[i] = b.getHigh(); l[i] = b.getLow();
             c[i] = b.getClose(); v[i] = b.getVolume();
         }

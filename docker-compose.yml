@@ -29,9 +29,6 @@ services:
       DB_URL: jdbc:postgresql://db:5432/quantplat
       DB_USER: quant
       DB_PASS: quant
-      # synthetic | ib | alpaca. Note: Spring's env-var relaxed binding strips dashes,
-      # so this must be QUANTPLAT_DATASOURCE (no separator), not QUANTPLAT_DATA-SOURCE.
-      QUANTPLAT_DATASOURCE: synthetic
       ALPACA_API_KEY_ID: ${ALPACA_API_KEY_ID:-}
       ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY:-}
     ports:

@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -70,7 +69,7 @@ public class ExecutionEngineClient {
         payload.put("high", closeStr);
         payload.put("low", closeStr);
         payload.put("quote", quoteCurrency);
-        payload.put("time", signal.date().atStartOfDay(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT));
+        payload.put("time", DateTimeFormatter.ISO_INSTANT.format(signal.date()));
         payload.put("timenow", Instant.now().toString());
 
         restClient.post()

@@ -5,7 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.time.LocalDate;
+import java.time.Instant;
 
 @Entity
 @Table(name = "trade", indexes = @Index(name = "ix_trade_run", columnList = "run_id"))
@@ -23,8 +23,8 @@ public class TradeEntity {
 
     private String symbol;
     private String side;
-    private LocalDate entryDate;
-    private LocalDate exitDate;
+    private Instant entryDate;
+    private Instant exitDate;
     private double entryPx;
     private double exitPx;
     private int bars;

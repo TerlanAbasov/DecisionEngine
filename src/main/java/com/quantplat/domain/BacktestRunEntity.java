@@ -6,7 +6,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
-import java.time.LocalDate;
 
 @Entity
 @Table(name = "backtest_run", indexes = @Index(name = "ix_run_strategy", columnList = "strategy_name"))
@@ -24,8 +23,8 @@ public class BacktestRunEntity {
     @Column(columnDefinition = "text")
     private String symbolsCsv;
 
-    private LocalDate startDate;
-    private LocalDate endDate;
+    private Instant startDate;
+    private Instant endDate;
 
     private double capital;
     private double commissionBps;

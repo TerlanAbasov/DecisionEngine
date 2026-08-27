@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
+import java.time.Instant;
 import java.util.*;
 
 @Service
@@ -70,7 +70,7 @@ public class ScannerService {
                     if (Math.signum(clean(sig[i])) == Math.signum(last)) barsInState++;
                     else break;
                 }
-                LocalDate asOf = b.date[n - 1];
+                Instant asOf = b.date[n - 1];
                 out.add(new SignalDto(e.getKey(), strat.category(), sym, label, isNew,
                         barsInState, round2(last), round2(b.close[n - 1]), asOf));
 

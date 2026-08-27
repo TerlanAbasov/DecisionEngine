@@ -5,11 +5,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.time.LocalDate;
+import java.time.Instant;
 
 @Entity
 @Table(name = "price_bar",
-        uniqueConstraints = @UniqueConstraint(name = "uk_symbol_date", columnNames = {"symbol", "bar_date"}),
+        uniqueConstraints = @UniqueConstraint(name = "uk_symbol_date", columnNames = {"symbol", "bar_time"}),
         indexes = @Index(name = "ix_price_symbol", columnList = "symbol"))
 @Getter
 @Setter
@@ -22,8 +22,9 @@ public class PriceBarEntity {
     @Column(nullable = false)
     private String symbol;
 
-    @Column(name = "bar_date", nullable = false)
-    private LocalDate barDate;
+    /** Bar open time (UTC). One row per bar at whatever granularity was fetched (daily, hourly, ...). */
+    @Column(name = "bar_time", nullable = false)
+    private Instant barTime;
 
     private double open;
     private double high;
@@ -33,10 +34,10 @@ public class PriceBarEntity {
 
     private String source;   // synthetic | ib
 
-    public PriceBarEntity(String symbol, LocalDate barDate, double open, double high,
+    public PriceBarEntity(String symbol, Instant barTime, double open, double high,
                           double low, double close, double volume, String source) {
         this.symbol = symbol;
-        this.barDate = barDate;
+        this.barTime = barTime;
         this.open = open;
         this.high = high;
         this.low = low;

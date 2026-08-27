@@ -13,7 +13,7 @@ engine decides *how* to fill it.
 - **Backend:** Java 21, Spring Boot 3.3, Spring Data JPA (Gradle build)
 - **Database:** PostgreSQL, versioned with Liquibase
 - **Frontend:** React 18 + Vite + Recharts
-- **Data:** Interactive Brokers (pluggable) with a realistic synthetic generator for offline dev
+- **Data:** [Alpaca Market Data](https://alpaca.markets/)
 
 ---
 
@@ -65,7 +65,7 @@ credentials), and `application-prod.yml` (same shape, but `DB_URL`/`DB_USER`/`DB
 are required with no fallback — run with `--spring.profiles.active=prod`).
 
 On first start the app seeds the 100 strategies and a default universe, and lazily
-generates/caches synthetic bars the first time a symbol is backtested.
+fetches/caches bars from Alpaca the first time a symbol is backtested.
 
 ---
 
@@ -82,36 +82,34 @@ curl -X PUT localhost:8080/api/universe \
 ```
 
 The seeded large caps only appear when the table is empty; once you set your own
-list it is never overridden. Any symbol works on the synthetic source; on IB each
-must be a valid contract.
+list it is never overridden. Each symbol must be a valid Alpaca-tradable ticker.
 
 ---
 
-## Real market data: Alpaca (or Interactive Brokers)
+## Real market data: Alpaca
 
-Data access is behind the `MarketDataClient` interface, selected by `quantplat.data-source`:
+Data access is behind the `MarketDataClient` interface, with `AlpacaMarketDataClient`
+as the sole implementation — it pulls bars from
+[Alpaca Market Data](https://alpaca.markets/). Set `ALPACA_API_KEY_ID` /
+`ALPACA_API_SECRET_KEY` (a free paper account works — the data API only needs the key
+pair, not a funded account). Uses the free `iex` feed by default; switch to `sip` via
+`quantplat.alpaca.feed` if you have a paid subscription.
 
-- `synthetic` (default) — realistic offline bars, no dependencies.
-- `alpaca` — pulls daily bars from [Alpaca Market Data](https://alpaca.markets/) (`AlpacaMarketDataClient`).
-  Set `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` (a free paper account works — the
-  data API only needs the key pair, not a funded account). Uses the free `iex` feed by
-  default; switch to `sip` via `quantplat.alpaca.feed` if you have a paid subscription.
-- `ib` — wire your existing Java IB `ExecutionEngine` (or a TWS API client) inside
-  `IbMarketDataClient.fetchHistory()`: request 5+ years of daily TRADES bars,
-  map each to a `PriceBarEntity(source="ib")`, return the list.
+Bar granularity is `quantplat.alpaca.timeframe` (default `1Day`), passed straight through
+to Alpaca's bars API — set it to `1Week` (weekly), `1Hour` (hourly), or a minute value
+like `1Min`/`5Min`/`15Min` if you need intraday data. `price_bar.bar_time` stores a full
+UTC timestamp (not just a calendar date) so multiple bars per day don't collide, and
+`BarSeries.date` carries that same timestamp through every strategy and the backtester.
 
-The service layer caches bars in `price_bar`, so the source is only hit on first load,
+The service layer caches bars in `price_bar`, so Alpaca is only hit on first load,
 an explicit refresh (`POST /api/market-data/pull?symbols=AAPL,MSFT`), or a poll tick.
-
-Set the source via env (`QUANTPLAT_DATASOURCE=alpaca` — note: no dash, Spring's
-relaxed env-var binding strips it) or `application-local.yml`.
 
 ### Polling loop
 
 `MarketDataPoller` runs on a schedule (`quantplat.poll.interval-ms`, default 15 min):
-it refreshes the universe's bars from the active data source and re-runs the strategy
-scan, so `/api/signals` reflects fresh decisions without a manual `/api/scan` call. One
-symbol failing to fetch doesn't stop the others. Disable with `quantplat.poll.enabled=false`.
+it refreshes the universe's bars from Alpaca and re-runs the strategy scan, so
+`/api/signals` reflects fresh decisions without a manual `/api/scan` call. One symbol
+failing to fetch doesn't stop the others. Disable with `quantplat.poll.enabled=false`.
 
 ---
 
@@ -213,7 +211,7 @@ backend/   Spring Boot app
     engine/          next-bar backtester, metrics
     domain/          JPA entities (7 tables)
     repository/      Spring Data repositories
-    data/            MarketDataClient (synthetic + Alpaca + IB), MarketDataService, MarketDataPoller
+    data/            MarketDataClient (Alpaca), MarketDataService, MarketDataPoller
     execution/       ExecutionEngineClient — forwards signals to ExecutionEngine's alert intake
     service/         strategy / backtest / scanner / universe services
     web/             REST controllers

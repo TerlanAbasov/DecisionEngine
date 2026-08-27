@@ -5,24 +5,24 @@ import com.quantplat.domain.PriceBarEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Alpaca Market Data (https://data.alpaca.markets) daily bars. Active when
- * quantplat.data-source=alpaca. Needs an Alpaca account (paper is fine): set
- * quantplat.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).
+ * Alpaca Market Data (https://data.alpaca.markets) bars. Needs an Alpaca account
+ * (paper is fine): set quantplat.alpaca.api-key-id / api-secret-key (env
+ * ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).
+ *
+ * <p>{@code quantplat.alpaca.timeframe} is passed straight through to Alpaca's bars API,
+ * so it accepts any of Alpaca's timeframe strings: "1Day" (daily, default), "1Week" (weekly),
+ * "1Hour" (hourly), or minute bars like "1Min" / "5Min" / "15Min" if you need those.
  */
 @Component
-@ConditionalOnProperty(name = "quantplat.data-source", havingValue = "alpaca")
 public class AlpacaMarketDataClient implements MarketDataClient {
 
     private static final Logger log = LoggerFactory.getLogger(AlpacaMarketDataClient.class);
@@ -33,6 +33,8 @@ public class AlpacaMarketDataClient implements MarketDataClient {
     private String apiSecretKey;
     @Value("${quantplat.alpaca.feed:iex}")
     private String feed;
+    @Value("${quantplat.alpaca.timeframe:1Day}")
+    private String timeframe;
     @Value("${quantplat.default-history-years:6.5}")
     private double years;
 
@@ -59,20 +61,20 @@ public class AlpacaMarketDataClient implements MarketDataClient {
             AlpacaBarsResponse page = fetchPage(symbol, start, end, pageToken);
             if (page == null || page.bars() == null) break;
             for (AlpacaBar b : page.bars()) {
-                LocalDate barDate = Instant.parse(b.t()).atZone(ZoneOffset.UTC).toLocalDate();
-                out.add(new PriceBarEntity(symbol, barDate, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca"));
+                Instant barTime = Instant.parse(b.t());
+                out.add(new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca"));
             }
             pageToken = page.nextPageToken();
         } while (pageToken != null);
 
-        log.info("Fetched {} bars for {} from Alpaca ({} feed)", out.size(), symbol, feed);
+        log.info("Fetched {} {} bars for {} from Alpaca ({} feed)", out.size(), timeframe, symbol, feed);
         return out;
     }
 
     private AlpacaBarsResponse fetchPage(String symbol, Instant start, Instant end, String pageToken) {
         return restClient.get()
                 .uri(uri -> uri.path("/v2/stocks/{symbol}/bars")
-                        .queryParam("timeframe", "1Day")
+                        .queryParam("timeframe", timeframe)
                         .queryParam("start", start)
                         .queryParam("end", end)
                         .queryParam("limit", 10000)

@@ -3,7 +3,9 @@ package com.quantplat.data;
 import com.quantplat.strategy.BarSeries;
 
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -46,7 +48,9 @@ public final class SyntheticData {
             open[i] = o; high[i] = h; low[i] = l;
             vol[i] = (5e5 + rng.nextInt(4_500_000)) * (1 + intraday * 3);
         }
-        return new BarSeries(symbol, dates, open, high, low, close, vol);
+        Instant[] times = new Instant[n];
+        for (int i = 0; i < n; i++) times[i] = dates[i].atStartOfDay(ZoneOffset.UTC).toInstant();
+        return new BarSeries(symbol, times, open, high, low, close, vol);
     }
 
     public static BarSeries generate(String symbol) {

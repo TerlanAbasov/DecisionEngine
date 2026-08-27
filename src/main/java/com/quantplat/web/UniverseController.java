@@ -24,4 +24,9 @@ public class UniverseController {
     public List<String> set(@RequestBody List<String> symbols) {
         return service.set(symbols);
     }
+
+    @PostMapping
+    public List<String> add(@RequestBody List<String> symbols) {
+        return service.addAll(symbols);
+    }
 }

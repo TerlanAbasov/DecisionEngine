@@ -43,4 +43,10 @@ public class UniverseService {
         String s = symbol.trim().toUpperCase();
         if (!s.isEmpty() && !repo.existsBySymbol(s)) repo.save(new UniverseSymbolEntity(s));
     }
+
+    @Transactional
+    public List<String> addAll(List<String> symbols) {
+        symbols.forEach(this::add);
+        return get();
+    }
 }

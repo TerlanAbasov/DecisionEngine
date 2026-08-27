@@ -1,10 +1,17 @@
+server:
+  port: 8082
+logging:
+  level:
+    ROOT: INFO
+    com.quant.finance.execution: INFO
+
 spring:
+  application:
+    name: DecisionEngine
   datasource:
-    # No fallback defaults here (unlike application-local.yml): fail fast on a
-    # missing DB_URL/DB_USER/DB_PASS rather than silently trying quant/quant.
-    url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASS}
+    url: jdbc:postgresql://127.0.0.1:5432/quant
+    username: ${QUANT_ENGINE_USER}
+    password: ${QUANT_ENGINE_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate        # schema is owned by Liquibase (see changelog/master.yaml)
@@ -17,21 +24,14 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
-server:
-  port: 8080
-
 quantplat:
-  data-source: synthetic         # synthetic | ib | alpaca
   default-history-years: 6.5
-  ib:
-    host: 127.0.0.1
-    port: 7497
-    client-id: 17
   alpaca:
-    api-key-id: ${ALPACA_API_KEY_ID:}
-    api-secret-key: ${ALPACA_API_SECRET_KEY:}
+    api-key-id: PKSRTKKHKLY76BKUA22MYCYIZG
+    api-secret-key: HxRYF5RwFD43zsxetHKZsFPqp4SZbULKjvyY6PhAGDvn
     data-base-url: https://data.alpaca.markets
     feed: iex                    # iex (free) | sip (paid subscription)
+    timeframe: 1Day               # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
   poll:
     enabled: true
     interval-ms: 900000           # 15 min

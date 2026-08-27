@@ -6,7 +6,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
-import java.time.LocalDate;
 
 @Entity
 @Table(name = "signal", indexes = {
@@ -29,7 +28,7 @@ public class SignalEntity {
     private int barsInState;
     private boolean isNew;
     private double closePx;
-    private LocalDate asOfDate;
+    private Instant asOfDate;
     private Instant createdAt;
 
     @PrePersist

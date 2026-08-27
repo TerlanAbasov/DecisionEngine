@@ -6,5 +6,5 @@ import java.util.List;
 
 public interface SignalRepository extends JpaRepository<SignalEntity, Long> {
     List<SignalEntity> findByOrderByCreatedAtDesc();
-    void deleteByAsOfDate(java.time.LocalDate asOfDate);
+    void deleteByAsOfDate(java.time.Instant asOfDate);
 }

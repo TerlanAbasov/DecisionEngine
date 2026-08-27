@@ -21,3 +21,5 @@ databaseChangeLog:
             file: changelog/indexes/1.0/20260826-create-trade-table-indexes.yaml
     -   include:
             file: changelog/indexes/1.0/20260826-create-signal-table-indexes.yaml
+    -   include:
+            file: changelog/tables/1.1/20260827-bar-interval-timestamps.yaml
