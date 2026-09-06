@@ -62,7 +62,11 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
                 changed = true;
             }
 
-            double tradeSumPct = tradeRepo.sumReturnPctByRunId(r.getId()) * 100.0;
+            // legacy portfolio runs stored one trade row per symbol unweighted, so Σ trade.returnPct
+            // is ~N× the (equal-weight) portfolio return — divide by the symbol count to reconcile
+            int symbolCount = Math.max(1, r.getSymbolsCsv() == null || r.getSymbolsCsv().isBlank()
+                    ? 1 : r.getSymbolsCsv().split(",").length);
+            double tradeSumPct = tradeRepo.sumReturnPctByRunId(r.getId()) * 100.0 / symbolCount;
             Double stored = r.getTotalReturnPct();
             boolean artifact = stored == null || Math.abs(stored) > 20 * Math.abs(tradeSumPct) + 500;
             if (artifact) {

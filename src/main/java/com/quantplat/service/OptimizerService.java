@@ -5,6 +5,8 @@ import com.quantplat.engine.BacktestConfig;
 import com.quantplat.engine.Timeframe;
 import com.quantplat.strategy.BarSeries;
 import com.quantplat.strategy.TradingStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -18,6 +20,7 @@ import java.util.*;
 public class OptimizerService {
 
     private static final int MAX_CELLS = 400;
+    private static final Logger log = LoggerFactory.getLogger(OptimizerService.class);
 
     private final BacktestService backtests;
     private final StrategyService strategies;
@@ -58,7 +61,13 @@ public class OptimizerService {
         List<String> symbols = backtests.universeOr(req.symbols());
         List<BarSeries> data = backtests.loadData(symbols, req.start(), req.end(), cfg.timeframe);
 
+        int cells = axis1.size() * axis2.size();
+        long t0 = System.currentTimeMillis();
+        log.info("Optimize: '{}' sweeping {}{} = {} cells on {} symbol(s) @ {}, score by {}",
+                name, req.param1(), twoD ? " x " + req.param2() : "", cells, symbols.size(), cfg.timeframe, metric);
+
         List<OptimizeCellDto> grid = new ArrayList<>();
+        int done = 0;
         for (double v1 : axis1) {
             for (double v2 : axis2) {
                 Map<String, Double> params = new LinkedHashMap<>(defaults);
@@ -70,12 +79,15 @@ public class OptimizerService {
                 tried.put(req.param1(), v1);
                 if (twoD) tried.put(req.param2(), v2);
                 grid.add(new OptimizeCellDto(tried, m, Double.isNaN(score) ? Double.NEGATIVE_INFINITY : score));
+                if (++done % 25 == 0) log.info("Optimize: '{}' {}/{} cells", name, done, cells);
             }
         }
         grid.sort(Comparator.comparingDouble(OptimizeCellDto::score).reversed());
         OptimizeCellDto best = grid.isEmpty() ? null : grid.get(0);
         Map<String, Double> bestParams = new LinkedHashMap<>(defaults);
         if (best != null) bestParams.putAll(best.params());
+        log.info("Optimize: '{}' done in {} ms — best {} {}={}", name, System.currentTimeMillis() - t0,
+                best != null ? best.params() : "{}", metric, best != null ? best.score() : Double.NaN);
         return new OptimizeResultDto(name, metric, defaults, bestParams, best, grid);
     }
 

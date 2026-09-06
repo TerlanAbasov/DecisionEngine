@@ -25,7 +25,7 @@ spring:
     default-property-inclusion: non_null
 
 quantplat:
-  default-history-years: 4
+  default-history-years: 2
   data:
     fresh-days: 4               # a symbol counts as "fresh" if its newest cached bar is within this many days
   alpaca:
@@ -36,7 +36,7 @@ quantplat:
     timeframe: 1Min               # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
   poll:
     enabled: true
-    interval-ms: 60000           # 1 min — each tick now does an incremental fetch (bars since the last cached one)
+    interval-ms: 300000           # 5 min — each tick does an incremental fetch (bars since the last cached one)
     initial-delay-ms: 60000
     lookback-days: 2             # how far before the last cached bar the incremental poll re-requests (gap / partial-bar safety)
   execution-engine:

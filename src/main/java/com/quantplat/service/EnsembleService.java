@@ -24,6 +24,7 @@ public class EnsembleService {
 
     private static final int MAX_LEGS = 40;
     private static final double CAPITAL_DEFAULT = 100_000;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(EnsembleService.class);
 
     private final BacktestService backtests;
     private final StrategyService strategies;
@@ -65,7 +66,12 @@ public class EnsembleService {
         List<Map<Instant, Double>> legBench = new ArrayList<>();
         List<Map<String, Double>> legMetrics = new ArrayList<>();
         TreeSet<Instant> allDates = new TreeSet<>();
+        long batchStart = System.currentTimeMillis();
+        log.info("Ensemble: {} legs on {} symbol(s), {}-weighted ({})", names.size(), symbols.size(),
+                weighting, perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
+        int li = 0;
         for (String name : names) {
+            li++;
             TradingStrategy strat = strategies.getStrategy(name);
             List<BarSeries> legData = data;
             BacktestConfig legCfg = cfg;
@@ -74,7 +80,10 @@ public class EnsembleService {
                 legCfg = cfg.withTimeframe(tf);
                 legData = data.stream().map(b -> BarResampler.resample(b, tf)).toList();
             }
+            long t0 = System.currentTimeMillis();
+            log.info("Ensemble leg [{}/{}]: '{}' @ {}", li, names.size(), name, legCfg.timeframe);
             BacktestOutput o = backtests.runOnce(strat, strategies.getParams(name), legData, legCfg);
+            log.info("Ensemble leg [{}/{}]: '{}' done in {} ms", li, names.size(), name, System.currentTimeMillis() - t0);
             legNames.add(name);
             legRet.add(toReturns(o.dates, o.equity, capital));
             legBench.add(toReturns(o.dates, o.benchmark, capital));
@@ -117,6 +126,9 @@ public class EnsembleService {
         List<String> dateStrs = new ArrayList<>(dates.length);
         for (Instant d : dates) dateStrs.add(d.toString());
         String tfLabel = perStrategyTf ? "PER_STRATEGY" : cfg.timeframe.name();
+        log.info("Ensemble: {} legs done in {} ms — blended return={}% sharpe={}", names.size(),
+                System.currentTimeMillis() - batchStart,
+                metrics.getOrDefault("totalReturnPct", 0.0), metrics.getOrDefault("sharpe", 0.0));
         return new EnsembleResultDto(symbols, dates[0], dates[dates.length - 1], tfLabel,
                 dates.length, weighting, metrics, dateStrs, equity, benchEq, dd, legs);
     }

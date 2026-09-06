@@ -8,6 +8,8 @@ import com.quantplat.repository.*;
 import com.quantplat.strategy.BarSeries;
 import com.quantplat.strategy.TradingStrategy;
 import com.quantplat.strategy.impl.PairsStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +19,14 @@ import java.util.*;
 
 @Service
 public class BacktestService {
+
+    private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
+
+    private static String fmtMetrics(Map<String, Double> m) {
+        return String.format("return=%.1f%% sharpe=%.2f maxDD=%.1f%% trades=%.0f",
+                m.getOrDefault("totalReturnPct", 0.0), m.getOrDefault("sharpe", 0.0),
+                m.getOrDefault("maxDrawdownPct", 0.0), m.getOrDefault("trades", 0.0));
+    }
 
     private final MarketDataService marketData;
     private final StrategyService strategies;
@@ -121,9 +131,15 @@ public class BacktestService {
         BacktestConfig cfg = cfg(req);
         TradingStrategy strat = strategies.getStrategy(req.strategyName());
         Map<String, Double> params = strategies.getParams(req.strategyName());
+        long t0 = System.currentTimeMillis();
+        log.info("Backtest: '{}' on {} symbol(s) {}..{} @ {}", req.strategyName(), symbols.size(),
+                req.start(), req.end(), cfg.timeframe);
         List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe);
         BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg);
-        return persist(o, symbols, cfg, req.start(), req.end());
+        BacktestResultDto dto = persist(o, symbols, cfg, req.start(), req.end());
+        log.info("Backtest: '{}' done in {} ms — run #{} {}", req.strategyName(),
+                System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
+        return dto;
     }
 
     @Transactional
@@ -137,8 +153,16 @@ public class BacktestService {
         List<BarSeries> nativeData = perStrategyTf ? load(symbols, req.start(), req.end(), Timeframe.NATIVE) : null;
         List<BarSeries> sharedData = perStrategyTf ? null : load(symbols, req.start(), req.end(), cfg.timeframe);
 
+        Map<String, TradingStrategy> enabled = strategies.getEnabledStrategies();
+        long batchStart = System.currentTimeMillis();
+        log.info("Backtest run-all: {} enabled strategies on {} symbol(s) {}..{} ({})",
+                enabled.size(), symbols.size(), req.start(), req.end(),
+                perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
+
         List<LeaderboardEntryDto> board = new ArrayList<>();
-        for (Map.Entry<String, TradingStrategy> e : strategies.getEnabledStrategies().entrySet()) {
+        int i = 0, total = enabled.size();
+        for (Map.Entry<String, TradingStrategy> e : enabled.entrySet()) {
+            i++;
             Map<String, Double> params = strategies.getParams(e.getKey());
             BacktestConfig runCfg = cfg;
             List<BarSeries> data = sharedData;
@@ -147,12 +171,17 @@ public class BacktestService {
                 runCfg = cfg.withTimeframe(tf);
                 data = nativeData.stream().map(b -> BarResampler.resample(b, tf)).toList();
             }
+            long t0 = System.currentTimeMillis();
+            log.info("Backtest run-all [{}/{}]: '{}' @ {}", i, total, e.getKey(), runCfg.timeframe);
             BacktestOutput o = backtester.runPortfolio(data, e.getValue(), params.isEmpty() ? null : params, runCfg);
             BacktestResultDto dto = persist(o, symbols, runCfg, req.start(), req.end());
+            log.info("Backtest run-all [{}/{}]: '{}' done in {} ms — run #{} {}", i, total, e.getKey(),
+                    System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
             board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(), dto.metrics()));
         }
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
+        log.info("Backtest run-all: {} strategies done in {} ms", total, System.currentTimeMillis() - batchStart);
         return board;
     }
 
@@ -169,6 +198,9 @@ public class BacktestService {
         if (req.takeProfitPct() != null) b.takeProfitPct(req.takeProfitPct());
         BacktestConfig cfg = b.build();
 
+        long t0 = System.currentTimeMillis();
+        log.info("Backtest: pairs {}/{} {}..{} @ {}", req.symbolA(), req.symbolB(),
+                req.start(), req.end(), cfg.timeframe);
         BarSeries a = BarResampler.resample(
                 marketData.getBars(req.symbolA().toUpperCase(), req.start(), req.end()), cfg.timeframe);
         BarSeries bs = BarResampler.resample(
@@ -178,7 +210,11 @@ public class BacktestService {
                 req.entry() != null ? req.entry() : 2.0,
                 req.exit() != null ? req.exit() : 0.5);
         BacktestOutput o = backtester.runPairs(a, bs, strat, cfg);
-        return persist(o, List.of(req.symbolA().toUpperCase(), req.symbolB().toUpperCase()), cfg, req.start(), req.end());
+        BacktestResultDto dto = persist(o, List.of(req.symbolA().toUpperCase(), req.symbolB().toUpperCase()),
+                cfg, req.start(), req.end());
+        log.info("Backtest: pairs {}/{} done in {} ms — run #{} {}", req.symbolA(), req.symbolB(),
+                System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
+        return dto;
     }
 
     private BacktestResultDto persist(BacktestOutput o, List<String> symbols, BacktestConfig cfg,
