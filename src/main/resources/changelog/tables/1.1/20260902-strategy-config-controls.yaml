@@ -1,0 +1,31 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260902-strategy-config-controls
+            author: Tarlan Abasov
+            comment: >
+                Per-strategy behaviour controls surfaced in the Strategies tab:
+                ensemble weight, contrarian inversion, a forced direction override,
+                free-form tags, a favourite flag and a notes field. All nullable so
+                existing rows keep their current behaviour.
+            changes:
+                -   addColumn:
+                        tableName: strategy_config
+                        columns:
+                            -   column:
+                                    name: weight
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: invert
+                                    type: BOOLEAN
+                            -   column:
+                                    name: direction_override
+                                    type: VARCHAR(16)
+                            -   column:
+                                    name: tags
+                                    type: VARCHAR(512)
+                            -   column:
+                                    name: favorite
+                                    type: BOOLEAN
+                            -   column:
+                                    name: notes
+                                    type: VARCHAR(1000)

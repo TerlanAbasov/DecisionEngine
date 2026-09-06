@@ -31,6 +31,30 @@ public class BacktestRunEntity {
     private double slippageBps;
     private boolean allowShort;
 
+    // execution / risk controls (nullable — older rows predate them)
+    private String timeframe;          // NATIVE | H1 | H4 | D1 | W1 | MN
+    private Integer execLag;
+    private Double positionSize;
+    private Double riskFreePct;
+    private Integer warmupBars;
+    private Double stopLossPct;
+    private Double takeProfitPct;
+    private Integer bars;              // bar count actually backtested (post-resample)
+
+    // headline result metrics, denormalised from BacktestResult.metricsJson so run
+    // history can be sorted / filtered in SQL (nullable — backfilled for older rows)
+    private Double totalReturnPct;
+    private Double cagrPct;
+    private Double sharpe;
+    private Double sortino;
+    private Double calmar;
+    private Double maxDrawdownPct;
+    private Double annVolPct;
+    private Double winRatePct;
+    private Double profitFactor;
+    private Double exposurePct;
+    private Integer trades;
+
     private String status;     // COMPLETED | FAILED
     private Instant createdAt;
 

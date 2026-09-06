@@ -23,3 +23,15 @@ databaseChangeLog:
             file: changelog/indexes/1.0/20260826-create-signal-table-indexes.yaml
     -   include:
             file: changelog/tables/1.1/20260827-bar-interval-timestamps.yaml
+    -   include:
+            file: changelog/tables/1.1/20260902-backtest-run-controls.yaml
+    -   include:
+            file: changelog/tables/1.1/20260902-strategy-config-controls.yaml
+    -   include:
+            file: changelog/tables/1.1/20260906-strategy-day-trading.yaml
+    -   include:
+            file: changelog/tables/1.1/20260906-backtest-run-summary.yaml
+    -   include:
+            file: changelog/tables/1.1/20260906-price-bar-timeframe.yaml
+    -   include:
+            file: changelog/tables/1.1/20260906-signal-timeframe.yaml

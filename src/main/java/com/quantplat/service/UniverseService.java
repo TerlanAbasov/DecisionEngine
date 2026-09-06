@@ -5,7 +5,6 @@ import com.quantplat.repository.UniverseSymbolRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -31,10 +30,19 @@ public class UniverseService {
 
     @Transactional
     public List<String> set(List<String> symbols) {
-        repo.deleteAll();
+        // deleteAllInBatch() issues the DELETE immediately; a plain deleteAll() only
+        // queues em.remove() calls, which Hibernate flushes *after* the inserts below,
+        // so re-adding an existing symbol collides with uk_universe_symbol.
+        repo.deleteAllInBatch();
         symbols.stream().map(String::trim).filter(s -> !s.isEmpty())
                 .map(String::toUpperCase).distinct().sorted()
                 .forEach(s -> repo.save(new UniverseSymbolEntity(s)));
+        return get();
+    }
+
+    @Transactional
+    public List<String> remove(String symbol) {
+        if (symbol != null) repo.deleteBySymbol(symbol.trim().toUpperCase());
         return get();
     }
 

@@ -32,10 +32,13 @@ public class PriceBarEntity {
     private double close;
     private double volume;
 
-    private String source;   // synthetic | ib
+    private String source;   // synthetic | alpaca | ib
+
+    /** Bar interval this row was fetched at ({@code quantplat.alpaca.timeframe}: 1Day, 1Hour, 1Min, …). */
+    private String timeframe;
 
     public PriceBarEntity(String symbol, Instant barTime, double open, double high,
-                          double low, double close, double volume, String source) {
+                          double low, double close, double volume, String source, String timeframe) {
         this.symbol = symbol;
         this.barTime = barTime;
         this.open = open;
@@ -44,5 +47,6 @@ public class PriceBarEntity {
         this.close = close;
         this.volume = volume;
         this.source = source;
+        this.timeframe = timeframe;
     }
 }

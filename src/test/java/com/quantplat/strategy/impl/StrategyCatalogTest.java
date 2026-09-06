@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class StrategyCatalogTest {
 
     @Test
-    void catalogHas100UniquelyNamedStrategies() {
+    void catalogHasUniquelyNamedStrategies() {
         List<TradingStrategy> all = StrategyCatalog.all();
-        assertEquals(100, all.size());
+        assertEquals(110, all.size());
         Set<String> names = new HashSet<>();
         for (TradingStrategy s : all) assertTrue(names.add(s.name()), "duplicate name: " + s.name());
     }

@@ -1,0 +1,62 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260906-backtest-run-summary
+            author: Tarlan Abasov
+            comment: >
+                Promote the headline result metrics onto backtest_run as real columns so
+                run history can be sorted and filtered in SQL (most returns, min Sharpe,
+                max drawdown, …) instead of parsing the metrics JSON blob. Nullable;
+                BacktestSummaryBackfill fills them for pre-existing runs on boot.
+            changes:
+                -   addColumn:
+                        tableName: backtest_run
+                        columns:
+                            -   column:
+                                    name: total_return_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: cagr_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: sharpe
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: sortino
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: calmar
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: max_drawdown_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: ann_vol_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: win_rate_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: profit_factor
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: exposure_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: trades
+                                    type: INTEGER
+    -   changeSet:
+            id: 20260906-backtest-run-summary-indexes
+            author: Tarlan Abasov
+            changes:
+                -   createIndex:
+                        tableName: backtest_run
+                        indexName: ix_run_total_return
+                        columns:
+                            -   column:
+                                    name: total_return_pct
+                -   createIndex:
+                        tableName: backtest_run
+                        indexName: ix_run_sharpe
+                        columns:
+                            -   column:
+                                    name: sharpe

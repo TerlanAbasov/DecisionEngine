@@ -1,6 +1,7 @@
 package com.quantplat.web;
 
 import com.quantplat.data.MarketDataService;
+import com.quantplat.dto.Dtos.SymbolCoverageDto;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -20,6 +21,12 @@ public class MarketDataController {
     @GetMapping("/source")
     public Map<String, String> source() {
         return Map.of("source", service.activeSource());
+    }
+
+    /** Per-symbol cache coverage (first/last bar, count, freshness) for symbols with stored bars. */
+    @GetMapping("/symbols")
+    public List<SymbolCoverageDto> symbols() {
+        return service.coverage();
     }
 
     /** Refresh cached bars for the given symbols. */

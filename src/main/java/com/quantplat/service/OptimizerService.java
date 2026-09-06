@@ -1,0 +1,98 @@
+package com.quantplat.service;
+
+import com.quantplat.dto.Dtos.*;
+import com.quantplat.engine.BacktestConfig;
+import com.quantplat.engine.Timeframe;
+import com.quantplat.strategy.BarSeries;
+import com.quantplat.strategy.TradingStrategy;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+/**
+ * Brute-force parameter sweep for a single strategy: run the portfolio backtest across a
+ * 1-D or 2-D grid of one/two parameters and rank the cells by a chosen metric. Bars are
+ * loaded once and reused for every cell.
+ */
+@Service
+public class OptimizerService {
+
+    private static final int MAX_CELLS = 400;
+
+    private final BacktestService backtests;
+    private final StrategyService strategies;
+
+    public OptimizerService(BacktestService backtests, StrategyService strategies) {
+        this.backtests = backtests;
+        this.strategies = strategies;
+    }
+
+    public OptimizeResultDto optimize(String name, OptimizeRequest req) {
+        TradingStrategy strat = strategies.getStrategy(name);          // honours invert / direction override
+        Map<String, Double> defaults = strategies.defaultParams(name);
+        String metric = (req.metric() == null || req.metric().isBlank()) ? "sharpe" : req.metric().trim();
+
+        require(req.param1(), defaults, "param1");
+        List<Double> axis1 = axis(req.param1(), req.from1(), req.to1(), req.step1());
+        boolean twoD = req.param2() != null && !req.param2().isBlank();
+        List<Double> axis2;
+        if (twoD) {
+            require(req.param2(), defaults, "param2");
+            axis2 = axis(req.param2(), req.from2(), req.to2(), req.step2());
+        } else {
+            axis2 = Collections.singletonList(Double.NaN);
+        }
+        if ((long) axis1.size() * axis2.size() > MAX_CELLS)
+            throw new IllegalArgumentException("Grid too large (" + axis1.size() + "x" + axis2.size()
+                    + "); max " + MAX_CELLS + " cells — widen the step or narrow the range.");
+
+        Timeframe tf = Timeframe.resolve(req.timeframe(), strategies.recommendedTimeframe(name));
+        BacktestConfig cfg = BacktestConfig.builder()
+                .capital(req.capital() != null ? req.capital() : 100_000)
+                .commissionBps(req.commissionBps() != null ? req.commissionBps() : 1.0)
+                .slippageBps(req.slippageBps() != null ? req.slippageBps() : 2.0)
+                .allowShort(req.allowShort() == null || req.allowShort())
+                .timeframe(tf)
+                .build();
+
+        List<String> symbols = backtests.universeOr(req.symbols());
+        List<BarSeries> data = backtests.loadData(symbols, req.start(), req.end(), cfg.timeframe);
+
+        List<OptimizeCellDto> grid = new ArrayList<>();
+        for (double v1 : axis1) {
+            for (double v2 : axis2) {
+                Map<String, Double> params = new LinkedHashMap<>(defaults);
+                params.put(req.param1(), v1);
+                if (twoD) params.put(req.param2(), v2);
+                Map<String, Double> m = backtests.evaluate(strat, params, data, cfg);
+                double score = m.getOrDefault(metric, Double.NaN);
+                Map<String, Double> tried = new LinkedHashMap<>();
+                tried.put(req.param1(), v1);
+                if (twoD) tried.put(req.param2(), v2);
+                grid.add(new OptimizeCellDto(tried, m, Double.isNaN(score) ? Double.NEGATIVE_INFINITY : score));
+            }
+        }
+        grid.sort(Comparator.comparingDouble(OptimizeCellDto::score).reversed());
+        OptimizeCellDto best = grid.isEmpty() ? null : grid.get(0);
+        Map<String, Double> bestParams = new LinkedHashMap<>(defaults);
+        if (best != null) bestParams.putAll(best.params());
+        return new OptimizeResultDto(name, metric, defaults, bestParams, best, grid);
+    }
+
+    private static void require(String param, Map<String, Double> defaults, String which) {
+        if (param == null || param.isBlank())
+            throw new IllegalArgumentException(which + " is required");
+        if (!defaults.containsKey(param))
+            throw new IllegalArgumentException("Unknown " + which + " '" + param + "'; valid: " + defaults.keySet());
+    }
+
+    private static List<Double> axis(String param, Double from, Double to, Double step) {
+        if (from == null || to == null || step == null || step == 0)
+            throw new IllegalArgumentException("from/to/step required for '" + param + "'");
+        double lo = Math.min(from, to), hi = Math.max(from, to), s = Math.abs(step);
+        List<Double> out = new ArrayList<>();
+        for (double v = lo; v <= hi + 1e-9; v += s) out.add(Math.round(v * 1e6) / 1e6);
+        if (out.isEmpty()) out.add(lo);
+        return out;
+    }
+}

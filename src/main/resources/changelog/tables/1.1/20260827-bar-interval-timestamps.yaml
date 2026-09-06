@@ -1,0 +1,53 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260827-price-bar-date-to-timestamp
+            author: Tarlan Abasov
+            comment: >
+                Supports intraday bar intervals (hourly, minute) alongside daily/weekly:
+                price_bar needs a full timestamp, not just a calendar date, so multiple
+                bars per day no longer collide on the (symbol, bar) uniqueness check.
+            changes:
+                -   renameColumn:
+                        tableName: price_bar
+                        oldColumnName: bar_date
+                        newColumnName: bar_time
+                        columnDataType: DATE
+                -   modifyDataType:
+                        tableName: price_bar
+                        columnName: bar_time
+                        newDataType: TIMESTAMP
+
+    -   changeSet:
+            id: 20260827-backtest-run-dates-to-timestamp
+            author: Tarlan Abasov
+            changes:
+                -   modifyDataType:
+                        tableName: backtest_run
+                        columnName: start_date
+                        newDataType: TIMESTAMP
+                -   modifyDataType:
+                        tableName: backtest_run
+                        columnName: end_date
+                        newDataType: TIMESTAMP
+
+    -   changeSet:
+            id: 20260827-trade-dates-to-timestamp
+            author: Tarlan Abasov
+            changes:
+                -   modifyDataType:
+                        tableName: trade
+                        columnName: entry_date
+                        newDataType: TIMESTAMP
+                -   modifyDataType:
+                        tableName: trade
+                        columnName: exit_date
+                        newDataType: TIMESTAMP
+
+    -   changeSet:
+            id: 20260827-signal-as-of-date-to-timestamp
+            author: Tarlan Abasov
+            changes:
+                -   modifyDataType:
+                        tableName: signal
+                        columnName: as_of_date
+                        newDataType: TIMESTAMP

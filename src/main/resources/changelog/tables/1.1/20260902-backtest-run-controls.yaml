@@ -1,0 +1,37 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260902-backtest-run-controls
+            author: Tarlan Abasov
+            comment: >
+                Per-run execution and risk controls surfaced in the backtest form:
+                bar-interval resampling (timeframe), execution lag, position sizing,
+                risk-free rate, indicator warm-up, and stop-loss / take-profit exits.
+                All nullable so existing runs are unaffected.
+            changes:
+                -   addColumn:
+                        tableName: backtest_run
+                        columns:
+                            -   column:
+                                    name: timeframe
+                                    type: VARCHAR(16)
+                            -   column:
+                                    name: exec_lag
+                                    type: INTEGER
+                            -   column:
+                                    name: position_size
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: risk_free_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: warmup_bars
+                                    type: INTEGER
+                            -   column:
+                                    name: stop_loss_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: take_profit_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: bars
+                                    type: INTEGER

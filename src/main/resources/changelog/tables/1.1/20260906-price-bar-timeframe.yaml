@@ -1,0 +1,23 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260906-price-bar-timeframe
+            author: Tarlan Abasov
+            comment: >
+                Record the bar interval each cached row was fetched at. Without it a change
+                to quantplat.alpaca.timeframe (e.g. 1Day -> 1Min) is silently ignored:
+                MarketDataService.ensureSymbol only fetches when a symbol has no rows at all,
+                so it keeps serving the old daily bars. The column lets the cache detect the
+                mismatch and refetch.
+            changes:
+                -   addColumn:
+                        tableName: price_bar
+                        columns:
+                            -   column:
+                                    name: timeframe
+                                    type: VARCHAR(16)
+                -   createIndex:
+                        tableName: price_bar
+                        indexName: ix_price_bar_timeframe
+                        columns:
+                            -   column:
+                                    name: timeframe

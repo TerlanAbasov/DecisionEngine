@@ -1,11 +1,14 @@
 package com.quantplat.data;
 
 import com.quantplat.domain.PriceBarEntity;
+import com.quantplat.dto.Dtos.SymbolCoverageDto;
 import com.quantplat.repository.PriceBarRepository;
 import com.quantplat.strategy.BarSeries;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -17,15 +20,49 @@ public class MarketDataService {
 
     private final PriceBarRepository repo;
     private final MarketDataClient client;
+    private final long freshDays;
+    private final long pollLookbackDays;
 
-    public MarketDataService(PriceBarRepository repo, MarketDataClient client) {
+    public MarketDataService(PriceBarRepository repo, MarketDataClient client,
+                             @Value("${quantplat.data.fresh-days:4}") long freshDays,
+                             @Value("${quantplat.poll.lookback-days:2}") long pollLookbackDays) {
         this.repo = repo;
         this.client = client;
+        this.freshDays = freshDays;
+        this.pollLookbackDays = Math.max(1, pollLookbackDays);
+    }
+
+    private boolean timeframeMatches(PriceBarEntity newest) {
+        String want = client.configuredTimeframe();
+        return newest != null && newest.getTimeframe() != null
+                && newest.getTimeframe().equalsIgnoreCase(want);
+    }
+
+    /**
+     * Cache coverage for every symbol that has bars stored locally — first/last bar,
+     * bar count and whether the newest bar is within the freshness window. Used by the
+     * backtest form to let the user pick from symbols that actually have current data.
+     */
+    @Transactional(readOnly = true)
+    public List<SymbolCoverageDto> coverage() {
+        Instant cutoff = Instant.now().minus(Duration.ofDays(freshDays));
+        return repo.findSymbolCoverage().stream()
+                .map(r -> new SymbolCoverageDto(
+                        r.getSymbol(), r.getFirstBar(), r.getLastBar(), r.getBars(),
+                        r.getLastBar() != null && r.getLastBar().isAfter(cutoff),
+                        r.getTimeframe()))
+                .toList();
     }
 
     @Transactional
     public void ensureSymbol(String symbol) {
-        if (!repo.existsBySymbol(symbol)) {
+        PriceBarEntity newest = repo.findTopBySymbolOrderByBarTimeDesc(symbol).orElse(null);
+        if (newest == null) {
+            repo.saveAll(client.fetchHistory(symbol));
+        } else if (!timeframeMatches(newest)) {
+            // cached bars were fetched at a different interval (e.g. 1Day) than the one
+            // now configured (e.g. 1Min) — wipe and refetch so the app stops serving stale bars
+            repo.deleteBySymbol(symbol);
             repo.saveAll(client.fetchHistory(symbol));
         }
     }
@@ -45,12 +82,26 @@ public class MarketDataService {
      */
     @Transactional
     public int pollLatest(String symbol) {
-        Instant cachedThrough = repo.findTopBySymbolOrderByBarTimeDesc(symbol)
-                .map(PriceBarEntity::getBarTime)
-                .orElse(null);
-        List<PriceBarEntity> bars = client.fetchHistory(symbol);
-        List<PriceBarEntity> newBars = (cachedThrough == null) ? bars
-                : bars.stream().filter(b -> b.getBarTime().isAfter(cachedThrough)).toList();
+        PriceBarEntity newest = repo.findTopBySymbolOrderByBarTimeDesc(symbol).orElse(null);
+        // if the cache holds a different interval, appending would splice two granularities
+        // into one series — do a full refresh instead
+        if (newest != null && !timeframeMatches(newest)) return refresh(symbol);
+
+        if (newest == null) {                    // first fetch — pull the full history
+            List<PriceBarEntity> bars = client.fetchHistory(symbol);
+            repo.saveAll(bars);
+            return bars.size();
+        }
+
+        // incremental: only ask Alpaca for bars since the last cached one (minus a small
+        // look-back so a gap from a missed poll or a still-forming bar is picked up), instead
+        // of re-downloading years of history every tick
+        Instant cachedThrough = newest.getBarTime();
+        Instant since = cachedThrough.minus(Duration.ofDays(pollLookbackDays));
+        List<PriceBarEntity> bars = client.fetchHistory(symbol, since);
+        List<PriceBarEntity> newBars = bars.stream()
+                .filter(b -> b.getBarTime().isAfter(cachedThrough))
+                .toList();
         repo.saveAll(newBars);
         return newBars.size();
     }

@@ -18,8 +18,9 @@ public class ScannerController {
 
     @PostMapping("/scan")
     public List<SignalDto> scan(@RequestBody(required = false) List<String> symbols,
-                                @RequestParam(defaultValue = "false") boolean includeFlat) {
-        return service.scan(symbols, includeFlat);
+                                @RequestParam(defaultValue = "false") boolean includeFlat,
+                                @RequestParam(required = false) String timeframe) {
+        return service.scan(symbols, includeFlat, timeframe);
     }
 
     @GetMapping("/signals")

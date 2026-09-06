@@ -10,54 +10,105 @@ import java.util.*;
 /** Vectorised, next-bar backtesting engine. */
 public final class Backtester {
 
+    /**
+     * Cap on a single bar's price move fed into P&L. A liquid instrument doesn't move ±75%
+     * bar-to-bar; anything past this is a bad tick, a gap in the data, or an unadjusted
+     * split, and left unclamped it detonates the equity path.
+     */
+    private static final double MAX_BAR_RETURN = 0.75;
+
+    /** Close-to-close return for bar {@code i}, guarded against zero/negative prices and clamped. */
+    private static double barReturn(double[] close, int i) {
+        if (i <= 0) return 0;
+        double p0 = close[i - 1], p1 = close[i];
+        if (!(p0 > 0) || !(p1 > 0)) return 0;
+        double r = p1 / p0 - 1;
+        return r > MAX_BAR_RETURN ? MAX_BAR_RETURN : (r < -MAX_BAR_RETURN ? -MAX_BAR_RETURN : r);
+    }
+
     /** Per-symbol computed series aligned to the symbol's own dates. */
     private record Series(Instant[] dates, double[] net, double[] bench,
-                          double[] absPos, List<TradeResult> trades) {}
+                          double[] pos, double[] absPos, List<TradeResult> trades) {}
 
     private Series computeSeries(BarSeries b, TradingStrategy strat,
                                  Map<String, Double> params, BacktestConfig cfg) {
         int n = b.size();
         double[] target = strat.generateSignals(b, params);
-        if (!cfg.allowShort) for (int i = 0; i < n; i++) if (target[i] < 0) target[i] = 0;
+        for (int i = 0; i < n; i++) {
+            if (!cfg.allowShort && target[i] < 0) target[i] = 0;
+            target[i] *= cfg.positionSize;                 // scale gross exposure
+        }
 
         double[] pos = new double[n];        // executed position (shifted by execLag)
         for (int i = 0; i < n; i++) {
             int src = i - cfg.execLag;
             pos[i] = src >= 0 ? target[src] : 0;
         }
+        pos = applyRiskExits(pos, b.close, cfg);           // stop-loss / take-profit force-exits
+
         double[] net = new double[n], bench = new double[n], absPos = new double[n];
         double costRate = (cfg.commissionBps + cfg.slippageBps) / 1e4;
         for (int i = 0; i < n; i++) {
-            double ret = i > 0 ? b.close[i] / b.close[i - 1] - 1 : 0;
+            double ret = barReturn(b.close, i);
             double prev = i > 0 ? pos[i - 1] : 0;
             double turnover = Math.abs(pos[i] - prev);
             net[i] = pos[i] * ret - turnover * costRate;
             bench[i] = ret;
             absPos[i] = Math.abs(pos[i]);
+            if (i < cfg.warmupBars) { net[i] = 0; absPos[i] = 0; }   // ignore burn-in P&L
         }
-        List<TradeResult> trades = extractTrades(pos, b.close, b.date, b.symbol, costRate);
-        return new Series(b.date, net, bench, absPos, trades);
+        List<TradeResult> trades = extractTrades(pos, b.close, b.date, b.symbol, costRate, cfg.warmupBars);
+        return new Series(b.date, net, bench, pos, absPos, trades);
+    }
+
+    /**
+     * Once an open trade's unrealised return breaches -stopLossPct or +takeProfitPct it is
+     * flattened for the rest of that bar and stays flat until the strategy stops asking for
+     * that same direction (a fresh signal or a flip re-arms entry).
+     */
+    private double[] applyRiskExits(double[] raw, double[] close, BacktestConfig cfg) {
+        if (cfg.stopLossPct <= 0 && cfg.takeProfitPct <= 0) return raw;
+        double sl = cfg.stopLossPct / 100.0, tp = cfg.takeProfitPct / 100.0;
+        double[] out = raw.clone();
+        int curDir = 0, blockedDir = 0;
+        double epx = 0;
+        for (int i = 0; i < raw.length; i++) {
+            double want = raw[i];
+            int wantDir = (int) Math.signum(want);
+            if (blockedDir != 0 && wantDir != blockedDir) blockedDir = 0;
+            if (blockedDir != 0) { out[i] = 0; curDir = 0; continue; }
+            if (wantDir != curDir) { curDir = wantDir; epx = close[i]; out[i] = want; continue; }
+            if (curDir != 0) {
+                double ret = curDir * (close[i] / epx - 1);
+                if ((sl > 0 && ret <= -sl) || (tp > 0 && ret >= tp)) {
+                    out[i] = 0; blockedDir = curDir; curDir = 0;
+                } else {
+                    out[i] = want;
+                }
+            }
+        }
+        return out;
     }
 
     private List<TradeResult> extractTrades(double[] pos, double[] close, Instant[] date,
-                                            String symbol, double costRate) {
+                                            String symbol, double costRate, int fromIdx) {
         List<TradeResult> out = new ArrayList<>();
         int cur = 0, ei = -1;
         double epx = 0;
-        for (int i = 0; i < pos.length; i++) {
+        for (int i = Math.max(0, fromIdx); i < pos.length; i++) {
             int d = (int) Math.signum(pos[i]);
             if (d != cur) {
                 if (cur != 0) {
-                    double ret = cur * (close[i] / epx - 1) - 2 * costRate;
+                    double ret = cur * tradeReturn(epx, close[i]) - 2 * costRate;
                     out.add(new TradeResult(symbol, cur > 0 ? "LONG" : "SHORT",
                             date[ei], date[i], round2(epx), round2(close[i]), i - ei, ret));
                 }
-                if (d != 0) { cur = d; ei = i; epx = close[i]; } else { cur = 0; ei = -1; }
+                if (d != 0 && close[i] > 0) { cur = d; ei = i; epx = close[i]; } else { cur = 0; ei = -1; }
             }
         }
         if (cur != 0) {
             int last = pos.length - 1;
-            double ret = cur * (close[last] / epx - 1) - 2 * costRate;
+            double ret = cur * tradeReturn(epx, close[last]) - 2 * costRate;
             out.add(new TradeResult(symbol, cur > 0 ? "LONG" : "SHORT",
                     date[ei], date[last], round2(epx), round2(close[last]), last - ei, ret));
         }
@@ -70,7 +121,7 @@ public final class Backtester {
         double[] eq = PerformanceMetrics.equityCurve(s.net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(s.bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
-        Map<String, Double> m = PerformanceMetrics.compute(s.net, s.absPos, s.trades, cfg.capital);
+        Map<String, Double> m = PerformanceMetrics.compute(s.net, s.pos, s.absPos, s.bench, s.trades, cfg, s.dates);
         return new BacktestOutput(strat.name(), List.of(b.symbol), s.dates, eq, benchEq, dd, s.trades, m);
     }
 
@@ -88,26 +139,31 @@ public final class Backtester {
             allDates.addAll(Arrays.asList(s.dates));
         }
         Instant[] dates = allDates.toArray(new Instant[0]);
-        List<Map<Instant, Double>> netMaps = new ArrayList<>(), benchMaps = new ArrayList<>(), posMaps = new ArrayList<>();
+        List<Map<Instant, Double>> netMaps = new ArrayList<>(), benchMaps = new ArrayList<>(),
+                posMaps = new ArrayList<>(), absMaps = new ArrayList<>();
         for (Series s : series) {
-            Map<Instant, Double> nm = new HashMap<>(), bm = new HashMap<>(), pm = new HashMap<>();
-            for (int i = 0; i < s.dates.length; i++) { nm.put(s.dates[i], s.net[i]); bm.put(s.dates[i], s.bench[i]); pm.put(s.dates[i], s.absPos[i]); }
-            netMaps.add(nm); benchMaps.add(bm); posMaps.add(pm);
+            Map<Instant, Double> nm = new HashMap<>(), bm = new HashMap<>(), pm = new HashMap<>(), am = new HashMap<>();
+            for (int i = 0; i < s.dates.length; i++) {
+                nm.put(s.dates[i], s.net[i]); bm.put(s.dates[i], s.bench[i]);
+                pm.put(s.dates[i], s.pos[i]); am.put(s.dates[i], s.absPos[i]);
+            }
+            netMaps.add(nm); benchMaps.add(bm); posMaps.add(pm); absMaps.add(am);
         }
-        double[] net = new double[dates.length], bench = new double[dates.length], absPos = new double[dates.length];
+        double[] net = new double[dates.length], bench = new double[dates.length],
+                pos = new double[dates.length], absPos = new double[dates.length];
         for (int i = 0; i < dates.length; i++) {
             Instant d = dates[i];
-            double sn = 0, sb = 0, sp = 0; int c = 0;
+            double sn = 0, sb = 0, sp = 0, sa = 0; int c = 0;
             for (int k = 0; k < series.size(); k++) {
                 Double v = netMaps.get(k).get(d);
-                if (v != null) { sn += v; sb += benchMaps.get(k).get(d); sp += posMaps.get(k).get(d); c++; }
+                if (v != null) { sn += v; sb += benchMaps.get(k).get(d); sp += posMaps.get(k).get(d); sa += absMaps.get(k).get(d); c++; }
             }
-            if (c > 0) { net[i] = sn / c; bench[i] = sb / c; absPos[i] = sp / c; }
+            if (c > 0) { net[i] = sn / c; bench[i] = sb / c; pos[i] = sp / c; absPos[i] = sa / c; }
         }
         double[] eq = PerformanceMetrics.equityCurve(net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
-        Map<String, Double> m = PerformanceMetrics.compute(net, absPos, allTrades, cfg.capital);
+        Map<String, Double> m = PerformanceMetrics.compute(net, pos, absPos, bench, allTrades, cfg, dates);
         return new BacktestOutput(strat.name(), symbols, dates, eq, benchEq, dd, allTrades, m);
     }
 
@@ -128,29 +184,35 @@ public final class Backtester {
         double[] posA = new double[n], posB = new double[n];
         for (int i = 0; i < n; i++) {
             int src = i - cfg.execLag;
-            posA[i] = src >= 0 ? sig[0][src] : 0;
-            posB[i] = src >= 0 ? sig[1][src] : 0;
+            posA[i] = src >= 0 ? sig[0][src] * cfg.positionSize : 0;
+            posB[i] = src >= 0 ? sig[1][src] * cfg.positionSize : 0;
         }
         double[] net = new double[n], bench = new double[n], absPos = new double[n];
         double costRate = (cfg.commissionBps + cfg.slippageBps) / 1e4;
         for (int i = 0; i < n; i++) {
-            double ra = i > 0 ? pa[i] / pa[i - 1] - 1 : 0;
-            double rb = i > 0 ? pb[i] / pb[i - 1] - 1 : 0;
+            double ra = barReturn(pa, i);
+            double rb = barReturn(pb, i);
             double prevA = i > 0 ? posA[i - 1] : 0, prevB = i > 0 ? posB[i - 1] : 0;
             double turnover = Math.abs(posA[i] - prevA) + Math.abs(posB[i] - prevB);
             net[i] = 0.5 * posA[i] * ra + 0.5 * posB[i] * rb - turnover * costRate;
             bench[i] = 0.5 * ra + 0.5 * rb;
             absPos[i] = Math.abs(posA[i]);
+            if (i < cfg.warmupBars) { net[i] = 0; absPos[i] = 0; }
         }
         Instant[] dates = common.toArray(new Instant[0]);
         double[] closeA = new double[n];
         for (int i = 0; i < n; i++) closeA[i] = pa[i];
-        List<TradeResult> trades = extractTrades(posA, closeA, dates, a.symbol + "/" + b.symbol, costRate);
+        List<TradeResult> trades = extractTrades(posA, closeA, dates, a.symbol + "/" + b.symbol, costRate, cfg.warmupBars);
         double[] eq = PerformanceMetrics.equityCurve(net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
-        Map<String, Double> m = PerformanceMetrics.compute(net, absPos, trades, cfg.capital);
+        Map<String, Double> m = PerformanceMetrics.compute(net, posA, absPos, bench, trades, cfg, dates);
         return new BacktestOutput("pairs_trading", List.of(a.symbol, b.symbol), dates, eq, benchEq, dd, trades, m);
+    }
+
+    /** Point-to-point trade return, guarded against a bad entry/exit price. */
+    private static double tradeReturn(double entryPx, double exitPx) {
+        return (entryPx > 0 && exitPx > 0) ? exitPx / entryPx - 1 : 0;
     }
 
     private static double round2(double v) { return Math.round(v * 100.0) / 100.0; }

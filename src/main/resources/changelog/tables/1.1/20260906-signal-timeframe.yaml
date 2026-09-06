@@ -1,0 +1,15 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260906-signal-timeframe
+            author: Tarlan Abasov
+            comment: >
+                Record the bar interval a live signal was computed at. With 1-minute source
+                data the scanner now resamples each strategy up to its recommended frame
+                (or a scan-wide override) before generating signals, mirroring backtests.
+            changes:
+                -   addColumn:
+                        tableName: signal
+                        columns:
+                            -   column:
+                                    name: timeframe
+                                    type: VARCHAR(16)

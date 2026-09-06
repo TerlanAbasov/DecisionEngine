@@ -3,6 +3,8 @@ package com.quantplat.service;
 import com.quantplat.data.MarketDataService;
 import com.quantplat.domain.SignalEntity;
 import com.quantplat.dto.Dtos.SignalDto;
+import com.quantplat.engine.BarResampler;
+import com.quantplat.engine.Timeframe;
 import com.quantplat.execution.ExecutionEngineClient;
 import com.quantplat.repository.SignalRepository;
 import com.quantplat.strategy.BarSeries;
@@ -42,21 +44,40 @@ public class ScannerService {
 
     @Transactional
     public List<SignalDto> scan(List<String> symbols, boolean includeFlat) {
+        return scan(symbols, includeFlat, null);
+    }
+
+    /**
+     * Generate live signals. Each strategy is run on bars resampled up to its own
+     * {@code recommendedTimeframe} (so signals match how it was backtested) — unless
+     * {@code timeframe} pins every strategy to one explicit frame. Blank / "AUTO" =
+     * per-strategy. Source bars (e.g. 1-minute) are loaded once and resampled per frame.
+     */
+    @Transactional
+    public List<SignalDto> scan(List<String> symbols, boolean includeFlat, String timeframe) {
         List<String> syms = (symbols != null && !symbols.isEmpty())
                 ? symbols.stream().map(String::toUpperCase).toList() : universe.get();
         Map<String, TradingStrategy> enabled = strategies.getEnabledStrategies();
 
-        // cache bars per symbol
-        Map<String, BarSeries> bars = new HashMap<>();
-        for (String s : syms) bars.put(s, marketData.getBars(s, null, null));
+        Map<String, BarSeries> nativeBars = new HashMap<>();
+        for (String s : syms) nativeBars.put(s, marketData.getBars(s, null, null));
+
+        boolean forced = timeframe != null && !Timeframe.isAuto(timeframe);
+        Timeframe forcedTf = forced ? Timeframe.from(timeframe) : null;
+        Map<String, BarSeries> resampled = new HashMap<>();   // key: symbol|TIMEFRAME
 
         List<SignalDto> out = new ArrayList<>();
         List<SignalEntity> toSave = new ArrayList<>();
         for (Map.Entry<String, TradingStrategy> e : enabled.entrySet()) {
+            String name = e.getKey();
             TradingStrategy strat = e.getValue();
-            Map<String, Double> params = strategies.getParams(e.getKey());
+            Map<String, Double> params = strategies.getParams(name);
+            Timeframe tf = forced ? forcedTf : strategies.recommendedTimeframe(name);
             for (String sym : syms) {
-                BarSeries b = bars.get(sym);
+                BarSeries nb = nativeBars.get(sym);
+                if (nb == null || nb.size() < 2) continue;
+                BarSeries b = resampled.computeIfAbsent(sym + "|" + tf.name(),
+                        k -> BarResampler.resample(nb, tf));
                 if (b == null || b.size() < 2) continue;
                 double[] sig = strat.generateSignals(b, params.isEmpty() ? null : params);
                 int n = sig.length;
@@ -71,11 +92,11 @@ public class ScannerService {
                     else break;
                 }
                 Instant asOf = b.date[n - 1];
-                out.add(new SignalDto(e.getKey(), strat.category(), sym, label, isNew,
-                        barsInState, round2(last), round2(b.close[n - 1]), asOf));
+                out.add(new SignalDto(name, strat.category(), sym, label, isNew,
+                        barsInState, round2(last), round2(b.close[n - 1]), asOf, tf.name()));
 
                 SignalEntity se = new SignalEntity();
-                se.setStrategyName(e.getKey());
+                se.setStrategyName(name);
                 se.setSymbol(sym);
                 se.setSignal(label);
                 se.setWeight(round2(last));
@@ -83,6 +104,7 @@ public class ScannerService {
                 se.setNew(isNew);
                 se.setClosePx(round2(b.close[n - 1]));
                 se.setAsOfDate(asOf);
+                se.setTimeframe(tf.name());
                 toSave.add(se);
             }
         }
@@ -110,7 +132,8 @@ public class ScannerService {
         return signalRepo.findByOrderByCreatedAtDesc().stream()
                 .map(s -> new SignalDto(s.getStrategyName(), strategies.categoryOf(s.getStrategyName()),
                         s.getSymbol(), s.getSignal(), s.isNew(), s.getBarsInState(),
-                        s.getWeight(), s.getClosePx(), s.getAsOfDate()))
+                        s.getWeight(), s.getClosePx(), s.getAsOfDate(),
+                        s.getTimeframe() != null ? s.getTimeframe() : Timeframe.NATIVE.name()))
                 .toList();
     }
 

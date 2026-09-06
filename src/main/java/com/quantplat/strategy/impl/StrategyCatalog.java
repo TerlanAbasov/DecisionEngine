@@ -3,7 +3,7 @@ package com.quantplat.strategy.impl;
 import com.quantplat.strategy.TradingStrategy;
 import java.util.List;
 
-/** The registry of all built-in single-asset strategies (100). Pairs is separate. */
+/** The registry of all built-in single-asset strategies (110). Pairs is separate. */
 public final class StrategyCatalog {
     private StrategyCatalog() {}
 
@@ -49,7 +49,11 @@ public final class StrategyCatalog {
             new ConsecutiveTrendBars(), new HammerReversal(), new WideRangeBarFade(),
             // seasonal (7)
             new SeasonalityTom(), new DayOfWeekFilter(), new JanuaryEffect(), new SellInMay(),
-            new QuarterEndEffect(), new SantaClausRally(), new MidMonthEffect()
+            new QuarterEndEffect(), new SantaClausRally(), new MidMonthEffect(),
+            // adaptive / advanced (10)
+            new IchimokuCloud(), new HeikinAshiTrend(), new ConnorsRsi(), new KamaTrend(),
+            new QqeSignal(), new WilliamsAlligator(), new TtmSqueeze(), new FractalBreakout(),
+            new ChoppinessTrend(), new RviSignal()
         );
     }
 }

@@ -29,6 +29,7 @@ public class SignalEntity {
     private boolean isNew;
     private double closePx;
     private Instant asOfDate;
+    private String timeframe;     // bar interval the signal was computed at (NATIVE | M15 | H1 | D1 | ...)
     private Instant createdAt;
 
     @PrePersist

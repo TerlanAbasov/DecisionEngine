@@ -1,0 +1,19 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260906-strategy-day-trading
+            author: Tarlan Abasov
+            comment: >
+                Day-trading metadata per strategy: a recommended bar interval
+                (resample target the strategy is tuned for) and an intraday-suitability
+                flag used to filter the catalog down to day-trading strategies.
+                Nullable; StrategyService backfills sensible per-category defaults on boot.
+            changes:
+                -   addColumn:
+                        tableName: strategy_config
+                        columns:
+                            -   column:
+                                    name: recommended_timeframe
+                                    type: VARCHAR(16)
+                            -   column:
+                                    name: intraday
+                                    type: BOOLEAN

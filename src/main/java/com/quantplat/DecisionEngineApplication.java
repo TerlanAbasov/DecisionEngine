@@ -6,8 +6,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-public class QuantPlatApplication {
+public class DecisionEngineApplication {
     public static void main(String[] args) {
-        SpringApplication.run(QuantPlatApplication.class, args);
+        SpringApplication.run(DecisionEngineApplication.class, args);
     }
 }

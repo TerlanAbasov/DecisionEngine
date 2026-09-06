@@ -47,14 +47,25 @@ public class AlpacaMarketDataClient implements MarketDataClient {
 
     @Override
     public List<PriceBarEntity> fetchHistory(String symbol) {
+        Instant end = Instant.now();
+        return fetch(symbol, end.minusSeconds(Math.round(years * 365.25 * 86400)), end);
+    }
+
+    /** Incremental fetch for polling — only bars from {@code since} to now (one or two requests). */
+    @Override
+    public List<PriceBarEntity> fetchHistory(String symbol, Instant since) {
+        Instant end = Instant.now();
+        Instant start = since != null ? since : end.minusSeconds(Math.round(years * 365.25 * 86400));
+        return fetch(symbol, start, end);
+    }
+
+    private List<PriceBarEntity> fetch(String symbol, Instant start, Instant end) {
         if (apiKeyId.isBlank() || apiSecretKey.isBlank()) {
             throw new IllegalStateException(
                 "Alpaca data source selected but no credentials configured. Set "
                 + "quantplat.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
         }
 
-        Instant end = Instant.now();
-        Instant start = end.minusSeconds(Math.round(years * 365.25 * 86400));
         List<PriceBarEntity> out = new ArrayList<>();
         String pageToken = null;
         do {
@@ -62,12 +73,12 @@ public class AlpacaMarketDataClient implements MarketDataClient {
             if (page == null || page.bars() == null) break;
             for (AlpacaBar b : page.bars()) {
                 Instant barTime = Instant.parse(b.t());
-                out.add(new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca"));
+                out.add(new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca", timeframe));
             }
             pageToken = page.nextPageToken();
         } while (pageToken != null);
 
-        log.info("Fetched {} {} bars for {} from Alpaca ({} feed)", out.size(), timeframe, symbol, feed);
+        log.info("Fetched {} {} bars for {} from Alpaca ({} feed, since {})", out.size(), timeframe, symbol, feed, start);
         return out;
     }
 
@@ -91,6 +102,11 @@ public class AlpacaMarketDataClient implements MarketDataClient {
     @Override
     public String source() {
         return "alpaca";
+    }
+
+    @Override
+    public String configuredTimeframe() {
+        return timeframe;
     }
 
     private record AlpacaBar(

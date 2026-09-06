@@ -29,4 +29,9 @@ public class UniverseController {
     public List<String> add(@RequestBody List<String> symbols) {
         return service.addAll(symbols);
     }
+
+    @DeleteMapping("/{symbol}")
+    public List<String> remove(@PathVariable String symbol) {
+        return service.remove(symbol);
+    }
 }
