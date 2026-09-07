@@ -1,0 +1,17 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260907-strategy-archived
+            author: Tarlan Abasov
+            comment: >
+                Soft-delete flag for strategies. Archived strategies are hidden from the
+                Strategies UI, excluded from scans / run-all, and left alone by the seeder,
+                without dropping their strategy_config row (the strategy class still lives in
+                the catalog, so it can be un-archived). Used by the prune-to-top action.
+            changes:
+                -   addColumn:
+                        tableName: strategy_config
+                        columns:
+                            -   column:
+                                    name: archived
+                                    type: BOOLEAN
+                                    defaultValueBoolean: false

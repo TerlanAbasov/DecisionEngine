@@ -297,40 +297,58 @@ public class BacktestService {
     }
 
     /**
-     * Keep only the {@code keep} best strategies (ranked from run history by {@code by} —
-     * "sharpe" or "totalReturnPct", taking each strategy's best run). Every other strategy
-     * that has run history is disabled and all of its runs / results / trades are deleted.
+     * Rank every strategy that has run history by the average of its {@code recentRuns} most
+     * recent runs' {@code by} metric ("totalReturnPct" or "sharpe"), keep the top {@code keep}
+     * (or top {@code keepPct}%), and for the rest: delete all runs / results / trades and
+     * either archive them (removed from the UI, never run again) or just disable them.
      * Strategies with no run history are left untouched.
      */
     @Transactional
-    public PruneResultDto pruneToTop(int keep, String by) {
-        int k = Math.max(1, keep);
-        boolean byReturn = by != null && (by.equalsIgnoreCase("totalReturnPct") || by.equalsIgnoreCase("return"));
-        String rankedBy = byReturn ? "totalReturnPct" : "sharpe";
+    public PruneResultDto pruneToTop(Integer keep, Integer keepPct, Integer recentRuns, String by, boolean archive) {
+        boolean bySharpe = by != null && by.equalsIgnoreCase("sharpe");
+        String rankedBy = bySharpe ? "sharpe" : "totalReturnPct";
+        int window = recentRuns == null || recentRuns < 1 ? 2 : recentRuns;
 
-        List<String> ranked = (byReturn ? runRepo.bestReturnPerStrategy() : runRepo.bestSharpePerStrategy())
-                .stream()
-                .filter(s -> s.getStrategyName() != null)
-                .sorted(Comparator.comparingDouble(
-                        (BacktestRunRepository.StrategyScore s) ->
-                                s.getScore() == null ? Double.NEGATIVE_INFINITY : s.getScore()).reversed())
-                .map(BacktestRunRepository.StrategyScore::getStrategyName)
-                .toList();
+        // avg of the last `window` runs' metric, per strategy
+        record Scored(String name, double score) {}
+        List<Scored> ranked = new ArrayList<>();
+        for (String name : runRepo.distinctStrategyNames()) {
+            List<BacktestRunEntity> runs = runRepo.findByStrategyNameOrderByCreatedAtDesc(name);
+            double sum = 0; int c = 0;
+            for (BacktestRunEntity r : runs) {
+                if (c >= window) break;
+                Double v = bySharpe ? r.getSharpe() : r.getTotalReturnPct();
+                if (v != null && !v.isNaN()) { sum += v; c++; }
+            }
+            ranked.add(new Scored(name, c > 0 ? sum / c : Double.NEGATIVE_INFINITY));
+        }
+        ranked.sort(Comparator.comparingDouble(Scored::score).reversed());
 
-        List<String> kept = ranked.stream().limit(k).toList();
-        List<String> losers = ranked.stream().skip(k).toList();
+        int total = ranked.size();
+        int k = keep != null ? Math.max(1, keep)
+                : (int) Math.ceil(total * Math.min(100, Math.max(1, keepPct == null ? 50 : keepPct)) / 100.0);
+        k = Math.min(k, total);
+
+        List<String> kept = ranked.stream().limit(k).map(Scored::name).toList();
+        List<String> losers = ranked.stream().skip(k).map(Scored::name).toList();
 
         int deletedRuns = 0;
         for (String name : losers) {
             tradeRepo.deleteByRunStrategyName(name);
             resultRepo.deleteByRunStrategyName(name);
             deletedRuns += runRepo.deleteByStrategyName(name);
-            if (strategies.isStrategy(name)) strategies.setEnabled(name, false);
+            if (strategies.isStrategy(name)) {
+                if (archive) strategies.setArchived(name, true);
+                else strategies.setEnabled(name, false);
+            }
         }
         for (String name : kept)
-            if (strategies.isStrategy(name)) strategies.setEnabled(name, true);
+            if (strategies.isStrategy(name)) {
+                strategies.setArchived(name, false);
+                strategies.setEnabled(name, true);
+            }
 
-        return new PruneResultDto(rankedBy, k, kept, losers, deletedRuns);
+        return new PruneResultDto(rankedBy, window, total, k, kept, losers, deletedRuns);
     }
 
     public List<LeaderboardEntryDto> listRuns(String strategy) {

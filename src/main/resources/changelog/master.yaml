@@ -35,3 +35,5 @@ databaseChangeLog:
             file: changelog/tables/1.1/20260906-price-bar-timeframe.yaml
     -   include:
             file: changelog/tables/1.1/20260906-signal-timeframe.yaml
+    -   include:
+            file: changelog/tables/1.1/20260907-strategy-archived.yaml

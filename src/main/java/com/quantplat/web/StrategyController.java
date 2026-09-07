@@ -21,8 +21,8 @@ public class StrategyController {
     }
 
     @GetMapping
-    public List<StrategyDto> list() {
-        return service.list();
+    public List<StrategyDto> list(@RequestParam(defaultValue = "false") boolean includeArchived) {
+        return service.list(includeArchived);
     }
 
     @GetMapping("/{name}")

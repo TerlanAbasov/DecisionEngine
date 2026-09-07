@@ -3,6 +3,9 @@ package com.quantplat.service;
 import com.quantplat.data.MarketDataService;
 import com.quantplat.domain.SignalEntity;
 import com.quantplat.dto.Dtos.SignalDto;
+import com.quantplat.dto.Dtos.SignalMarkerDto;
+import com.quantplat.dto.Dtos.SignalOverlayDto;
+import com.quantplat.dto.Dtos.StrategySignalsDto;
 import com.quantplat.engine.BarResampler;
 import com.quantplat.engine.Timeframe;
 import com.quantplat.execution.ExecutionEngineClient;
@@ -139,4 +142,48 @@ public class ScannerService {
 
     private static double clean(double v) { return Double.isNaN(v) ? 0 : v; }
     private static double round2(double v) { return Math.round(v * 100.0) / 100.0; }
+
+    private static final int MAX_MARKERS = 1000;
+
+    /**
+     * Per-bar position-change markers for one symbol, for the chart overlay. Each strategy runs
+     * on the given {@code timeframe} (blank / "AUTO" = its own recommended frame). A marker is
+     * emitted where the target position's sign changes: BUY (→ long), SELL (→ short), EXIT (→ flat).
+     */
+    @Transactional
+    public SignalOverlayDto chartSignals(String symbol, String timeframe, List<String> names, int limit) {
+        String sym = symbol.trim().toUpperCase();
+        BarSeries nb = marketData.getBars(sym, null, null);
+        boolean forced = timeframe != null && !Timeframe.isAuto(timeframe);
+        Timeframe forcedTf = forced ? Timeframe.from(timeframe) : null;
+        Map<String, BarSeries> resampleCache = new HashMap<>();
+
+        List<StrategySignalsDto> out = new ArrayList<>();
+        for (String name : names == null ? List.<String>of() : names) {
+            if (name == null || name.isBlank() || !strategies.isStrategy(name)) continue;
+            TradingStrategy strat = strategies.getStrategy(name);
+            Map<String, Double> params = strategies.getParams(name);
+            Timeframe tf = forced ? forcedTf : strategies.recommendedTimeframe(name);
+            BarSeries b = resampleCache.computeIfAbsent(tf.name(), k -> BarResampler.resample(nb, tf));
+            if (b.size() < 2) { out.add(new StrategySignalsDto(name, tf.name(), List.of())); continue; }
+
+            double[] sig = strat.generateSignals(b, params.isEmpty() ? null : params);
+            int n = b.size();
+            int from = (limit > 0 && n > limit) ? n - limit : 0;
+            List<SignalMarkerDto> markers = new ArrayList<>();
+            double prev = from > 0 ? Math.signum(clean(sig[from - 1])) : 0;
+            for (int i = from; i < n; i++) {
+                double cur = Math.signum(clean(sig[i]));
+                if (cur != prev) {
+                    String type = cur > 0 ? "BUY" : cur < 0 ? "SELL" : "EXIT";
+                    markers.add(new SignalMarkerDto(b.date[i].toString(), round2(b.close[i]), type, cur));
+                }
+                prev = cur;
+            }
+            if (markers.size() > MAX_MARKERS)
+                markers = new ArrayList<>(markers.subList(markers.size() - MAX_MARKERS, markers.size()));
+            out.add(new StrategySignalsDto(name, tf.name(), markers));
+        }
+        return new SignalOverlayDto(sym, out);
+    }
 }

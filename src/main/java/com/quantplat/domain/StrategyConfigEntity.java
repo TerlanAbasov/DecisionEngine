@@ -60,4 +60,7 @@ public class StrategyConfigEntity {
 
     /** Whether the strategy is appropriate for intraday day-trading (false e.g. for seasonal effects). */
     private Boolean intraday;
+
+    /** Soft-deleted: hidden from the UI, skipped by scans / run-all and the seeder. Reversible. */
+    private Boolean archived;
 }

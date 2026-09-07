@@ -1,9 +1,12 @@
 package com.quantplat.web;
 
 import com.quantplat.data.MarketDataService;
+import com.quantplat.dto.Dtos.PriceSeriesDto;
 import com.quantplat.dto.Dtos.SymbolCoverageDto;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +30,16 @@ public class MarketDataController {
     @GetMapping("/symbols")
     public List<SymbolCoverageDto> symbols() {
         return service.coverage();
+    }
+
+    /** OHLCV series for the chart view — resampled to {@code timeframe}, most recent {@code limit} bars. */
+    @GetMapping("/bars")
+    public PriceSeriesDto bars(@RequestParam String symbol,
+                               @RequestParam(required = false) String timeframe,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+                               @RequestParam(defaultValue = "1500") int limit) {
+        return service.priceSeries(symbol, timeframe, start, end, Math.min(Math.max(limit, 50), 5000));
     }
 
     /** Refresh cached bars for the given symbols. */

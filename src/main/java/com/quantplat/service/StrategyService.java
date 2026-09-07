@@ -76,9 +76,15 @@ public class StrategyService {
     }
 
     public List<StrategyDto> list() {
+        return list(false);
+    }
+
+    /** Catalog strategies; archived ones are excluded unless {@code includeArchived}. */
+    public List<StrategyDto> list(boolean includeArchived) {
         List<StrategyDto> out = new ArrayList<>();
         for (StrategyConfigEntity e : repo.findAll())
-            if (catalog.containsKey(e.getName())) out.add(dto(e));
+            if (catalog.containsKey(e.getName()) && (includeArchived || !Boolean.TRUE.equals(e.getArchived())))
+                out.add(dto(e));
         out.sort(Comparator.comparing(StrategyDto::name));
         return out;
     }
@@ -91,6 +97,18 @@ public class StrategyService {
         StrategyConfigEntity e = entity(name);
         e.setEnabled(enabled);
         repo.save(e);
+    }
+
+    @Transactional
+    public void setArchived(String name, boolean archived) {
+        StrategyConfigEntity e = entity(name);
+        e.setArchived(archived);
+        if (archived) e.setEnabled(false);       // archived strategies never run
+        repo.save(e);
+    }
+
+    public boolean isArchived(String name) {
+        return repo.findByName(name).map(e -> Boolean.TRUE.equals(e.getArchived())).orElse(false);
     }
 
     @Transactional
@@ -117,6 +135,10 @@ public class StrategyService {
             e.setRecommendedTimeframe(tf);
         }
         if (u.intraday() != null) e.setIntraday(u.intraday());
+        if (u.archived() != null) {
+            e.setArchived(u.archived());
+            if (u.archived()) e.setEnabled(false);
+        }
         return dto(repo.save(e));
     }
 
@@ -165,7 +187,7 @@ public class StrategyService {
     public Map<String, TradingStrategy> getEnabledStrategies() {
         Map<String, TradingStrategy> out = new LinkedHashMap<>();
         for (StrategyConfigEntity e : repo.findAll())
-            if (e.isEnabled() && catalog.containsKey(e.getName()))
+            if (e.isEnabled() && !Boolean.TRUE.equals(e.getArchived()) && catalog.containsKey(e.getName()))
                 out.put(e.getName(), wrap(e, catalog.get(e.getName())));
         return out;
     }
@@ -229,7 +251,7 @@ public class StrategyService {
                 : defaultTimeframe(e.getCategory());
         boolean intraday = e.getIntraday() != null ? e.getIntraday() : defaultIntraday(e.getCategory());
         return new StrategyDto(e.getName(), e.getCategory(), effectiveDir, s.direction(),
-                e.getDescription(), e.isEnabled(),
+                e.getDescription(), e.isEnabled(), Boolean.TRUE.equals(e.getArchived()),
                 e.getWeight() == null ? 1.0 : e.getWeight(),
                 Boolean.TRUE.equals(e.getInvert()),
                 override == null ? "" : override,

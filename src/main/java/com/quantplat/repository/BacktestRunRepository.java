@@ -27,6 +27,9 @@ public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, 
            "from BacktestRunEntity r where r.strategyName is not null group by r.strategyName")
     List<StrategyScore> bestReturnPerStrategy();
 
+    @Query("select distinct r.strategyName from BacktestRunEntity r where r.strategyName is not null")
+    List<String> distinctStrategyNames();
+
     @Modifying
     @Query("delete from BacktestRunEntity r where r.strategyName = :name")
     int deleteByStrategyName(@Param("name") String name);

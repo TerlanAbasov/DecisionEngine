@@ -15,7 +15,7 @@ public final class Dtos {
      * {@code defaultParams} the catalog defaults, {@code overridden} the keys the user changed.
      */
     public record StrategyDto(String name, String category, String direction, String nativeDirection,
-                              String description, boolean enabled, double weight, boolean invert,
+                              String description, boolean enabled, boolean archived, double weight, boolean invert,
                               String directionOverride, List<String> tags, boolean favorite, String notes,
                               String recommendedTimeframe, boolean intraday,
                               Map<String, Double> params, Map<String, Double> defaultParams,
@@ -24,7 +24,7 @@ public final class Dtos {
     /** Partial update of a strategy's behaviour controls — any null field is left unchanged. */
     public record StrategyControlsUpdate(Double weight, Boolean invert, String directionOverride,
                                          List<String> tags, Boolean favorite, String notes,
-                                         String recommendedTimeframe, Boolean intraday) {}
+                                         String recommendedTimeframe, Boolean intraday, Boolean archived) {}
 
     /** One cell of a parameter sweep: the params tried and the metrics they produced. */
     public record OptimizeCellDto(Map<String, Double> params, Map<String, Double> metrics, double score) {}
@@ -104,13 +104,26 @@ public final class Dtos {
     public record LeaderboardEntryDto(Long runId, String strategy, String timeframe, Integer bars,
                                       Map<String, Double> metrics) {}
 
-    /** Result of pruning run history to the top-N strategies. */
-    public record PruneResultDto(String rankedBy, int keep, List<String> kept, List<String> disabled,
-                                 int deletedRuns) {}
+    /** Result of pruning the strategy set to the most profitable subset. */
+    public record PruneResultDto(String rankedBy, int rankWindow, int ranked, int keep,
+                                 List<String> kept, List<String> archived, int deletedRuns) {}
 
     public record SignalDto(String strategy, String category, String symbol, String signal,
                             boolean isNew, int bars, double weight, double close, Instant date,
                             String timeframe) {}
+
+    /** One OHLCV bar for the price-chart view. {@code date} is the bar's open time (ISO-8601). */
+    public record BarDto(String date, double open, double high, double low, double close, double volume) {}
+
+    public record PriceSeriesDto(String symbol, String timeframe, int bars,
+                                 Instant start, Instant end, List<BarDto> data) {}
+
+    /** A position change for a strategy on the chart. {@code type}: BUY | SELL | EXIT. */
+    public record SignalMarkerDto(String date, double price, String type, double position) {}
+
+    public record StrategySignalsDto(String strategy, String timeframe, List<SignalMarkerDto> markers) {}
+
+    public record SignalOverlayDto(String symbol, List<StrategySignalsDto> strategies) {}
 
     public record EnabledUpdate(boolean enabled) {}
 }

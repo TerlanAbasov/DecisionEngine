@@ -1,7 +1,11 @@
 package com.quantplat.data;
 
 import com.quantplat.domain.PriceBarEntity;
+import com.quantplat.dto.Dtos.BarDto;
+import com.quantplat.dto.Dtos.PriceSeriesDto;
 import com.quantplat.dto.Dtos.SymbolCoverageDto;
+import com.quantplat.engine.BarResampler;
+import com.quantplat.engine.Timeframe;
 import com.quantplat.repository.PriceBarRepository;
 import com.quantplat.strategy.BarSeries;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 /** Loads bars from the DB cache, fetching from the active client on a miss. */
@@ -123,6 +128,28 @@ public class MarketDataService {
     public String activeSource() {
         return client.source();
     }
+
+    /**
+     * OHLCV series for the chart view: cached bars (fetched on a miss) resampled up to
+     * {@code timeframe} and trimmed to the most recent {@code limit} bars.
+     */
+    @Transactional
+    public PriceSeriesDto priceSeries(String symbol, String timeframe, LocalDate start, LocalDate end, int limit) {
+        String sym = symbol.trim().toUpperCase();
+        Timeframe tf = Timeframe.from(timeframe);
+        BarSeries b = BarResampler.resample(getBars(sym, start, end), tf);
+        int n = b.size();
+        int from = (limit > 0 && n > limit) ? n - limit : 0;
+        List<BarDto> data = new ArrayList<>(Math.max(0, n - from));
+        for (int i = from; i < n; i++)
+            data.add(new BarDto(b.date[i].toString(),
+                    r4(b.open[i]), r4(b.high[i]), r4(b.low[i]), r4(b.close[i]), Math.round(b.volume[i])));
+        Instant s = n > from ? b.date[from] : null;
+        Instant e = n > 0 ? b.date[n - 1] : null;
+        return new PriceSeriesDto(sym, tf.name(), data.size(), s, e, data);
+    }
+
+    private static double r4(double v) { return Math.round(v * 1e4) / 1e4; }
 
     private BarSeries toBarSeries(String symbol, List<PriceBarEntity> rows) {
         int n = rows.size();

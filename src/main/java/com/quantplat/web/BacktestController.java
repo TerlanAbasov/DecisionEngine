@@ -74,13 +74,19 @@ public class BacktestController {
     }
 
     /**
-     * Prune run history to the top {@code keep} strategies (ranked by {@code by}:
-     * "sharpe" (default) or "totalReturnPct"). Non-top strategies with run history are
-     * disabled and their runs deleted. Irreversible.
+     * Prune the strategy set to the most profitable subset. Ranks each strategy that has run
+     * history by the average of its {@code recentRuns} most recent runs' {@code by} metric
+     * ("totalReturnPct" (default) or "sharpe"), keeps {@code keep} strategies or the top
+     * {@code keepPct}% (default 50), deletes the rest's runs/results/trades and, when
+     * {@code archive} (default true), archives them (hidden from the UI, never run again).
+     * Strategies with no run history are untouched. Archiving is reversible; the deletes are not.
      */
     @PostMapping("/prune")
-    public PruneResultDto prune(@RequestParam(defaultValue = "20") int keep,
-                                @RequestParam(defaultValue = "sharpe") String by) {
-        return service.pruneToTop(keep, by);
+    public PruneResultDto prune(@RequestParam(required = false) Integer keep,
+                                @RequestParam(required = false) Integer keepPct,
+                                @RequestParam(defaultValue = "2") Integer recentRuns,
+                                @RequestParam(defaultValue = "totalReturnPct") String by,
+                                @RequestParam(defaultValue = "true") boolean archive) {
+        return service.pruneToTop(keep, keepPct, recentRuns, by, archive);
     }
 }
