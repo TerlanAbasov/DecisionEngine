@@ -25,6 +25,12 @@ public class StrategyController {
         return service.list(includeArchived);
     }
 
+    /** Restore every archived strategy (enabled flag left unchanged). */
+    @PostMapping("/unarchive-all")
+    public Map<String, Integer> unarchiveAll() {
+        return Map.of("unarchived", service.unarchiveAll());
+    }
+
     @GetMapping("/{name}")
     public StrategyDto get(@PathVariable String name) {
         return service.getDetail(name);

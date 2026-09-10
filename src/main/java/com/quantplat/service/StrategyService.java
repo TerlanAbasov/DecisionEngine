@@ -121,6 +121,21 @@ public class StrategyService {
         return repo.findByName(name).map(e -> Boolean.TRUE.equals(e.getArchived())).orElse(false);
     }
 
+    /** Un-archive every archived strategy (leaves the enabled flag as-is). Returns how many. */
+    @Transactional
+    public int unarchiveAll() {
+        int n = 0;
+        for (StrategyConfigEntity e : repo.findAll()) {
+            if (Boolean.TRUE.equals(e.getArchived())) {
+                e.setArchived(false);
+                repo.save(e);
+                n++;
+            }
+        }
+        log.info("Strategies: un-archived {} strategies", n);
+        return n;
+    }
+
     @Transactional
     public StrategyDto updateControls(String name, StrategyControlsUpdate u) {
         StrategyConfigEntity e = entity(name);
