@@ -28,6 +28,7 @@ quantplat:
   backtest:
     threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
     trace-per-symbol: true       # log one line per (strategy x stock) during backtests — set false for big sweeps
+    run-all-max-days: 400        # cap the look-back window of a run-all / batch backtest (guards heap on 1-min data)
   default-history-years: 2
   data:
     fresh-days: 4               # a symbol counts as "fresh" if its newest cached bar is within this many days

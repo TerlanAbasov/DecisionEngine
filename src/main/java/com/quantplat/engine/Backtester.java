@@ -194,28 +194,32 @@ public final class Backtester {
             allTrades.addAll(s.trades);
             allDates.addAll(Arrays.asList(s.dates));
         }
+        computed = null;   // release the immutable holder; per-symbol series live in `series` now
+
+        // Blend = equal-weight mean of the per-symbol streams on a union date axis.
+        // Scatter-add each symbol's bars into the shared arrays via one index map — no
+        // per-symbol Map<Instant,Double> (that boxed millions of Doubles and OOM'd the box).
         Instant[] dates = allDates.toArray(new Instant[0]);
-        List<Map<Instant, Double>> netMaps = new ArrayList<>(), benchMaps = new ArrayList<>(),
-                posMaps = new ArrayList<>(), absMaps = new ArrayList<>();
+        int nd = dates.length;
+        Map<Instant, Integer> idx = new HashMap<>(nd * 2);
+        for (int i = 0; i < nd; i++) idx.put(dates[i], i);
+
+        double[] net = new double[nd], bench = new double[nd], pos = new double[nd], absPos = new double[nd];
+        int[] cnt = new int[nd];
         for (Series s : series) {
-            Map<Instant, Double> nm = new HashMap<>(), bm = new HashMap<>(), pm = new HashMap<>(), am = new HashMap<>();
             for (int i = 0; i < s.dates.length; i++) {
-                nm.put(s.dates[i], s.net[i]); bm.put(s.dates[i], s.bench[i]);
-                pm.put(s.dates[i], s.pos[i]); am.put(s.dates[i], s.absPos[i]);
+                Integer j = idx.get(s.dates[i]);
+                if (j == null) continue;
+                net[j] += s.net[i]; bench[j] += s.bench[i];
+                pos[j] += s.pos[i]; absPos[j] += s.absPos[i];
+                cnt[j]++;
             }
-            netMaps.add(nm); benchMaps.add(bm); posMaps.add(pm); absMaps.add(am);
         }
-        double[] net = new double[dates.length], bench = new double[dates.length],
-                pos = new double[dates.length], absPos = new double[dates.length];
-        for (int i = 0; i < dates.length; i++) {
-            Instant d = dates[i];
-            double sn = 0, sb = 0, sp = 0, sa = 0; int c = 0;
-            for (int k = 0; k < series.size(); k++) {
-                Double v = netMaps.get(k).get(d);
-                if (v != null) { sn += v; sb += benchMaps.get(k).get(d); sp += posMaps.get(k).get(d); sa += absMaps.get(k).get(d); c++; }
-            }
-            if (c > 0) { net[i] = sn / c; bench[i] = sb / c; pos[i] = sp / c; absPos[i] = sa / c; }
+        for (int i = 0; i < nd; i++) if (cnt[i] > 0) {
+            net[i] /= cnt[i]; bench[i] /= cnt[i]; pos[i] /= cnt[i]; absPos[i] /= cnt[i];
         }
+        series.clear();   // per-bar arrays no longer needed — free them before metrics
+
         double[] eq = PerformanceMetrics.equityCurve(net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);

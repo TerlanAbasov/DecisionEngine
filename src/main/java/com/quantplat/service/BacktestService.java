@@ -24,6 +24,14 @@ public class BacktestService {
 
     private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
 
+    /** A single named strategy may lever up to 5×; a batch sweep is pinned at 1× so
+     *  transaction-cost drag isn't multiplied across every strategy at once. */
+    private static final double SINGLE_RUN_MAX_POSITION = 5.0;
+    private static final double MULTI_RUN_MAX_POSITION = 1.0;
+    /** A batch run never executes on 1-minute bars — AUTO fans out per strategy, an
+     *  explicit "Native" is lifted to this floor. */
+    private static final Timeframe RUN_ALL_MIN_FRAME = Timeframe.M15;
+
     private static String fmtMetrics(Map<String, Double> m) {
         return String.format("return=%.1f%% sharpe=%.2f maxDD=%.1f%% trades=%.0f",
                 m.getOrDefault("totalReturnPct", 0.0), m.getOrDefault("sharpe", 0.0),
@@ -39,6 +47,8 @@ public class BacktestService {
     private final TradeRepository tradeRepo;
     private final ExecutorService executor;
     private final Backtester backtester;
+    /** Cap on how far back a run-all / batch backtest may reach (heap guard on 1-min data). */
+    private final int runAllMaxDays;
 
     public BacktestService(MarketDataService marketData, StrategyService strategies,
                            UniverseService universe, JsonCodec json,
@@ -47,8 +57,11 @@ public class BacktestService {
                            @org.springframework.beans.factory.annotation.Qualifier(
                                    com.quantplat.config.ExecutorConfig.BACKTEST_EXECUTOR) ExecutorService executor,
                            @org.springframework.beans.factory.annotation.Value(
-                                   "${quantplat.backtest.trace-per-symbol:true}") boolean tracePerSymbol) {
+                                   "${quantplat.backtest.trace-per-symbol:true}") boolean tracePerSymbol,
+                           @org.springframework.beans.factory.annotation.Value(
+                                   "${quantplat.backtest.run-all-max-days:400}") int runAllMaxDays) {
         this.backtester = new Backtester(tracePerSymbol);
+        this.runAllMaxDays = runAllMaxDays > 0 ? runAllMaxDays : 400;
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
@@ -77,7 +90,14 @@ public class BacktestService {
                 ? strategies.recommendedTimeframe(strategyName) : Timeframe.NATIVE;
     }
 
-    private BacktestConfig cfg(BacktestRequest r) {
+    /** A batch run never executes on 1-min bars: NATIVE is lifted to the floor frame. */
+    private static Timeframe batchFrame(Timeframe tf) {
+        return tf == null || tf.isNative() ? RUN_ALL_MIN_FRAME : tf;
+    }
+
+    private BacktestConfig cfg(BacktestRequest r) { return cfg(r, SINGLE_RUN_MAX_POSITION); }
+
+    private BacktestConfig cfg(BacktestRequest r, double maxPositionSize) {
         BacktestConfig.Builder b = BacktestConfig.builder()
                 .capital(r.capital() != null ? r.capital() : 100_000)
                 .commissionBps(r.commissionBps() != null ? r.commissionBps() : 1.0)
@@ -85,7 +105,13 @@ public class BacktestService {
                 .allowShort(r.allowShort() == null || r.allowShort())
                 .timeframe(resolveTimeframe(r.strategyName(), r.timeframe()));
         if (r.execLag() != null) b.execLag(r.execLag());
-        if (r.positionSize() != null) b.positionSize(r.positionSize());
+        if (r.positionSize() != null) {
+            double ps = Math.min(r.positionSize(), maxPositionSize);
+            if (ps < r.positionSize())
+                log.info("Config[{}]: positionSize {}× capped to {}× (batch run)",
+                        r.strategyName() == null ? "ALL" : r.strategyName(), r.positionSize(), ps);
+            b.positionSize(ps);
+        }
         if (r.riskFreePct() != null) b.riskFreePct(r.riskFreePct());
         if (r.warmupBars() != null) b.warmupBars(r.warmupBars());
         if (r.stopLossPct() != null) b.stopLossPct(r.stopLossPct());
@@ -128,6 +154,37 @@ public class BacktestService {
                 miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
         if (out.isEmpty()) {
             log.warn("Load bars: no market data for {} @ {} {}..{}", preview(symbols), tf, start, end);
+            throw new IllegalStateException("No market data for requested symbols/range");
+        }
+        return out;
+    }
+
+    /**
+     * Load native bars once per symbol and resample each into every requested frame, holding
+     * at most one symbol's native series in memory at a time. A batch run at 1-min native is
+     * ~1.9M bars — resampling on the fly keeps the working set an order of magnitude smaller.
+     */
+    private Map<Timeframe, List<BarSeries>> loadResampled(List<String> symbols, LocalDate start,
+                                                          LocalDate end, Set<Timeframe> frames) {
+        long t0 = System.currentTimeMillis();
+        Map<Timeframe, List<BarSeries>> out = new LinkedHashMap<>();
+        for (Timeframe tf : frames) out.put(tf, new ArrayList<>());
+        long bars = 0;
+        int miss = 0;
+        for (String s : symbols) {
+            BarSeries nativeB = marketData.getBars(s, start, end);
+            if (nativeB.size() == 0) { miss++; continue; }
+            for (Timeframe tf : frames) {
+                BarSeries rs = BarResampler.resample(nativeB, tf);
+                out.get(tf).add(rs);
+                bars += rs.size();
+            }
+        }
+        log.info("Load bars: {} symbol(s) -> {} frame(s) {}, {} resampled bars total{} in {} ms",
+                symbols.size(), frames.size(), frames, bars,
+                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
+        if (out.values().stream().allMatch(List::isEmpty)) {
+            log.warn("Load bars: no market data for {} {}..{}", preview(symbols), start, end);
             throw new IllegalStateException("No market data for requested symbols/range");
         }
         return out;
@@ -182,13 +239,23 @@ public class BacktestService {
     @Transactional
     public List<LeaderboardEntryDto> runAll(BacktestRequest req) {
         List<String> symbols = resolveSymbols(req.symbols());
-        BacktestConfig cfg = cfg(req);
-        boolean perStrategyTf = Boolean.TRUE.equals(req.perStrategyTimeframe());
 
-        // When each strategy runs on its own recommended frame, load native bars once and
-        // resample per strategy; otherwise resample once to the shared frame.
-        List<BarSeries> nativeData = perStrategyTf ? load(symbols, req.start(), req.end(), Timeframe.NATIVE) : null;
-        List<BarSeries> sharedData = perStrategyTf ? null : load(symbols, req.start(), req.end(), cfg.timeframe);
+        // cap the look-back window — hundreds of strategies over years of 1-min bars is what OOMs the box
+        LocalDate start = req.start(), end = req.end();
+        if (start != null && end != null && start.isBefore(end.minusDays(runAllMaxDays))) {
+            LocalDate capped = end.minusDays(runAllMaxDays);
+            log.info("Backtest run-all: window {}..{} exceeds the {}-day batch cap — starting from {}",
+                    start, end, runAllMaxDays, capped);
+            start = capped;
+        }
+
+        BacktestConfig cfg = cfg(req, MULTI_RUN_MAX_POSITION);
+        // AUTO (or an explicit "Native") on a batch run must never execute on 1-min bars:
+        // AUTO fans each strategy out on its own recommended frame; an explicit Native is
+        // lifted to the batch floor frame.
+        boolean perStrategyTf = Boolean.TRUE.equals(req.perStrategyTimeframe())
+                || Timeframe.isAuto(req.timeframe());
+        Timeframe sharedFrame = cfg.timeframe.isNative() ? RUN_ALL_MIN_FRAME : cfg.timeframe;
 
         boolean includeDisabled = Boolean.TRUE.equals(req.includeDisabled());
         List<String> picked = req.strategyNames();
@@ -211,29 +278,32 @@ public class BacktestService {
                     : includeDisabled
                         ? "No strategies to run — every strategy is archived."
                         : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
+
+        // which resample frames does this batch actually need? (a per-strategy frame that
+        // resolves to Native is lifted to the batch floor — no batch runs on 1-min bars)
+        Set<Timeframe> frames = new LinkedHashSet<>();
+        if (perStrategyTf) for (String name : enabled.keySet()) frames.add(batchFrame(strategies.recommendedTimeframe(name)));
+        else frames.add(sharedFrame);
+
         log.info("Backtest run-all: {} {} strategies on {} symbol(s) {}..{} ({})",
-                enabled.size(), scope, symbols.size(), req.start(), req.end(),
-                perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
+                enabled.size(), scope, symbols.size(), start, end,
+                perStrategyTf ? "per-strategy timeframe " + frames : sharedFrame.toString());
+
+        // load native bars once per symbol, resample into every needed frame, drop the native bars
+        Map<Timeframe, List<BarSeries>> tfData = loadResampled(symbols, start, end, frames);
 
         // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---
-        Map<Timeframe, List<BarSeries>> tfData = new java.util.HashMap<>();
         record Job(String name, TradingStrategy strat, Map<String, Double> params,
                    BacktestConfig cfg, List<BarSeries> data) {}
         List<Job> jobs = new ArrayList<>();
         for (Map.Entry<String, TradingStrategy> e : enabled.entrySet()) {
             Map<String, Double> params = strategies.getParams(e.getKey());
-            BacktestConfig runCfg = cfg;
-            List<BarSeries> data = sharedData;
-            if (perStrategyTf) {
-                Timeframe tf = strategies.recommendedTimeframe(e.getKey());
-                runCfg = cfg.withTimeframe(tf);
-                data = tfData.computeIfAbsent(tf,
-                        t -> nativeData.stream().map(b -> BarResampler.resample(b, t)).toList());
-            }
-            jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, data));
+            Timeframe tf = perStrategyTf ? batchFrame(strategies.recommendedTimeframe(e.getKey())) : sharedFrame;
+            BacktestConfig runCfg = cfg.timeframe == tf ? cfg : cfg.withTimeframe(tf);
+            jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, tfData.get(tf)));
         }
         log.info("Backtest run-all: {} jobs prepared ({} distinct timeframe(s)) — submitting to pool",
-                jobs.size(), perStrategyTf ? tfData.size() : 1);
+                jobs.size(), frames.size());
 
         // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
         // one strategy failing (bad data, indicator NaN, …) must not abort the whole batch
@@ -261,8 +331,9 @@ public class BacktestService {
         for (int i = 0; i < total; i++) {
             Job j = jobs.get(i);
             BacktestOutput o = futures.get(i).join();
+            futures.set(i, null);   // release the output once we've persisted / skipped it
             if (o == null) { failed++; continue; }
-            BacktestResultDto dto = persist(o, symbols, j.cfg(), req.start(), req.end());
+            BacktestResultDto dto = persist(o, symbols, j.cfg(), start, end);
             board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(),
                     dto.symbols(), dto.metrics()));
         }
