@@ -102,7 +102,7 @@ public final class Dtos {
                                     long bars, boolean fresh, String timeframe) {}
 
     public record LeaderboardEntryDto(Long runId, String strategy, String timeframe, Integer bars,
-                                      Map<String, Double> metrics) {}
+                                      List<String> symbols, Map<String, Double> metrics) {}
 
     /** Result of pruning the strategy set to the most profitable subset. */
     public record PruneResultDto(String rankedBy, int rankWindow, int ranked, int keep,

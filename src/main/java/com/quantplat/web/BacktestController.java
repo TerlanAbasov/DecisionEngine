@@ -53,6 +53,7 @@ public class BacktestController {
     @GetMapping
     public List<LeaderboardEntryDto> list(
             @RequestParam(required = false) String strategy,
+            @RequestParam(required = false) String symbol,
             @RequestParam(required = false) Double minReturn,
             @RequestParam(required = false) Double minCagr,
             @RequestParam(required = false) Double minSharpe,
@@ -63,7 +64,7 @@ public class BacktestController {
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String dir,
             @RequestParam(required = false) Integer limit) {
-        return service.listRuns(strategy, minReturn, minCagr, minSharpe, minProfitFactor, minWinRate,
+        return service.listRuns(strategy, symbol, minReturn, minCagr, minSharpe, minProfitFactor, minWinRate,
                 maxDrawdown, minTrades, sort, dir, limit);
     }
 

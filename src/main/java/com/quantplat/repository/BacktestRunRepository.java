@@ -42,6 +42,7 @@ public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, 
     @Query("""
             select r from BacktestRunEntity r
             where (:strategy is null or r.strategyName = :strategy)
+              and (:symbolLike is null or concat(',', r.symbolsCsv, ',') like :symbolLike)
               and (:minReturn is null or r.totalReturnPct >= :minReturn)
               and (:minCagr is null or r.cagrPct >= :minCagr)
               and (:minSharpe is null or r.sharpe >= :minSharpe)
@@ -51,6 +52,7 @@ public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, 
               and (:minTrades is null or r.trades >= :minTrades)
             """)
     List<BacktestRunEntity> filter(@Param("strategy") String strategy,
+                                   @Param("symbolLike") String symbolLike,
                                    @Param("minReturn") Double minReturn,
                                    @Param("minCagr") Double minCagr,
                                    @Param("minSharpe") Double minSharpe,

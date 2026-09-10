@@ -205,7 +205,8 @@ public class BacktestService {
             Job j = jobs.get(i);
             BacktestOutput o = futures.get(i).join();
             BacktestResultDto dto = persist(o, symbols, j.cfg(), req.start(), req.end());
-            board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(), dto.metrics()));
+            board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(),
+                    dto.symbols(), dto.metrics()));
         }
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
@@ -385,7 +386,7 @@ public class BacktestService {
     }
 
     public List<LeaderboardEntryDto> listRuns(String strategy) {
-        return listRuns(strategy, null, null, null, null, null, null, null, null, null, null);
+        return listRuns(strategy, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static final Map<String, String> SORT_COLS = Map.ofEntries(
@@ -401,7 +402,7 @@ public class BacktestService {
      * Run history with optional SQL-side filters and sort.
      * {@code maxDrawdownPct} is entered as a positive magnitude (e.g. 25 → keep runs no worse than -25%).
      */
-    public List<LeaderboardEntryDto> listRuns(String strategy, Double minReturn, Double minCagr,
+    public List<LeaderboardEntryDto> listRuns(String strategy, String symbol, Double minReturn, Double minCagr,
                                               Double minSharpe, Double minProfitFactor, Double minWinRate,
                                               Double maxDrawdownPct, Integer minTrades,
                                               String sort, String dir, Integer limit) {
@@ -415,9 +416,11 @@ public class BacktestService {
             s = s.and(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id"));
         int lim = (limit == null || limit <= 0) ? 500 : Math.min(limit, 2000);
         Double ddFloor = maxDrawdownPct == null ? null : -Math.abs(maxDrawdownPct);
+        String symbolLike = (symbol == null || symbol.isBlank())
+                ? null : "%," + symbol.trim().toUpperCase() + ",%";
 
         List<BacktestRunEntity> runs = runRepo.filter(
-                (strategy == null || strategy.isBlank()) ? null : strategy,
+                (strategy == null || strategy.isBlank()) ? null : strategy, symbolLike,
                 minReturn, minCagr, minSharpe, minProfitFactor, minWinRate, ddFloor, minTrades,
                 org.springframework.data.domain.PageRequest.of(0, lim, s));
 
@@ -430,9 +433,11 @@ public class BacktestService {
             // (BacktestSummaryBackfill repairs legacy compounding-artifact values there),
             // so let them win over the stored JSON blob.
             metrics.putAll(summaryMetrics(r));
+            List<String> syms = (r.getSymbolsCsv() == null || r.getSymbolsCsv().isBlank())
+                    ? List.of() : Arrays.asList(r.getSymbolsCsv().split(","));
             out.add(new LeaderboardEntryDto(r.getId(), r.getStrategyName(),
                     r.getTimeframe() != null ? r.getTimeframe() : Timeframe.NATIVE.name(),
-                    r.getBars(), metrics));
+                    r.getBars(), syms, metrics));
         }
         return out;
     }
