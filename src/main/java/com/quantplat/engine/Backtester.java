@@ -53,7 +53,7 @@ public final class Backtester {
             for (double n : s.net) if (!Double.isNaN(n)) ret += n;
             log.info("Backtest: {} × {} — {} bars, {} trades, ret {}% ({} ms)",
                     strat.name(), b.symbol, b.size(), s.trades.size(),
-                    Math.round(ret * 1000) / 10.0, System.currentTimeMillis() - t0);
+                    Math.round(ret * 10000) / 100.0, System.currentTimeMillis() - t0);
         }
         return s;
     }
