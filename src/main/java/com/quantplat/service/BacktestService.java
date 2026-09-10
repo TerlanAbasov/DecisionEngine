@@ -87,22 +87,46 @@ public class BacktestService {
         if (r.warmupBars() != null) b.warmupBars(r.warmupBars());
         if (r.stopLossPct() != null) b.stopLossPct(r.stopLossPct());
         if (r.takeProfitPct() != null) b.takeProfitPct(r.takeProfitPct());
-        return b.build();
+        BacktestConfig cfg = b.build();
+        log.info("Config[{}]: tf={} tfReq={} capital={} comm={}bps slip={}bps posSize={} execLag={} SL={}% TP={}% warmup={} rf={}% allowShort={}",
+                r.strategyName(), cfg.timeframe, r.timeframe() == null ? "AUTO" : r.timeframe(), cfg.capital,
+                cfg.commissionBps, cfg.slippageBps, cfg.positionSize, cfg.execLag, cfg.stopLossPct,
+                cfg.takeProfitPct, cfg.warmupBars, cfg.riskFreePct, cfg.allowShort);
+        return cfg;
     }
 
     private List<String> resolveSymbols(List<String> requested) {
-        if (requested != null && !requested.isEmpty())
-            return requested.stream().map(String::toUpperCase).toList();
-        return universe.get();
+        if (requested != null && !requested.isEmpty()) {
+            List<String> syms = requested.stream().map(String::toUpperCase).toList();
+            log.info("Symbols: {} requested {}", syms.size(), preview(syms));
+            return syms;
+        }
+        List<String> syms = universe.get();
+        log.info("Symbols: {} from universe {}", syms.size(), preview(syms));
+        return syms;
+    }
+
+    private static String preview(List<String> l) {
+        return l.size() <= 12 ? l.toString() : l.subList(0, 12) + " …+" + (l.size() - 12);
     }
 
     private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf) {
+        long t0 = System.currentTimeMillis();
+        log.info("Load bars: {} symbol(s) {}..{} @ {}", symbols.size(), start, end, tf);
         List<BarSeries> out = new ArrayList<>();
+        int miss = 0;
+        long bars = 0;
         for (String s : symbols) {
             BarSeries b = marketData.getBars(s, start, end);
-            if (b.size() > 0) out.add(BarResampler.resample(b, tf));
+            if (b.size() > 0) { BarSeries rs = BarResampler.resample(b, tf); out.add(rs); bars += rs.size(); }
+            else miss++;
         }
-        if (out.isEmpty()) throw new IllegalStateException("No market data for requested symbols/range");
+        log.info("Load bars: {} series ready, {} bars total{} in {} ms", out.size(), bars,
+                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
+        if (out.isEmpty()) {
+            log.warn("Load bars: no market data for {} @ {} {}..{}", preview(symbols), tf, start, end);
+            throw new IllegalStateException("No market data for requested symbols/range");
+        }
         return out;
     }
 
@@ -144,6 +168,7 @@ public class BacktestService {
         log.info("Backtest: '{}' on {} symbol(s) {}..{} @ {}", req.strategyName(), symbols.size(),
                 req.start(), req.end(), cfg.timeframe);
         List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe);
+        log.info("Backtest: '{}' computing portfolio over {} series (symbols in parallel)…", req.strategyName(), data.size());
         BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg, executor);
         BacktestResultDto dto = persist(o, symbols, cfg, req.start(), req.end());
         log.info("Backtest: '{}' done in {} ms — run #{} {}", req.strategyName(),
@@ -185,6 +210,8 @@ public class BacktestService {
             }
             jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, data));
         }
+        log.info("Backtest run-all: {} jobs prepared ({} distinct timeframe(s)) — submitting to pool",
+                jobs.size(), perStrategyTf ? tfData.size() : 1);
 
         // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
         int total = jobs.size();
@@ -293,11 +320,14 @@ public class BacktestService {
             trades.add(te);
         }
         tradeRepo.saveAll(trades);
+        log.info("Persisted run #{}: '{}' @ {} — {} symbols, {} bars, {} trades", run.getId(), o.strategy,
+                cfg.timeframe.name(), symbols.size(), o.dates.length, trades.size());
 
         return toDto(run.getId(), cfg.timeframe.name(), o.dates.length, o);
     }
 
     public BacktestResultDto getRun(Long runId) {
+        log.info("Backtest: loading run #{}", runId);
         BacktestRunEntity run = runRepo.findById(runId)
                 .orElseThrow(() -> new NoSuchElementException("No run " + runId));
         BacktestResultEntity res = resultRepo.findByRunId(runId)
@@ -423,6 +453,10 @@ public class BacktestService {
                 (strategy == null || strategy.isBlank()) ? null : strategy, symbolLike,
                 minReturn, minCagr, minSharpe, minProfitFactor, minWinRate, ddFloor, minTrades,
                 org.springframework.data.domain.PageRequest.of(0, lim, s));
+        log.info("Run history: strategy={} symbol={} sort={} {} -> {} rows",
+                strategy == null || strategy.isBlank() ? "*" : strategy,
+                symbol == null || symbol.isBlank() ? "*" : symbol.trim().toUpperCase(),
+                col, d, runs.size());
 
         List<LeaderboardEntryDto> out = new ArrayList<>();
         for (BacktestRunEntity r : runs) {

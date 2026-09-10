@@ -3,6 +3,8 @@ package com.quantplat.web;
 import com.quantplat.dto.Dtos.*;
 import com.quantplat.service.BacktestService;
 import com.quantplat.service.EnsembleService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,6 +13,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/backtests")
 public class BacktestController {
+
+    private static final Logger log = LoggerFactory.getLogger(BacktestController.class);
 
     private final BacktestService service;
     private final EnsembleService ensemble;
@@ -27,21 +31,31 @@ public class BacktestController {
 
     @PostMapping
     public BacktestResultDto run(@RequestBody BacktestRequest req) {
+        log.info("POST /backtests — strategy='{}' symbols={} {}..{} tf={}", req.strategyName(),
+                req.symbols() == null ? "universe" : req.symbols().size(), req.start(), req.end(), req.timeframe());
         return service.run(req);
     }
 
     @PostMapping("/run-all")
     public List<LeaderboardEntryDto> runAll(@RequestBody BacktestRequest req) {
+        log.info("POST /backtests/run-all — symbols={} {}..{} tf={} perStrategyTf={}",
+                req.symbols() == null ? "universe" : req.symbols().size(), req.start(), req.end(),
+                req.timeframe(), req.perStrategyTimeframe());
         return service.runAll(req);
     }
 
     @PostMapping("/pairs")
     public BacktestResultDto pairs(@RequestBody PairsRequest req) {
+        log.info("POST /backtests/pairs — {}/{} {}..{} tf={}", req.symbolA(), req.symbolB(),
+                req.start(), req.end(), req.timeframe());
         return service.runPairs(req);
     }
 
     @PostMapping("/ensemble")
     public EnsembleResultDto ensemble(@RequestBody EnsembleRequest req) {
+        log.info("POST /backtests/ensemble — legs={} weighting={} tf={}",
+                req.strategyNames() == null ? "all-enabled" : req.strategyNames().size(),
+                req.weighting(), req.timeframe());
         return ensemble.ensemble(req);
     }
 
