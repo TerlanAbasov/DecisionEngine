@@ -9,8 +9,19 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** Vectorised, next-bar backtesting engine. */
 public final class Backtester {
+
+    private static final Logger log = LoggerFactory.getLogger(Backtester.class);
+
+    /** Emit a per-(strategy × stock) INFO line while running a portfolio. */
+    private final boolean tracePerSymbol;
+
+    public Backtester() { this(true); }
+    public Backtester(boolean tracePerSymbol) { this.tracePerSymbol = tracePerSymbol; }
 
     /**
      * Cap on a single bar's price move fed into P&L. A liquid instrument doesn't move ±75%
@@ -31,6 +42,21 @@ public final class Backtester {
     /** Per-symbol computed series aligned to the symbol's own dates. */
     private record Series(Instant[] dates, double[] net, double[] bench,
                           double[] pos, double[] absPos, List<TradeResult> trades) {}
+
+    /** {@link #computeSeries} plus a per-(strategy × stock) trace line. */
+    private Series computeOne(BarSeries b, TradingStrategy strat,
+                              Map<String, Double> params, BacktestConfig cfg, double tradeWeight) {
+        long t0 = System.currentTimeMillis();
+        Series s = computeSeries(b, strat, params, cfg, tradeWeight);
+        if (tracePerSymbol && log.isInfoEnabled()) {
+            double ret = 0;
+            for (double n : s.net) if (!Double.isNaN(n)) ret += n;
+            log.info("Backtest: {} × {} — {} bars, {} trades, ret {}% ({} ms)",
+                    strat.name(), b.symbol, b.size(), s.trades.size(),
+                    Math.round(ret * 1000) / 10.0, System.currentTimeMillis() - t0);
+        }
+        return s;
+    }
 
     private Series computeSeries(BarSeries b, TradingStrategy strat,
                                  Map<String, Double> params, BacktestConfig cfg, double tradeWeight) {
@@ -155,11 +181,11 @@ public final class Backtester {
         if (executor != null && data.size() > 1) {
             List<CompletableFuture<Series>> fs = data.stream()
                     .map(b -> CompletableFuture.supplyAsync(
-                            () -> computeSeries(b, strat, params, cfg, tradeWeight), executor))
+                            () -> computeOne(b, strat, params, cfg, tradeWeight), executor))
                     .toList();
             computed = fs.stream().map(CompletableFuture::join).toList();
         } else {
-            computed = data.stream().map(b -> computeSeries(b, strat, params, cfg, tradeWeight)).toList();
+            computed = data.stream().map(b -> computeOne(b, strat, params, cfg, tradeWeight)).toList();
         }
         for (int i = 0; i < data.size(); i++) {
             Series s = computed.get(i);
@@ -238,6 +264,8 @@ public final class Backtester {
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
         Map<String, Double> m = PerformanceMetrics.compute(net, posA, absPos, bench, trades, cfg, dates);
+        if (tracePerSymbol)
+            log.info("Backtest: pairs_trading × {}/{} — {} common bars, {} trades", a.symbol, b.symbol, n, trades.size());
         return new BacktestOutput("pairs_trading", List.of(a.symbol, b.symbol), dates, eq, benchEq, dd, trades, m);
     }
 

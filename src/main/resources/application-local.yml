@@ -27,6 +27,7 @@ spring:
 quantplat:
   backtest:
     threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
+    trace-per-symbol: true       # log one line per (strategy x stock) during backtests — set false for big sweeps
   default-history-years: 2
   data:
     fresh-days: 4               # a symbol counts as "fresh" if its newest cached bar is within this many days

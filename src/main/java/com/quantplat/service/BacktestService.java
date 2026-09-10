@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 @Service
 public class BacktestService {
@@ -37,15 +37,18 @@ public class BacktestService {
     private final BacktestRunRepository runRepo;
     private final BacktestResultRepository resultRepo;
     private final TradeRepository tradeRepo;
-    private final Executor executor;
-    private final Backtester backtester = new Backtester();
+    private final ExecutorService executor;
+    private final Backtester backtester;
 
     public BacktestService(MarketDataService marketData, StrategyService strategies,
                            UniverseService universe, JsonCodec json,
                            BacktestRunRepository runRepo, BacktestResultRepository resultRepo,
                            TradeRepository tradeRepo,
                            @org.springframework.beans.factory.annotation.Qualifier(
-                                   com.quantplat.config.ExecutorConfig.BACKTEST_EXECUTOR) Executor executor) {
+                                   com.quantplat.config.ExecutorConfig.BACKTEST_EXECUTOR) ExecutorService executor,
+                           @org.springframework.beans.factory.annotation.Value(
+                                   "${quantplat.backtest.trace-per-symbol:true}") boolean tracePerSymbol) {
+        this.backtester = new Backtester(tracePerSymbol);
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
@@ -143,7 +146,7 @@ public class BacktestService {
     public BacktestConfig configOf(BacktestRequest req) { return cfg(req); }
 
     /** Shared backtest thread pool — for the optimiser / ensemble to fan out their own work. */
-    public Executor executor() { return executor; }
+    public ExecutorService executor() { return executor; }
 
     /** Run one portfolio backtest against already-loaded data and return only its metrics (no persistence). */
     public Map<String, Double> evaluate(TradingStrategy strat, Map<String, Double> params,
