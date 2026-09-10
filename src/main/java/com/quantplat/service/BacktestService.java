@@ -188,16 +188,28 @@ public class BacktestService {
         List<BarSeries> sharedData = perStrategyTf ? null : load(symbols, req.start(), req.end(), cfg.timeframe);
 
         boolean includeDisabled = Boolean.TRUE.equals(req.includeDisabled());
-        Map<String, TradingStrategy> enabled = includeDisabled
-                ? strategies.getRunnableStrategies() : strategies.getEnabledStrategies();
+        List<String> picked = req.strategyNames();
+        String scope;
+        Map<String, TradingStrategy> enabled;
+        if (picked != null && !picked.isEmpty()) {
+            enabled = strategies.getStrategies(picked);
+            scope = "picked (" + enabled.size() + "/" + picked.size() + ")";
+        } else if (includeDisabled) {
+            enabled = strategies.getRunnableStrategies();
+            scope = "runnable (incl. disabled)";
+        } else {
+            enabled = strategies.getEnabledStrategies();
+            scope = "enabled";
+        }
         long batchStart = System.currentTimeMillis();
         if (enabled.isEmpty())
-            throw new IllegalStateException(includeDisabled
-                    ? "No strategies to run — every strategy is archived."
-                    : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
+            throw new IllegalStateException(picked != null && !picked.isEmpty()
+                    ? "None of the picked strategies are runnable (unknown or archived)."
+                    : includeDisabled
+                        ? "No strategies to run — every strategy is archived."
+                        : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
         log.info("Backtest run-all: {} {} strategies on {} symbol(s) {}..{} ({})",
-                enabled.size(), includeDisabled ? "runnable (incl. disabled)" : "enabled",
-                symbols.size(), req.start(), req.end(),
+                enabled.size(), scope, symbols.size(), req.start(), req.end(),
                 perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
 
         // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---

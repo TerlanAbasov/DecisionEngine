@@ -58,7 +58,9 @@ public final class Dtos {
                                   Double stopLossPct, Double takeProfitPct,
                                   Boolean perStrategyTimeframe,
                                   /** run-all: include disabled (but not archived) strategies too */
-                                  Boolean includeDisabled) {}
+                                  Boolean includeDisabled,
+                                  /** run-all: restrict the leaderboard to these strategy names (blank = all) */
+                                  List<String> strategyNames) {}
 
     public record PairsRequest(String symbolA, String symbolB, Integer window, Double entry,
                                Double exit, LocalDate start, LocalDate end, Double capital,

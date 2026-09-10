@@ -206,6 +206,19 @@ public class StrategyService {
         return strategyMap(true);
     }
 
+    /** name -> wrapped strategy for the given names, in order; unknown / archived names are skipped. */
+    public Map<String, TradingStrategy> getStrategies(java.util.Collection<String> names) {
+        Map<String, TradingStrategy> out = new LinkedHashMap<>();
+        for (String name : names) {
+            if (name == null || name.isBlank() || out.containsKey(name) || !catalog.containsKey(name)) continue;
+            repo.findByName(name).ifPresent(e -> {
+                if (!Boolean.TRUE.equals(e.getArchived()))
+                    out.put(name, wrap(e, catalog.get(name)));
+            });
+        }
+        return out;
+    }
+
     private Map<String, TradingStrategy> strategyMap(boolean includeDisabled) {
         Map<String, TradingStrategy> out = new LinkedHashMap<>();
         for (StrategyConfigEntity e : repo.findAll())
