@@ -25,6 +25,8 @@ spring:
     default-property-inclusion: non_null
 
 quantplat:
+  backtest:
+    threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
   default-history-years: 2
   data:
     fresh-days: 4               # a symbol counts as "fresh" if its newest cached bar is within this many days

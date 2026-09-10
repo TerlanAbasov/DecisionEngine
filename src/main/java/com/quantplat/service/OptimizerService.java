@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Brute-force parameter sweep for a single strategy: run the portfolio backtest across a
@@ -66,22 +67,26 @@ public class OptimizerService {
         log.info("Optimize: '{}' sweeping {}{} = {} cells on {} symbol(s) @ {}, score by {}",
                 name, req.param1(), twoD ? " x " + req.param2() : "", cells, symbols.size(), cfg.timeframe, metric);
 
-        List<OptimizeCellDto> grid = new ArrayList<>();
-        int done = 0;
+        // one task per grid cell, fanned out across the shared backtest pool
+        List<CompletableFuture<OptimizeCellDto>> futures = new ArrayList<>(cells);
         for (double v1 : axis1) {
             for (double v2 : axis2) {
-                Map<String, Double> params = new LinkedHashMap<>(defaults);
-                params.put(req.param1(), v1);
-                if (twoD) params.put(req.param2(), v2);
-                Map<String, Double> m = backtests.evaluate(strat, params, data, cfg);
-                double score = m.getOrDefault(metric, Double.NaN);
-                Map<String, Double> tried = new LinkedHashMap<>();
-                tried.put(req.param1(), v1);
-                if (twoD) tried.put(req.param2(), v2);
-                grid.add(new OptimizeCellDto(tried, m, Double.isNaN(score) ? Double.NEGATIVE_INFINITY : score));
-                if (++done % 25 == 0) log.info("Optimize: '{}' {}/{} cells", name, done, cells);
+                final double a = v1, b = v2;
+                futures.add(CompletableFuture.supplyAsync(() -> {
+                    Map<String, Double> params = new LinkedHashMap<>(defaults);
+                    params.put(req.param1(), a);
+                    if (twoD) params.put(req.param2(), b);
+                    Map<String, Double> m = backtests.evaluate(strat, params, data, cfg);
+                    double score = m.getOrDefault(metric, Double.NaN);
+                    Map<String, Double> tried = new LinkedHashMap<>();
+                    tried.put(req.param1(), a);
+                    if (twoD) tried.put(req.param2(), b);
+                    return new OptimizeCellDto(tried, m, Double.isNaN(score) ? Double.NEGATIVE_INFINITY : score);
+                }, backtests.executor()));
             }
         }
+        List<OptimizeCellDto> grid = futures.stream().map(CompletableFuture::join)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         grid.sort(Comparator.comparingDouble(OptimizeCellDto::score).reversed());
         OptimizeCellDto best = grid.isEmpty() ? null : grid.get(0);
         Map<String, Double> bestParams = new LinkedHashMap<>(defaults);

@@ -25,6 +25,8 @@ spring:
     default-property-inclusion: non_null
 
 quantplat:
+  backtest:
+    threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
   default-history-years: 6.5
   alpaca:
     api-key-id: PKSRTKKHKLY76BKUA22MYCYIZG

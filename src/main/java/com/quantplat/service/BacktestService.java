@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 public class BacktestService {
@@ -35,12 +37,15 @@ public class BacktestService {
     private final BacktestRunRepository runRepo;
     private final BacktestResultRepository resultRepo;
     private final TradeRepository tradeRepo;
+    private final Executor executor;
     private final Backtester backtester = new Backtester();
 
     public BacktestService(MarketDataService marketData, StrategyService strategies,
                            UniverseService universe, JsonCodec json,
                            BacktestRunRepository runRepo, BacktestResultRepository resultRepo,
-                           TradeRepository tradeRepo) {
+                           TradeRepository tradeRepo,
+                           @org.springframework.beans.factory.annotation.Qualifier(
+                                   com.quantplat.config.ExecutorConfig.BACKTEST_EXECUTOR) Executor executor) {
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
@@ -48,6 +53,7 @@ public class BacktestService {
         this.runRepo = runRepo;
         this.resultRepo = resultRepo;
         this.tradeRepo = tradeRepo;
+        this.executor = executor;
     }
 
     /** Resample targets offered by the backtest form. */
@@ -112,6 +118,9 @@ public class BacktestService {
 
     public BacktestConfig configOf(BacktestRequest req) { return cfg(req); }
 
+    /** Shared backtest thread pool — for the optimiser / ensemble to fan out their own work. */
+    public Executor executor() { return executor; }
+
     /** Run one portfolio backtest against already-loaded data and return only its metrics (no persistence). */
     public Map<String, Double> evaluate(TradingStrategy strat, Map<String, Double> params,
                                         List<BarSeries> data, BacktestConfig cfg) {
@@ -135,7 +144,7 @@ public class BacktestService {
         log.info("Backtest: '{}' on {} symbol(s) {}..{} @ {}", req.strategyName(), symbols.size(),
                 req.start(), req.end(), cfg.timeframe);
         List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe);
-        BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg);
+        BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg, executor);
         BacktestResultDto dto = persist(o, symbols, cfg, req.start(), req.end());
         log.info("Backtest: '{}' done in {} ms — run #{} {}", req.strategyName(),
                 System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
@@ -159,29 +168,48 @@ public class BacktestService {
                 enabled.size(), symbols.size(), req.start(), req.end(),
                 perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
 
-        List<LeaderboardEntryDto> board = new ArrayList<>();
-        int i = 0, total = enabled.size();
+        // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---
+        Map<Timeframe, List<BarSeries>> tfData = new java.util.HashMap<>();
+        record Job(String name, TradingStrategy strat, Map<String, Double> params,
+                   BacktestConfig cfg, List<BarSeries> data) {}
+        List<Job> jobs = new ArrayList<>();
         for (Map.Entry<String, TradingStrategy> e : enabled.entrySet()) {
-            i++;
             Map<String, Double> params = strategies.getParams(e.getKey());
             BacktestConfig runCfg = cfg;
             List<BarSeries> data = sharedData;
             if (perStrategyTf) {
                 Timeframe tf = strategies.recommendedTimeframe(e.getKey());
                 runCfg = cfg.withTimeframe(tf);
-                data = nativeData.stream().map(b -> BarResampler.resample(b, tf)).toList();
+                data = tfData.computeIfAbsent(tf,
+                        t -> nativeData.stream().map(b -> BarResampler.resample(b, t)).toList());
             }
-            long t0 = System.currentTimeMillis();
-            log.info("Backtest run-all [{}/{}]: '{}' @ {}", i, total, e.getKey(), runCfg.timeframe);
-            BacktestOutput o = backtester.runPortfolio(data, e.getValue(), params.isEmpty() ? null : params, runCfg);
-            BacktestResultDto dto = persist(o, symbols, runCfg, req.start(), req.end());
-            log.info("Backtest run-all [{}/{}]: '{}' done in {} ms — run #{} {}", i, total, e.getKey(),
-                    System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
+            jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, data));
+        }
+
+        // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
+        int total = jobs.size();
+        List<CompletableFuture<BacktestOutput>> futures = new ArrayList<>(total);
+        for (Job j : jobs) {
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                long t0 = System.currentTimeMillis();
+                BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg());
+                log.info("Backtest run-all: '{}' @ {} computed in {} ms — {}",
+                        j.name(), j.cfg().timeframe, System.currentTimeMillis() - t0, fmtMetrics(o.metrics));
+                return o;
+            }, executor));
+        }
+
+        // --- persist sequentially on this transaction thread ---
+        List<LeaderboardEntryDto> board = new ArrayList<>(total);
+        for (int i = 0; i < total; i++) {
+            Job j = jobs.get(i);
+            BacktestOutput o = futures.get(i).join();
+            BacktestResultDto dto = persist(o, symbols, j.cfg(), req.start(), req.end());
             board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(), dto.metrics()));
         }
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
-        log.info("Backtest run-all: {} strategies done in {} ms", total, System.currentTimeMillis() - batchStart);
+        log.info("Backtest run-all: {} strategies done in {} ms (parallel)", total, System.currentTimeMillis() - batchStart);
         return board;
     }
 

@@ -69,22 +69,36 @@ public class EnsembleService {
         long batchStart = System.currentTimeMillis();
         log.info("Ensemble: {} legs on {} symbol(s), {}-weighted ({})", names.size(), symbols.size(),
                 weighting, perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
-        int li = 0;
+        // prep every leg single-threaded (strategy / params / timeframe / data — the DB touches),
+        // then run the CPU-bound backtests in parallel on the shared pool
+        record Leg(String name, TradingStrategy strat, java.util.Map<String, Double> params,
+                   BacktestConfig cfg, List<BarSeries> data) {}
+        java.util.Map<Timeframe, List<BarSeries>> tfData = new java.util.HashMap<>();
+        List<Leg> legJobs = new ArrayList<>();
         for (String name : names) {
-            li++;
-            TradingStrategy strat = strategies.getStrategy(name);
             List<BarSeries> legData = data;
             BacktestConfig legCfg = cfg;
             if (perStrategyTf) {
                 Timeframe tf = strategies.recommendedTimeframe(name);
                 legCfg = cfg.withTimeframe(tf);
-                legData = data.stream().map(b -> BarResampler.resample(b, tf)).toList();
+                legData = tfData.computeIfAbsent(tf,
+                        t -> data.stream().map(b -> BarResampler.resample(b, t)).toList());
             }
-            long t0 = System.currentTimeMillis();
-            log.info("Ensemble leg [{}/{}]: '{}' @ {}", li, names.size(), name, legCfg.timeframe);
-            BacktestOutput o = backtests.runOnce(strat, strategies.getParams(name), legData, legCfg);
-            log.info("Ensemble leg [{}/{}]: '{}' done in {} ms", li, names.size(), name, System.currentTimeMillis() - t0);
-            legNames.add(name);
+            legJobs.add(new Leg(name, strategies.getStrategy(name), strategies.getParams(name), legCfg, legData));
+        }
+        List<java.util.concurrent.CompletableFuture<BacktestOutput>> legFutures = new ArrayList<>();
+        for (Leg leg : legJobs) {
+            legFutures.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                long t0 = System.currentTimeMillis();
+                BacktestOutput o = backtests.runOnce(leg.strat(), leg.params(), leg.data(), leg.cfg());
+                log.info("Ensemble leg '{}' @ {} computed in {} ms", leg.name(), leg.cfg().timeframe,
+                        System.currentTimeMillis() - t0);
+                return o;
+            }, backtests.executor()));
+        }
+        for (int k = 0; k < legJobs.size(); k++) {
+            BacktestOutput o = legFutures.get(k).join();
+            legNames.add(legJobs.get(k).name());
             legRet.add(toReturns(o.dates, o.equity, capital));
             legBench.add(toReturns(o.dates, o.benchmark, capital));
             legMetrics.add(o.metrics);

@@ -6,6 +6,8 @@ import com.quantplat.strategy.impl.PairsStrategy;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /** Vectorised, next-bar backtesting engine. */
 public final class Backtester {
@@ -133,15 +135,36 @@ public final class Backtester {
 
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
                                        Map<String, Double> params, BacktestConfig cfg) {
+        return runPortfolio(data, strat, params, cfg, null);
+    }
+
+    /**
+     * @param executor when non-null and there is more than one symbol, each symbol's
+     *                 {@code computeSeries} (the CPU-heavy part) runs on the pool in parallel;
+     *                 the (cheap) portfolio blend and metrics stay single-threaded.
+     */
+    public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
+                                       Map<String, Double> params, BacktestConfig cfg, Executor executor) {
         List<Series> series = new ArrayList<>();
         List<String> symbols = new ArrayList<>();
         List<TradeResult> allTrades = new ArrayList<>();
         TreeSet<Instant> allDates = new TreeSet<>();
         double tradeWeight = 1.0 / Math.max(1, data.size());   // equal-weight sleeve per symbol
-        for (BarSeries b : data) {
-            Series s = computeSeries(b, strat, params, cfg, tradeWeight);
+
+        List<Series> computed;
+        if (executor != null && data.size() > 1) {
+            List<CompletableFuture<Series>> fs = data.stream()
+                    .map(b -> CompletableFuture.supplyAsync(
+                            () -> computeSeries(b, strat, params, cfg, tradeWeight), executor))
+                    .toList();
+            computed = fs.stream().map(CompletableFuture::join).toList();
+        } else {
+            computed = data.stream().map(b -> computeSeries(b, strat, params, cfg, tradeWeight)).toList();
+        }
+        for (int i = 0; i < data.size(); i++) {
+            Series s = computed.get(i);
             series.add(s);
-            symbols.add(b.symbol);
+            symbols.add(data.get(i).symbol);
             allTrades.addAll(s.trades);
             allDates.addAll(Arrays.asList(s.dates));
         }
