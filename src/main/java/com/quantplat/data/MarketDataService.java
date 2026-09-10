@@ -8,6 +8,8 @@ import com.quantplat.engine.BarResampler;
 import com.quantplat.engine.Timeframe;
 import com.quantplat.repository.PriceBarRepository;
 import com.quantplat.strategy.BarSeries;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,8 @@ import java.util.List;
 /** Loads bars from the DB cache, fetching from the active client on a miss. */
 @Service
 public class MarketDataService {
+
+    private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
 
     private final PriceBarRepository repo;
     private final MarketDataClient client;
@@ -63,20 +67,29 @@ public class MarketDataService {
     public void ensureSymbol(String symbol) {
         PriceBarEntity newest = repo.findTopBySymbolOrderByBarTimeDesc(symbol).orElse(null);
         if (newest == null) {
-            repo.saveAll(client.fetchHistory(symbol));
+            log.info("MarketData: {} not cached — fetching full history @ {}", symbol, client.configuredTimeframe());
+            List<PriceBarEntity> bars = client.fetchHistory(symbol);
+            repo.saveAll(bars);
+            log.info("MarketData: {} cached {} bars", symbol, bars.size());
         } else if (!timeframeMatches(newest)) {
             // cached bars were fetched at a different interval (e.g. 1Day) than the one
             // now configured (e.g. 1Min) — wipe and refetch so the app stops serving stale bars
+            log.info("MarketData: {} cached at '{}' but config is '{}' — refetching",
+                    symbol, newest.getTimeframe(), client.configuredTimeframe());
             repo.deleteBySymbol(symbol);
-            repo.saveAll(client.fetchHistory(symbol));
+            List<PriceBarEntity> bars = client.fetchHistory(symbol);
+            repo.saveAll(bars);
+            log.info("MarketData: {} recached {} bars @ {}", symbol, bars.size(), client.configuredTimeframe());
         }
     }
 
     @Transactional
     public int refresh(String symbol) {
+        log.info("MarketData: refreshing {} (full re-fetch @ {})", symbol, client.configuredTimeframe());
         repo.deleteBySymbol(symbol);
         List<PriceBarEntity> bars = client.fetchHistory(symbol);
         repo.saveAll(bars);
+        log.info("MarketData: refreshed {} — {} bars", symbol, bars.size());
         return bars.size();
     }
 
@@ -93,8 +106,10 @@ public class MarketDataService {
         if (newest != null && !timeframeMatches(newest)) return refresh(symbol);
 
         if (newest == null) {                    // first fetch — pull the full history
+            log.info("MarketData: poll {} — first fetch, full history @ {}", symbol, client.configuredTimeframe());
             List<PriceBarEntity> bars = client.fetchHistory(symbol);
             repo.saveAll(bars);
+            log.info("MarketData: poll {} — cached {} bars", symbol, bars.size());
             return bars.size();
         }
 
@@ -108,6 +123,9 @@ public class MarketDataService {
                 .filter(b -> b.getBarTime().isAfter(cachedThrough))
                 .toList();
         repo.saveAll(newBars);
+        if (!newBars.isEmpty())
+            log.info("MarketData: poll {} — +{} new bars (through {})", symbol, newBars.size(),
+                    newBars.get(newBars.size() - 1).getBarTime());
         return newBars.size();
     }
 
@@ -146,6 +164,7 @@ public class MarketDataService {
                     r4(b.open[i]), r4(b.high[i]), r4(b.low[i]), r4(b.close[i]), Math.round(b.volume[i])));
         Instant s = n > from ? b.date[from] : null;
         Instant e = n > 0 ? b.date[n - 1] : null;
+        log.info("MarketData: chart series {} @ {} -> {} bars ({} .. {})", sym, tf.name(), data.size(), s, e);
         return new PriceSeriesDto(sym, tf.name(), data.size(), s, e, data);
     }
 

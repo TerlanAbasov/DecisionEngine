@@ -2,6 +2,8 @@ package com.quantplat.service;
 
 import com.quantplat.domain.UniverseSymbolEntity;
 import com.quantplat.repository.UniverseSymbolRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,6 +11,8 @@ import java.util.List;
 
 @Service
 public class UniverseService {
+
+    private static final Logger log = LoggerFactory.getLogger(UniverseService.class);
 
     private static final List<String> DEFAULTS = List.of(
             "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM", "XOM", "UNH");
@@ -20,8 +24,10 @@ public class UniverseService {
     }
 
     public void seedDefaults() {
-        if (repo.count() == 0)
+        if (repo.count() == 0) {
             for (String s : DEFAULTS) repo.save(new UniverseSymbolEntity(s));
+            log.info("Universe: seeded {} default symbols", DEFAULTS.size());
+        }
     }
 
     public List<String> get() {
@@ -37,19 +43,27 @@ public class UniverseService {
         symbols.stream().map(String::trim).filter(s -> !s.isEmpty())
                 .map(String::toUpperCase).distinct().sorted()
                 .forEach(s -> repo.save(new UniverseSymbolEntity(s)));
-        return get();
+        List<String> now = get();
+        log.info("Universe: replaced -> {} symbols {}", now.size(), now);
+        return now;
     }
 
     @Transactional
     public List<String> remove(String symbol) {
-        if (symbol != null) repo.deleteBySymbol(symbol.trim().toUpperCase());
+        if (symbol != null) {
+            repo.deleteBySymbol(symbol.trim().toUpperCase());
+            log.info("Universe: removed {}", symbol.trim().toUpperCase());
+        }
         return get();
     }
 
     @Transactional
     public void add(String symbol) {
         String s = symbol.trim().toUpperCase();
-        if (!s.isEmpty() && !repo.existsBySymbol(s)) repo.save(new UniverseSymbolEntity(s));
+        if (!s.isEmpty() && !repo.existsBySymbol(s)) {
+            repo.save(new UniverseSymbolEntity(s));
+            log.info("Universe: added {}", s);
+        }
     }
 
     @Transactional

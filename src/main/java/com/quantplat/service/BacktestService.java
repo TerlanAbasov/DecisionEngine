@@ -294,6 +294,7 @@ public class BacktestService {
         tradeRepo.deleteByRunId(runId);
         resultRepo.deleteByRunId(runId);
         runRepo.deleteById(runId);
+        log.info("Backtest: deleted run #{}", runId);
     }
 
     /**
@@ -331,6 +332,8 @@ public class BacktestService {
 
         List<String> kept = ranked.stream().limit(k).map(Scored::name).toList();
         List<String> losers = ranked.stream().skip(k).map(Scored::name).toList();
+        log.info("Prune: {} strategies with history ranked by avg {} of last {} runs — keeping {}, {} {} + deleting their runs",
+                total, rankedBy, window, k, losers.size(), archive ? "archived" : "disabled");
 
         int deletedRuns = 0;
         for (String name : losers) {
@@ -348,6 +351,8 @@ public class BacktestService {
                 strategies.setEnabled(name, true);
             }
 
+        log.info("Prune: done — kept {}, {} {}, deleted {} runs", kept.size(),
+                losers.size(), archive ? "archived" : "disabled", deletedRuns);
         return new PruneResultDto(rankedBy, window, total, k, kept, losers, deletedRuns);
     }
 

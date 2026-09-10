@@ -8,6 +8,8 @@ import com.quantplat.repository.StrategyConfigRepository;
 import com.quantplat.strategy.ConfiguredStrategy;
 import com.quantplat.strategy.TradingStrategy;
 import com.quantplat.strategy.impl.StrategyCatalog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,8 @@ import java.util.*;
 
 @Service
 public class StrategyService {
+
+    private static final Logger log = LoggerFactory.getLogger(StrategyService.class);
 
     private static final Set<String> DIRECTIONS = Set.of("long_only", "short_only", "long_short");
 
@@ -48,6 +52,7 @@ public class StrategyService {
     /** Seed strategy_config from the catalog on first startup, and backfill day-trading metadata. */
     @Transactional
     public void seed() {
+        int inserted = 0, backfilled = 0;
         for (TradingStrategy s : catalog.values()) {
             Optional<StrategyConfigEntity> existing = repo.findByName(s.name());
             if (existing.isEmpty()) {
@@ -60,6 +65,7 @@ public class StrategyService {
                 e.setRecommendedTimeframe(defaultTimeframe(s.category()));
                 e.setIntraday(defaultIntraday(s.category()));
                 repo.save(e);
+                inserted++;
             } else {
                 // rows created before this column existed -> fill the per-category default once
                 StrategyConfigEntity e = existing.get();
@@ -70,9 +76,11 @@ public class StrategyService {
                 if (e.getIntraday() == null) {
                     e.setIntraday(defaultIntraday(s.category())); dirty = true;
                 }
-                if (dirty) repo.save(e);
+                if (dirty) { repo.save(e); backfilled++; }
             }
         }
+        log.info("Strategies: seed done — catalog {} ({} inserted, {} metadata-backfilled)",
+                catalog.size(), inserted, backfilled);
     }
 
     public List<StrategyDto> list() {
@@ -97,6 +105,7 @@ public class StrategyService {
         StrategyConfigEntity e = entity(name);
         e.setEnabled(enabled);
         repo.save(e);
+        log.info("Strategy '{}' {}", name, enabled ? "enabled" : "disabled");
     }
 
     @Transactional
@@ -105,6 +114,7 @@ public class StrategyService {
         e.setArchived(archived);
         if (archived) e.setEnabled(false);       // archived strategies never run
         repo.save(e);
+        log.info("Strategy '{}' {}", name, archived ? "archived" : "un-archived");
     }
 
     public boolean isArchived(String name) {
@@ -139,6 +149,7 @@ public class StrategyService {
             e.setArchived(u.archived());
             if (u.archived()) e.setEnabled(false);
         }
+        log.info("Strategy '{}' controls updated", name);
         return dto(repo.save(e));
     }
 
@@ -153,6 +164,7 @@ public class StrategyService {
             if (p.getValue() != null && !p.getValue().isNaN()) clean.put(p.getKey(), p.getValue());
         }
         e.setParamsJson(clean.isEmpty() ? null : json.write(clean));
+        log.info("Strategy '{}' params set: {}", name, clean);
         return dto(repo.save(e));
     }
 
@@ -160,6 +172,7 @@ public class StrategyService {
     public StrategyDto resetParams(String name) {
         StrategyConfigEntity e = entity(name);
         e.setParamsJson(null);
+        log.info("Strategy '{}' params reset to defaults", name);
         return dto(repo.save(e));
     }
 

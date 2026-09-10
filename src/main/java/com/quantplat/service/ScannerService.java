@@ -61,6 +61,9 @@ public class ScannerService {
         List<String> syms = (symbols != null && !symbols.isEmpty())
                 ? symbols.stream().map(String::toUpperCase).toList() : universe.get();
         Map<String, TradingStrategy> enabled = strategies.getEnabledStrategies();
+        long t0 = System.currentTimeMillis();
+        log.info("Scan: {} enabled strategies x {} symbols @ {}", enabled.size(), syms.size(),
+                (timeframe != null && !Timeframe.isAuto(timeframe)) ? timeframe : "per-strategy timeframe");
 
         Map<String, BarSeries> nativeBars = new HashMap<>();
         for (String s : syms) nativeBars.put(s, marketData.getBars(s, null, null));
@@ -112,6 +115,8 @@ public class ScannerService {
             }
         }
         signalRepo.saveAll(toSave);
+        long newN = out.stream().filter(SignalDto::isNew).count();
+        log.info("Scan: done in {} ms — {} signals ({} newly flipped)", System.currentTimeMillis() - t0, out.size(), newN);
         out.sort(Comparator.comparing(SignalDto::isNew).reversed()
                 .thenComparing(SignalDto::strategy).thenComparing(SignalDto::symbol));
 
@@ -184,6 +189,9 @@ public class ScannerService {
                 markers = new ArrayList<>(markers.subList(markers.size() - MAX_MARKERS, markers.size()));
             out.add(new StrategySignalsDto(name, tf.name(), markers));
         }
+        int total = out.stream().mapToInt(s -> s.markers().size()).sum();
+        log.info("Chart signals: {} on {} strategy(ies) @ {} -> {} markers", sym, out.size(),
+                forced ? forcedTf : "per-strategy", total);
         return new SignalOverlayDto(sym, out);
     }
 }
