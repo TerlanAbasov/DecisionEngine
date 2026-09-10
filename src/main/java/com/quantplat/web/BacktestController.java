@@ -38,9 +38,9 @@ public class BacktestController {
 
     @PostMapping("/run-all")
     public List<LeaderboardEntryDto> runAll(@RequestBody BacktestRequest req) {
-        log.info("POST /backtests/run-all — symbols={} {}..{} tf={} perStrategyTf={}",
+        log.info("POST /backtests/run-all — symbols={} {}..{} tf={} perStrategyTf={} includeDisabled={}",
                 req.symbols() == null ? "universe" : req.symbols().size(), req.start(), req.end(),
-                req.timeframe(), req.perStrategyTimeframe());
+                req.timeframe(), req.perStrategyTimeframe(), req.includeDisabled());
         return service.runAll(req);
     }
 

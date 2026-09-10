@@ -187,10 +187,17 @@ public class BacktestService {
         List<BarSeries> nativeData = perStrategyTf ? load(symbols, req.start(), req.end(), Timeframe.NATIVE) : null;
         List<BarSeries> sharedData = perStrategyTf ? null : load(symbols, req.start(), req.end(), cfg.timeframe);
 
-        Map<String, TradingStrategy> enabled = strategies.getEnabledStrategies();
+        boolean includeDisabled = Boolean.TRUE.equals(req.includeDisabled());
+        Map<String, TradingStrategy> enabled = includeDisabled
+                ? strategies.getRunnableStrategies() : strategies.getEnabledStrategies();
         long batchStart = System.currentTimeMillis();
-        log.info("Backtest run-all: {} enabled strategies on {} symbol(s) {}..{} ({})",
-                enabled.size(), symbols.size(), req.start(), req.end(),
+        if (enabled.isEmpty())
+            throw new IllegalStateException(includeDisabled
+                    ? "No strategies to run — every strategy is archived."
+                    : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
+        log.info("Backtest run-all: {} {} strategies on {} symbol(s) {}..{} ({})",
+                enabled.size(), includeDisabled ? "runnable (incl. disabled)" : "enabled",
+                symbols.size(), req.start(), req.end(),
                 perStrategyTf ? "per-strategy timeframe" : cfg.timeframe.toString());
 
         // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---
@@ -214,30 +221,40 @@ public class BacktestService {
                 jobs.size(), perStrategyTf ? tfData.size() : 1);
 
         // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
+        // one strategy failing (bad data, indicator NaN, …) must not abort the whole batch
         int total = jobs.size();
         List<CompletableFuture<BacktestOutput>> futures = new ArrayList<>(total);
         for (Job j : jobs) {
             futures.add(CompletableFuture.supplyAsync(() -> {
-                long t0 = System.currentTimeMillis();
-                BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg());
-                log.info("Backtest run-all: '{}' @ {} computed in {} ms — {}",
-                        j.name(), j.cfg().timeframe, System.currentTimeMillis() - t0, fmtMetrics(o.metrics));
-                return o;
+                try {
+                    long t0 = System.currentTimeMillis();
+                    BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg());
+                    log.info("Backtest run-all: '{}' @ {} computed in {} ms — {}",
+                            j.name(), j.cfg().timeframe, System.currentTimeMillis() - t0, fmtMetrics(o.metrics));
+                    return o;
+                } catch (RuntimeException ex) {
+                    log.warn("Backtest run-all: '{}' failed — {}: {}", j.name(),
+                            ex.getClass().getSimpleName(), ex.getMessage());
+                    return null;
+                }
             }, executor));
         }
 
         // --- persist sequentially on this transaction thread ---
         List<LeaderboardEntryDto> board = new ArrayList<>(total);
+        int failed = 0;
         for (int i = 0; i < total; i++) {
             Job j = jobs.get(i);
             BacktestOutput o = futures.get(i).join();
+            if (o == null) { failed++; continue; }
             BacktestResultDto dto = persist(o, symbols, j.cfg(), req.start(), req.end());
             board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(),
                     dto.symbols(), dto.metrics()));
         }
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
-        log.info("Backtest run-all: {} strategies done in {} ms (parallel)", total, System.currentTimeMillis() - batchStart);
+        log.info("Backtest run-all: {} of {} strategies done in {} ms (parallel){}", board.size(), total,
+                System.currentTimeMillis() - batchStart, failed > 0 ? " — " + failed + " failed" : "");
         return board;
     }
 
@@ -387,7 +404,8 @@ public class BacktestService {
         int total = ranked.size();
         int k = keep != null ? Math.max(1, keep)
                 : (int) Math.ceil(total * Math.min(100, Math.max(1, keepPct == null ? 50 : keepPct)) / 100.0);
-        k = Math.min(k, total);
+        // floor so repeated prunes can't cascade the active set down to almost nothing
+        k = Math.min(total, Math.max(k, Math.min(total, 5)));
 
         List<String> kept = ranked.stream().limit(k).map(Scored::name).toList();
         List<String> losers = ranked.stream().skip(k).map(Scored::name).toList();

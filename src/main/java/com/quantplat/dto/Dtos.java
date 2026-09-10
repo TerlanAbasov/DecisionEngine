@@ -56,7 +56,9 @@ public final class Dtos {
                                   String timeframe, Integer execLag, Double positionSize,
                                   Double riskFreePct, Integer warmupBars,
                                   Double stopLossPct, Double takeProfitPct,
-                                  Boolean perStrategyTimeframe) {}
+                                  Boolean perStrategyTimeframe,
+                                  /** run-all: include disabled (but not archived) strategies too */
+                                  Boolean includeDisabled) {}
 
     public record PairsRequest(String symbolA, String symbolB, Integer window, Double entry,
                                Double exit, LocalDate start, LocalDate end, Double capital,

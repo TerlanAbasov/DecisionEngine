@@ -198,9 +198,19 @@ public class StrategyService {
 
     /** name -> wrapped strategy for all enabled strategies. */
     public Map<String, TradingStrategy> getEnabledStrategies() {
+        return strategyMap(false);
+    }
+
+    /** name -> wrapped strategy for every non-archived strategy, enabled or not. */
+    public Map<String, TradingStrategy> getRunnableStrategies() {
+        return strategyMap(true);
+    }
+
+    private Map<String, TradingStrategy> strategyMap(boolean includeDisabled) {
         Map<String, TradingStrategy> out = new LinkedHashMap<>();
         for (StrategyConfigEntity e : repo.findAll())
-            if (e.isEnabled() && !Boolean.TRUE.equals(e.getArchived()) && catalog.containsKey(e.getName()))
+            if ((includeDisabled || e.isEnabled()) && !Boolean.TRUE.equals(e.getArchived())
+                    && catalog.containsKey(e.getName()))
                 out.put(e.getName(), wrap(e, catalog.get(e.getName())));
         return out;
     }
