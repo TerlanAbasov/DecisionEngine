@@ -1,0 +1,13 @@
+package com.quant.finance.execution;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication
+@EnableScheduling
+public class DecisionEngineApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DecisionEngineApplication.class, args);
+    }
+}

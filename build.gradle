@@ -36,7 +36,7 @@ dependencies {
 }
 
 springBoot {
-    mainClass = 'com.quantplat.DecisionEngineApplication'
+    mainClass = 'com.quant.finance.execution.DecisionEngineApplication'
 }
 
 tasks.named('test') {

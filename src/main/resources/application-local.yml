@@ -45,8 +45,15 @@ quantplat:
     lookback-days: 2             # how far before the last cached bar the incremental poll re-requests (gap / partial-bar safety)
   execution-engine:
     base-url: ${EXECUTION_ENGINE_URL:}   # e.g. http://localhost:8081 — blank disables forwarding
-    auto-forward: false                  # true = every new LONG/SHORT signal is pushed automatically
+    auto-forward: false                  # true = every new LONG/SHORT signal is pushed to /api/v1/alerts/tv-hook
     exchange: SMART
     quote-currency: USD
     asset-class: STK
-  cors-allowed-origins: http://localhost:5173
+    trade-command:
+      auto-forward: false                # true = every new LONG/SHORT signal is pushed to /api/v1/trades/command instead
+                                          # (don't enable both auto-forward flags for the same strategy — double order risk)
+      strategies:                        # comma-separated allow-list; blank = every enabled strategy
+      order-type: MKT                    # MKT | LMT | STP | ... (com.ib.client.OrderType names)
+      tif: DAY                           # DAY | GTC | IOC | ... (com.ib.client.Types.TimeInForce names)
+      quantity:                          # blank = omit from the payload (ExecutionEngine has no sizing on this path yet)
+  cors-allowed-origins: http://localhost:8081
