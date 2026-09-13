@@ -3,7 +3,7 @@ server:
 logging:
   level:
     ROOT: INFO
-    com.quant.finance.execution: INFO
+    com.quant.finance.decision: INFO
 
 spring:
   application:

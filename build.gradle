@@ -29,6 +29,12 @@ dependencies {
 
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 
+    // Feign client for the ExecutionEngine integration (plain OpenFeign — no Spring Cloud
+    // BOM needed for one outbound client; versions pinned explicitly since nothing else
+    // manages them).
+    implementation 'io.github.openfeign:feign-core:13.5'
+    implementation 'io.github.openfeign:feign-jackson:13.5'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
@@ -36,7 +42,7 @@ dependencies {
 }
 
 springBoot {
-    mainClass = 'com.quant.finance.execution.DecisionEngineApplication'
+    mainClass = 'com.quant.finance.decision.DecisionEngineApplication'
 }
 
 tasks.named('test') {

@@ -1,11 +1,13 @@
 package com.quant.finance.decision.client;
 
 import com.quant.finance.decision.dto.Dtos.SignalDto;
+import feign.Feign;
+import feign.jackson.JacksonEncoder;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -36,7 +38,8 @@ public class ExecutionEngineClient {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionEngineClient.class);
 
-    private final RestClient restClient;
+    private final ExecutionEngineApi api;
+    @Getter
     private final boolean configured;
 
     @Value("${quantplat.execution-engine.exchange:SMART}")
@@ -56,14 +59,16 @@ public class ExecutionEngineClient {
 
     public ExecutionEngineClient(@Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
         this.configured = baseUrl != null && !baseUrl.isBlank();
-        this.restClient = configured ? RestClient.builder().baseUrl(baseUrl).build() : null;
+        // No custom decoder: Feign's default decoder already special-cases String/void, which
+        // is all these two methods return — a JacksonDecoder would instead try to parse
+        // TradeController's plain-text ack ("📊 Symbol will be bought") as a JSON string
+        // literal and blow up.
+        this.api = configured
+                ? Feign.builder().encoder(new JacksonEncoder()).target(ExecutionEngineApi.class, baseUrl)
+                : null;
     }
 
-    public boolean isConfigured() {
-        return configured;
-    }
-
-    /** Forwards a LONG/SHORT signal as a TradingView-shaped alert. Throws on a FLAT signal or if unconfigured. */
+  /** Forwards a LONG/SHORT signal as a TradingView-shaped alert. Throws on a FLAT signal or if unconfigured. */
     public void sendAlert(SignalDto signal) {
         if (!configured) {
             throw new IllegalStateException(
@@ -92,11 +97,7 @@ public class ExecutionEngineClient {
         payload.put("time", DateTimeFormatter.ISO_INSTANT.format(signal.date()));
         payload.put("timenow", Instant.now().toString());
 
-        restClient.post()
-                .uri("/api/v1/alerts/tv-hook")
-                .body(payload)
-                .retrieve()
-                .toBodilessEntity();
+        api.tvHook(payload);
 
         log.info("Forwarded {} {} ({}) to ExecutionEngine", action.toUpperCase(), signal.symbol(), signal.strategy());
     }
@@ -143,11 +144,7 @@ public class ExecutionEngineClient {
         payload.put("rawText", String.format("DecisionEngine %s %s @ %s tf=%s close=%s",
                 signal.strategy(), signal.symbol(), signal.date(), signal.timeframe(), signal.close()));
 
-        String ack = restClient.post()
-                .uri("/api/v1/trades/command")
-                .body(payload)
-                .retrieve()
-                .body(String.class);
+        String ack = api.tradeCommand(payload);
 
         log.info("Sent {} command for {} ({}) to ExecutionEngine/trades — {}",
                 command, signal.symbol(), signal.strategy(), ack);
