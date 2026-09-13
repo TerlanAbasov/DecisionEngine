@@ -1,8 +1,6 @@
 package com.quant.finance.decision.client;
 
 import com.quant.finance.decision.dto.Dtos.SignalDto;
-import feign.Feign;
-import feign.jackson.JacksonEncoder;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,13 +26,18 @@ import java.util.Map;
  * <p>
  * FLAT signals are never sent: {@code TradeCommandDto} has no close/exit command that targets
  * a single symbol (its {@code CLOSE_ALL} closes every position).
+ * <p>
+ * The actual HTTP call is {@link ExecutionEngineFeignClient} — a {@code @FeignClient} built
+ * the same way as ExecutionEngine's own {@code RoutingClient}. This class stays responsible
+ * for the "is the integration even configured" guard, since {@code @FeignClient} has no
+ * built-in notion of an optional/absent target URL.
  */
 @Component
 public class ExecutionEngineClient {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionEngineClient.class);
 
-    private final ExecutionEngineApi api;
+    private final ExecutionEngineFeignClient api;
     @Getter
     private final boolean configured;
 
@@ -46,14 +49,10 @@ public class ExecutionEngineClient {
     @Value("${quantplat.execution-engine.quantity:}")
     private String quantity;
 
-    public ExecutionEngineClient(@Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
+    public ExecutionEngineClient(ExecutionEngineFeignClient api,
+                                 @Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
+        this.api = api;
         this.configured = baseUrl != null && !baseUrl.isBlank();
-        // No custom decoder: Feign's default decoder already special-cases String, which is
-        // all TradeController returns — a JacksonDecoder would instead try to parse its
-        // plain-text ack ("📊 Symbol will be bought") as a JSON string literal and blow up.
-        this.api = configured
-                ? Feign.builder().encoder(new JacksonEncoder()).target(ExecutionEngineApi.class, baseUrl)
-                : null;
     }
 
     /**

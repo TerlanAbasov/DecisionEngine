@@ -45,6 +45,11 @@ quantplat:
     # Talks only to ExecutionEngine's TradeController (POST /api/v1/trades/command) —
     # its AlertController/TradingView-webhook intake is intentionally not used.
     base-url: ${EXECUTION_ENGINE_URL:}   # e.g. http://localhost:8081 — blank disables forwarding
+    # @FeignClient can't take a blank url (it means "resolve by service discovery" and needs
+    # a load-balancer bean, which crashes startup without one) — this always resolves to
+    # something syntactically valid; ExecutionEngineClient.configured (above) is still what
+    # actually gates whether a call is ever made.
+    feign-url: ${EXECUTION_ENGINE_URL:http://execution-engine.invalid}
     auto-forward: false                  # true = every new LONG/SHORT signal is pushed automatically
     strategies:                          # comma-separated allow-list; blank = every enabled strategy
     order-type: MKT                      # MKT | LMT | STP | ... (com.ib.client.OrderType names)
