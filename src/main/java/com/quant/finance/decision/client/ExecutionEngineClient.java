@@ -9,29 +9,25 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Forwards DecisionEngine's LONG/SHORT signals to your Java IB {@code ExecutionEngine}, via
- * either (or both) of its two intake surfaces:
- * <ul>
- *   <li>{@link #sendAlert} — the TradingView-webhook-shaped alert intake
- *       ({@code POST /api/v1/alerts/tv-hook}), which feeds ExecutionEngine's alert -> order
- *       pipeline (AlertScheduler -> StrategyService -> TradeService -> a live IB order).</li>
- *   <li>{@link #sendTradeCommand} — its typed trade-command surface
- *       ({@code POST /api/v1/trades/command}, the same one its Telegram bot uses), dispatched
- *       straight to {@code TradeService.buy()/sell()} with no {@code AlertEntity}/
- *       {@code StrategyEntity} name-matching step in between. As of this writing those
- *       buy()/sell() methods are empty stubs on the ExecutionEngine side (see its
- *       StockTradeExecutor/CryptoTradeExecutor) — sending a command there is a no-op until
- *       that's implemented.</li>
- * </ul>
- * FLAT signals are never forwarded on either path: neither surface models a close — the
- * alert webhook only models entries, and CLOSE_ALL on the command surface closes every
- * position, not just this symbol's.
+ * Sends DecisionEngine's LONG/SHORT signals to ExecutionEngine's
+ * {@code com.quant.finance.execution.controller.TradeController}
+ * ({@code POST /api/v1/trades/command}) — the same typed trade-command surface its Telegram
+ * bot's {@code /buy}/{@code /sell} commands use. This is the only ExecutionEngine endpoint
+ * this integration talks to; its {@code AlertController} (TradingView-webhook-shaped alert
+ * intake) is intentionally not used.
+ * <p>
+ * A command is dispatched straight to {@code TradeService.buy()/sell()} with no
+ * {@code AlertEntity}/{@code StrategyEntity} name-matching step in between. As of this writing
+ * those {@code buy()}/{@code sell()} methods are empty stubs on the ExecutionEngine side (see
+ * its {@code StockTradeExecutor}/{@code CryptoTradeExecutor}) — sending a command there is a
+ * no-op until that's implemented.
+ * <p>
+ * FLAT signals are never sent: {@code TradeCommandDto} has no close/exit command that targets
+ * a single symbol (its {@code CLOSE_ALL} closes every position).
  */
 @Component
 public class ExecutionEngineClient {
@@ -42,75 +38,30 @@ public class ExecutionEngineClient {
     @Getter
     private final boolean configured;
 
-    @Value("${quantplat.execution-engine.exchange:SMART}")
-    private String exchange;
-    @Value("${quantplat.execution-engine.quote-currency:USD}")
-    private String quoteCurrency;
-    @Value("${quantplat.execution-engine.asset-class:STK}")
-    private String assetClass;
-
-    @Value("${quantplat.execution-engine.trade-command.order-type:MKT}")
-    private String tcOrderType;
-    @Value("${quantplat.execution-engine.trade-command.tif:DAY}")
-    private String tcTif;
-    /** Blank = omit quantity from the payload (let ExecutionEngine size the order once it can). */
-    @Value("${quantplat.execution-engine.trade-command.quantity:}")
-    private String tcQuantity;
+    @Value("${quantplat.execution-engine.order-type:MKT}")
+    private String orderType;
+    @Value("${quantplat.execution-engine.tif:DAY}")
+    private String tif;
+    /** Blank = omit quantity from the payload (ExecutionEngine has no sizing on this path yet). */
+    @Value("${quantplat.execution-engine.quantity:}")
+    private String quantity;
 
     public ExecutionEngineClient(@Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
         this.configured = baseUrl != null && !baseUrl.isBlank();
-        // No custom decoder: Feign's default decoder already special-cases String/void, which
-        // is all these two methods return — a JacksonDecoder would instead try to parse
-        // TradeController's plain-text ack ("📊 Symbol will be bought") as a JSON string
-        // literal and blow up.
+        // No custom decoder: Feign's default decoder already special-cases String, which is
+        // all TradeController returns — a JacksonDecoder would instead try to parse its
+        // plain-text ack ("📊 Symbol will be bought") as a JSON string literal and blow up.
         this.api = configured
                 ? Feign.builder().encoder(new JacksonEncoder()).target(ExecutionEngineApi.class, baseUrl)
                 : null;
     }
 
-  /** Forwards a LONG/SHORT signal as a TradingView-shaped alert. Throws on a FLAT signal or if unconfigured. */
-    public void sendAlert(SignalDto signal) {
-        if (!configured) {
-            throw new IllegalStateException(
-                "ExecutionEngine integration not configured: set quantplat.execution-engine.base-url");
-        }
-        String action = switch (signal.signal()) {
-            case "LONG" -> "buy";
-            case "SHORT" -> "sell";
-            default -> throw new IllegalArgumentException(
-                "Only LONG/SHORT signals can be forwarded to ExecutionEngine, got: " + signal.signal());
-        };
-
-        Map<String, String> payload = new LinkedHashMap<>();
-        payload.put("ticker", signal.symbol());
-        payload.put(action, "1");
-        payload.put("strategy", signal.strategy());
-        payload.put("assetClass", assetClass);
-        payload.put("exchange", exchange);
-        payload.put("interval", "D");
-        String closeStr = String.valueOf(signal.close());
-        payload.put("close", closeStr);
-        payload.put("open", closeStr);
-        payload.put("high", closeStr);
-        payload.put("low", closeStr);
-        payload.put("quote", quoteCurrency);
-        payload.put("time", DateTimeFormatter.ISO_INSTANT.format(signal.date()));
-        payload.put("timenow", Instant.now().toString());
-
-        api.tvHook(payload);
-
-        log.info("Forwarded {} {} ({}) to ExecutionEngine", action.toUpperCase(), signal.symbol(), signal.strategy());
-    }
-
     /**
-     * Sends a LONG/SHORT signal as a typed {@code TradeCommandDto} (BUY/SELL) to
-     * ExecutionEngine's {@code POST /api/v1/trades/command} — the same endpoint its Telegram
-     * bot's {@code /buy} and {@code /sell} commands hit. Throws on a FLAT signal or if
-     * unconfigured. Quantity/order-type/TIF come from
-     * {@code quantplat.execution-engine.trade-command.*} — ExecutionEngine has no per-strategy
-     * sizing lookup on this path (unlike the alert webhook, which sizes from its own
-     * {@code StrategyEntity}), so quantity is left out of the payload entirely unless
-     * explicitly configured.
+     * Sends a LONG/SHORT signal as a {@code TradeCommandDto} (BUY/SELL) to
+     * {@code POST /api/v1/trades/command}. Throws on a FLAT signal or if unconfigured.
+     * Quantity/order-type/TIF come from {@code quantplat.execution-engine.*} — ExecutionEngine
+     * has no per-strategy sizing lookup on this path, so quantity is left out of the payload
+     * entirely unless explicitly configured.
      */
     public void sendTradeCommand(SignalDto signal) {
         if (!configured) {
@@ -129,16 +80,16 @@ public class ExecutionEngineClient {
         payload.put("action", command);
         payload.put("identifier", signal.symbol());
         payload.put("strategy", signal.strategy());
-        payload.put("orderType", tcOrderType);
-        payload.put("tif", tcTif);
-        if (tcQuantity != null && !tcQuantity.isBlank()) {
+        payload.put("orderType", orderType);
+        payload.put("tif", tif);
+        if (quantity != null && !quantity.isBlank()) {
             try {
-                payload.put("quantity", Double.valueOf(tcQuantity));
+                payload.put("quantity", Double.valueOf(quantity));
             } catch (NumberFormatException e) {
-                log.warn("Ignoring invalid quantplat.execution-engine.trade-command.quantity={}", tcQuantity);
+                log.warn("Ignoring invalid quantplat.execution-engine.quantity={}", quantity);
             }
         }
-        if ("LMT".equalsIgnoreCase(tcOrderType)) {
+        if ("LMT".equalsIgnoreCase(orderType)) {
             payload.put("limitPrice", signal.close());
         }
         payload.put("rawText", String.format("DecisionEngine %s %s @ %s tf=%s close=%s",

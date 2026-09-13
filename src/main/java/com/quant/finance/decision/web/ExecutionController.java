@@ -6,7 +6,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/** Manual trigger to push a single decided signal to ExecutionEngine, regardless of auto-forward. */
+/** Manual trigger to push a single decided signal to ExecutionEngine's TradeController,
+ *  regardless of auto-forward. */
 @RestController
 @RequestMapping("/api/execution")
 public class ExecutionController {
@@ -24,14 +25,6 @@ public class ExecutionController {
 
     @PostMapping("/send")
     public Map<String, String> send(@RequestBody SignalDto signal) {
-        executionEngine.sendAlert(signal);
-        return Map.of("status", "sent", "symbol", signal.symbol(), "strategy", signal.strategy());
-    }
-
-    /** Same as /send, but via ExecutionEngine's typed trade-command endpoint (POST
-     *  /api/v1/trades/command) instead of its TradingView-shaped alert webhook. */
-    @PostMapping("/send-command")
-    public Map<String, String> sendCommand(@RequestBody SignalDto signal) {
         executionEngine.sendTradeCommand(signal);
         return Map.of("status", "sent", "symbol", signal.symbol(), "strategy", signal.strategy());
     }

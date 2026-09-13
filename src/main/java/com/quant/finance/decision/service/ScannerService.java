@@ -32,20 +32,14 @@ public class ScannerService {
     private final SignalRepository signalRepo;
     private final ExecutionEngineClient executionEngine;
 
+    /** Forward new LONG/SHORT signals to ExecutionEngine's TradeController
+     *  (POST /api/v1/trades/command) as they're detected. */
     @Value("${quantplat.execution-engine.auto-forward:false}")
     private boolean autoForward;
 
-    /** Forward new LONG/SHORT signals via ExecutionEngine's typed trade-command endpoint
-     *  (POST /api/v1/trades/command) instead of / in addition to the alert webhook above.
-     *  Don't enable both for the same strategy — ExecutionEngine would receive the same
-     *  signal twice and could act on it twice. */
-    @Value("${quantplat.execution-engine.trade-command.auto-forward:false}")
-    private boolean tradeCommandAutoForward;
-
-    /** Blank = no restriction (every enabled strategy's new signals are forwarded). Only
-     *  gates the trade-command path — see quantplat.execution-engine.trade-command.strategies. */
-    @Value("${quantplat.execution-engine.trade-command.strategies:}")
-    private String tradeCommandStrategiesCsv;
+    /** Blank = no restriction (every enabled strategy's new signals are forwarded). */
+    @Value("${quantplat.execution-engine.strategies:}")
+    private String forwardStrategiesCsv;
 
     public ScannerService(MarketDataService marketData, StrategyService strategies,
                           UniverseService universe, SignalRepository signalRepo,
@@ -132,34 +126,26 @@ public class ScannerService {
         out.sort(Comparator.comparing(SignalDto::isNew).reversed()
                 .thenComparing(SignalDto::strategy).thenComparing(SignalDto::symbol));
 
-        if ((autoForward || tradeCommandAutoForward) && executionEngine.isConfigured()) forwardNewSignals(out);
+        if (autoForward && executionEngine.isConfigured()) forwardNewSignals(out);
         return out;
     }
 
-    /** Best-effort forward of newly-flipped, non-FLAT signals; one failure doesn't stop the rest. */
+    /** Best-effort forward of newly-flipped, non-FLAT signals to ExecutionEngine's
+     *  TradeController; one failure doesn't stop the rest. */
     private void forwardNewSignals(List<SignalDto> signals) {
-        Set<String> tradeCommandAllow = tradeCommandStrategiesCsv == null || tradeCommandStrategiesCsv.isBlank()
+        Set<String> allow = forwardStrategiesCsv == null || forwardStrategiesCsv.isBlank()
                 ? null
-                : Arrays.stream(tradeCommandStrategiesCsv.split(","))
+                : Arrays.stream(forwardStrategiesCsv.split(","))
                         .map(String::trim).filter(s -> !s.isEmpty()).collect(java.util.stream.Collectors.toSet());
 
         for (SignalDto s : signals) {
             if (!s.isNew() || "FLAT".equals(s.signal())) continue;
-            if (autoForward) {
-                try {
-                    executionEngine.sendAlert(s);
-                } catch (Exception e) {
-                    log.warn("Auto-forward (alert) to ExecutionEngine failed for {} {}: {}",
-                            s.strategy(), s.symbol(), e.getMessage());
-                }
-            }
-            if (tradeCommandAutoForward && (tradeCommandAllow == null || tradeCommandAllow.contains(s.strategy()))) {
-                try {
-                    executionEngine.sendTradeCommand(s);
-                } catch (Exception e) {
-                    log.warn("Auto-forward (trade-command) to ExecutionEngine failed for {} {}: {}",
-                            s.strategy(), s.symbol(), e.getMessage());
-                }
+            if (allow != null && !allow.contains(s.strategy())) continue;
+            try {
+                executionEngine.sendTradeCommand(s);
+            } catch (Exception e) {
+                log.warn("Auto-forward to ExecutionEngine failed for {} {}: {}",
+                        s.strategy(), s.symbol(), e.getMessage());
             }
         }
     }
