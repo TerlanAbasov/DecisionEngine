@@ -29,6 +29,6 @@
         <appender-ref ref="FILE"/>
     </root>
 
-    <logger name="com.quant.finance.execution" level="DEBUG"/>
+    <logger name="com.quant.finance.decision" level="DEBUG"/>
 
 </configuration>
