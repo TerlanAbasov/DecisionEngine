@@ -15,10 +15,10 @@ import java.util.Optional;
 
 /**
  * Alpaca Market Data (https://data.alpaca.markets) bars. Needs an Alpaca account
- * (paper is fine): set quantplat.alpaca.api-key-id / api-secret-key (env
+ * (paper is fine): set decision.alpaca.api-key-id / api-secret-key (env
  * ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).
  *
- * <p>{@code quantplat.alpaca.timeframe} is passed straight through to Alpaca's bars API,
+ * <p>{@code decision.alpaca.timeframe} is passed straight through to Alpaca's bars API,
  * so it accepts any of Alpaca's timeframe strings: "1Day" (daily, default), "1Week" (weekly),
  * "1Hour" (hourly), or minute bars like "1Min" / "5Min" / "15Min" if you need those.
  */
@@ -27,21 +27,21 @@ public class AlpacaMarketDataClient implements MarketDataClient {
 
     private static final Logger log = LoggerFactory.getLogger(AlpacaMarketDataClient.class);
 
-    @Value("${quantplat.alpaca.api-key-id:}")
+    @Value("${decision.alpaca.api-key-id:}")
     private String apiKeyId;
-    @Value("${quantplat.alpaca.api-secret-key:}")
+    @Value("${decision.alpaca.api-secret-key:}")
     private String apiSecretKey;
-    @Value("${quantplat.alpaca.feed:iex}")
+    @Value("${decision.alpaca.feed:iex}")
     private String feed;
-    @Value("${quantplat.alpaca.timeframe:1Day}")
+    @Value("${decision.alpaca.timeframe:1Day}")
     private String timeframe;
-    @Value("${quantplat.default-history-years:6.5}")
+    @Value("${decision.default-history-years:6.5}")
     private double years;
 
     private final RestClient restClient;
 
     public AlpacaMarketDataClient(
-            @Value("${quantplat.alpaca.data-base-url:https://data.alpaca.markets}") String baseUrl) {
+            @Value("${decision.alpaca.data-base-url:https://data.alpaca.markets}") String baseUrl) {
         this.restClient = RestClient.builder().baseUrl(baseUrl).build();
     }
 
@@ -63,7 +63,7 @@ public class AlpacaMarketDataClient implements MarketDataClient {
         if (apiKeyId.isBlank() || apiSecretKey.isBlank()) {
             throw new IllegalStateException(
                 "Alpaca data source selected but no credentials configured. Set "
-                + "quantplat.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+                + "decision.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
         }
 
         List<PriceBarEntity> out = new ArrayList<>();

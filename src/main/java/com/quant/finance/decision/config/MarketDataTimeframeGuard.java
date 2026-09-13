@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * On boot, drop any cached bars whose interval differs from {@code quantplat.alpaca.timeframe}
+ * On boot, drop any cached bars whose interval differs from {@code decision.alpaca.timeframe}
  * (legacy rows with no recorded timeframe included). Without this, changing the config from
  * e.g. 1Day to 1Min has no effect — the app keeps serving the previously cached daily bars.
  * Idempotent: deletes 0 rows once the cache is consistent.

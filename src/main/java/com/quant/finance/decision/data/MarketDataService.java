@@ -33,8 +33,8 @@ public class MarketDataService {
     private final long pollLookbackDays;
 
     public MarketDataService(PriceBarRepository repo, MarketDataClient client,
-                             @Value("${quantplat.data.fresh-days:4}") long freshDays,
-                             @Value("${quantplat.poll.lookback-days:2}") long pollLookbackDays) {
+                             @Value("${decision.data.fresh-days:4}") long freshDays,
+                             @Value("${decision.poll.lookback-days:2}") long pollLookbackDays) {
         this.repo = repo;
         this.client = client;
         this.freshDays = freshDays;

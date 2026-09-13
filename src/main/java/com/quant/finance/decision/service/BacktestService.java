@@ -67,9 +67,9 @@ public class BacktestService {
                            @org.springframework.beans.factory.annotation.Qualifier(
                                    ExecutorConfig.BACKTEST_EXECUTOR) ExecutorService executor,
                            @org.springframework.beans.factory.annotation.Value(
-                                   "${quantplat.backtest.trace-per-symbol:true}") boolean tracePerSymbol,
+                                   "${decision.backtest.trace-per-symbol:true}") boolean tracePerSymbol,
                            @org.springframework.beans.factory.annotation.Value(
-                                   "${quantplat.backtest.run-all-max-days:400}") int runAllMaxDays) {
+                                   "${decision.backtest.run-all-max-days:400}") int runAllMaxDays) {
         this.backtester = new Backtester(tracePerSymbol);
         this.runAllMaxDays = runAllMaxDays > 0 ? runAllMaxDays : 400;
         this.marketData = marketData;

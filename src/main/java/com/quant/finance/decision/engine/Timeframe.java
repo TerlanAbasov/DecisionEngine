@@ -2,7 +2,7 @@ package com.quant.finance.decision.engine;
 
 /**
  * Resampling target for a backtest. Bars are stored at whatever native granularity
- * {@code quantplat.alpaca.timeframe} fetched; a backtest can aggregate them UP to a
+ * {@code decision.alpaca.timeframe} fetched; a backtest can aggregate them UP to a
  * coarser {@code Timeframe} (never finer — you cannot invent sub-bars, so choosing a
  * frame finer than the stored data just runs on the stored bars).
  *

@@ -21,7 +21,7 @@ public class ExecutorConfig {
     public static final String BACKTEST_EXECUTOR = "backtestExecutor";
 
     @Bean(name = BACKTEST_EXECUTOR, destroyMethod = "shutdown")
-    public ExecutorService backtestExecutor(@Value("${quantplat.backtest.threads:50}") int threads) {
+    public ExecutorService backtestExecutor(@Value("${decision.backtest.threads:50}") int threads) {
         int n = Math.max(1, threads);
         ThreadFactory tf = new ThreadFactory() {
             private final AtomicInteger seq = new AtomicInteger();

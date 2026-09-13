@@ -16,7 +16,7 @@ import java.util.List;
  * /api/scan call. One symbol failing to fetch doesn't stop the rest.
  */
 @Component
-@ConditionalOnProperty(name = "quantplat.poll.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "decision.poll.enabled", havingValue = "true", matchIfMissing = true)
 public class MarketDataPoller {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataPoller.class);
@@ -31,8 +31,8 @@ public class MarketDataPoller {
         this.scanner = scanner;
     }
 
-    @Scheduled(initialDelayString = "${quantplat.poll.initial-delay-ms:10000}",
-               fixedDelayString = "${quantplat.poll.interval-ms:900000}")
+    @Scheduled(initialDelayString = "${decision.poll.initial-delay-ms:10000}",
+               fixedDelayString = "${decision.poll.interval-ms:900000}")
     public void pollAndDecide() {
         List<String> symbols = universe.get();
         if (symbols.isEmpty()) return;

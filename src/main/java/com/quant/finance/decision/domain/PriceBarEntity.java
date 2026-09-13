@@ -34,7 +34,7 @@ public class PriceBarEntity {
 
     private String source;   // synthetic | alpaca | ib
 
-    /** Bar interval this row was fetched at ({@code quantplat.alpaca.timeframe}: 1Day, 1Hour, 1Min, …). */
+    /** Bar interval this row was fetched at ({@code decision.alpaca.timeframe}: 1Day, 1Hour, 1Min, …). */
     private String timeframe;
 
     public PriceBarEntity(String symbol, Instant barTime, double open, double high,

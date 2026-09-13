@@ -42,16 +42,16 @@ public class CommandService {
     @Getter
     private final boolean configured;
 
-    @Value("${quantplat.execution-engine.order-type:MKT}")
+    @Value("${decision.execution-engine.order-type:MKT}")
     private String orderType;
-    @Value("${quantplat.execution-engine.tif:DAY}")
+    @Value("${decision.execution-engine.tif:DAY}")
     private String tif;
     /** Blank = omit quantity from the payload (ExecutionEngine has no sizing on this path yet). */
-    @Value("${quantplat.execution-engine.quantity:}")
+    @Value("${decision.execution-engine.quantity:}")
     private String quantity;
 
     public CommandService(com.quant.finance.decision.client.ExecutionEngineClient api,
-                          @Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
+                          @Value("${decision.execution-engine.base-url:}") String baseUrl) {
         this.api = api;
         this.configured = baseUrl != null && !baseUrl.isBlank();
     }
@@ -59,14 +59,14 @@ public class CommandService {
     /**
      * Sends a LONG/SHORT signal as a {@code TradeCommandDto} (BUY/SELL) to
      * {@code POST /api/v1/trades/command}. Throws on a FLAT signal or if unconfigured.
-     * Quantity/order-type/TIF come from {@code quantplat.execution-engine.*} — ExecutionEngine
+     * Quantity/order-type/TIF come from {@code decision.execution-engine.*} — ExecutionEngine
      * has no per-strategy sizing lookup on this path, so quantity is left out of the payload
      * entirely unless explicitly configured.
      */
     public void sendTradeCommand(SignalDto signal) {
         if (!configured) {
             throw new IllegalStateException(
-                "ExecutionEngine integration not configured: set quantplat.execution-engine.base-url");
+                "ExecutionEngine integration not configured: set decision.execution-engine.base-url");
         }
         String command = switch (signal.signal()) {
             case "LONG" -> "BUY";
@@ -86,7 +86,7 @@ public class CommandService {
             try {
                 payload.put("quantity", Double.valueOf(quantity));
             } catch (NumberFormatException e) {
-                log.warn("Ignoring invalid quantplat.execution-engine.quantity={}", quantity);
+                log.warn("Ignoring invalid decision.execution-engine.quantity={}", quantity);
             }
         }
         if ("LMT".equalsIgnoreCase(orderType)) {

@@ -33,11 +33,11 @@ public class ScannerService {
 
     /** Forward new LONG/SHORT signals to ExecutionEngine's TradeController
      *  (POST /api/v1/trades/command) as they're detected. */
-    @Value("${quantplat.execution-engine.auto-forward:false}")
+    @Value("${decision.execution-engine.auto-forward:false}")
     private boolean autoForward;
 
     /** Blank = no restriction (every enabled strategy's new signals are forwarded). */
-    @Value("${quantplat.execution-engine.strategies:}")
+    @Value("${decision.execution-engine.strategies:}")
     private String forwardStrategiesCsv;
 
     public ScannerService(MarketDataService marketData, StrategyService strategies,

@@ -7,7 +7,7 @@ import java.time.Instant;
  * vectorised indicators and backtester stay fast and dependency-free.
  *
  * <p>{@code date} is each bar's open time (UTC) rather than a calendar date, since bars can be
- * daily, weekly, hourly, or minute-level depending on {@code quantplat.alpaca.timeframe}.
+ * daily, weekly, hourly, or minute-level depending on {@code decision.alpaca.timeframe}.
  */
 public final class BarSeries {
     public final String symbol;

@@ -20,14 +20,14 @@ import java.util.Map;
  * field names to match what that DTO deserializes.
  */
 @FeignClient(name = "execution-engine-client",
-    // Deliberately NOT quantplat.execution-engine.base-url: that one is blank by default
+    // Deliberately NOT decision.execution-engine.base-url: that one is blank by default
     // (the "integration disabled" signal ExecutionEngineClient.configured reads), and
     // @FeignClient treats an empty url as "resolve by service discovery instead", which
     // needs a load-balancer bean and crashes app startup outright without one. feign-url
     // resolves from the same EXECUTION_ENGINE_URL env var but always falls back to a
     // syntactically valid, unroutable host (RFC 2606 .invalid) instead of blank — only ever
     // dialed if the configured-guard is bypassed.
-    url = "${quantplat.execution-engine.feign-url}",
+    url = "${decision.execution-engine.feign-url}",
     configuration = ExecutionEngineClient.FeignConfiguration.class)
 public interface ExecutionEngineClient {
 
