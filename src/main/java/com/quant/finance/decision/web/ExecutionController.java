@@ -1,7 +1,7 @@
 package com.quant.finance.decision.web;
 
 import com.quant.finance.decision.dto.Dtos.SignalDto;
-import com.quant.finance.decision.service.ExecutionEngineClient;
+import com.quant.finance.decision.service.CommandService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -12,9 +12,9 @@ import java.util.Map;
 @RequestMapping("/api/execution")
 public class ExecutionController {
 
-    private final ExecutionEngineClient executionEngine;
+    private final CommandService executionEngine;
 
-    public ExecutionController(ExecutionEngineClient executionEngine) {
+    public ExecutionController(CommandService executionEngine) {
         this.executionEngine = executionEngine;
     }
 

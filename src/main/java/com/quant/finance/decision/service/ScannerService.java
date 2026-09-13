@@ -29,7 +29,7 @@ public class ScannerService {
     private final StrategyService strategies;
     private final UniverseService universe;
     private final SignalRepository signalRepo;
-    private final ExecutionEngineClient executionEngine;
+    private final CommandService executionEngine;
 
     /** Forward new LONG/SHORT signals to ExecutionEngine's TradeController
      *  (POST /api/v1/trades/command) as they're detected. */
@@ -42,7 +42,7 @@ public class ScannerService {
 
     public ScannerService(MarketDataService marketData, StrategyService strategies,
                           UniverseService universe, SignalRepository signalRepo,
-                          ExecutionEngineClient executionEngine) {
+                          CommandService executionEngine) {
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;

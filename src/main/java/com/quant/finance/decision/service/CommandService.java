@@ -34,9 +34,9 @@ import java.util.Map;
  * notion of an optional/absent target URL.
  */
 @Component
-public class ExecutionEngineClient {
+public class CommandService {
 
-    private static final Logger log = LoggerFactory.getLogger(ExecutionEngineClient.class);
+    private static final Logger log = LoggerFactory.getLogger(CommandService.class);
 
     private final com.quant.finance.decision.client.ExecutionEngineClient api;
     @Getter
@@ -50,8 +50,8 @@ public class ExecutionEngineClient {
     @Value("${quantplat.execution-engine.quantity:}")
     private String quantity;
 
-    public ExecutionEngineClient(com.quant.finance.decision.client.ExecutionEngineClient api,
-                                 @Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
+    public CommandService(com.quant.finance.decision.client.ExecutionEngineClient api,
+                          @Value("${quantplat.execution-engine.base-url:}") String baseUrl) {
         this.api = api;
         this.configured = baseUrl != null && !baseUrl.isBlank();
     }
