@@ -8,7 +8,6 @@ import com.quant.finance.decision.dto.Dtos.SignalOverlayDto;
 import com.quant.finance.decision.dto.Dtos.StrategySignalsDto;
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.client.ExecutionEngineClient;
 import com.quant.finance.decision.repository.SignalRepository;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;

@@ -1,7 +1,7 @@
 package com.quant.finance.decision.web;
 
 import com.quant.finance.decision.dto.Dtos.SignalDto;
-import com.quant.finance.decision.client.ExecutionEngineClient;
+import com.quant.finance.decision.service.ExecutionEngineClient;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
