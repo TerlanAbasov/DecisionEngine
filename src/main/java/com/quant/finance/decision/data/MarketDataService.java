@@ -28,15 +28,12 @@ public class MarketDataService {
     private final PriceBarRepository repo;
     private final MarketDataClient client;
     private final long freshDays;
-    private final long pollLookbackDays;
 
     public MarketDataService(PriceBarRepository repo, MarketDataClient client,
-                             @Value("${decision.data.fresh-days:4}") long freshDays,
-                             @Value("${decision.poll.lookback-days:2}") long pollLookbackDays) {
+                             @Value("${decision.data.fresh-days:4}") long freshDays) {
         this.repo = repo;
         this.client = client;
         this.freshDays = freshDays;
-        this.pollLookbackDays = Math.max(1, pollLookbackDays);
     }
 
     private boolean timeframeMatches(PriceBarEntity newest) {
@@ -89,42 +86,6 @@ public class MarketDataService {
         repo.saveAll(bars);
         log.info("MarketData: refreshed {} — {} bars", symbol, bars.size());
         return bars.size();
-    }
-
-    /**
-     * Cheaper alternative to {@link #refresh} for periodic polling: re-fetches the
-     * client's full history but only persists bars newer than what's cached, instead
-     * of deleting and re-inserting everything on every poll tick.
-     */
-    @Transactional
-    public int pollLatest(String symbol) {
-        PriceBarEntity newest = repo.findTopBySymbolOrderByBarTimeDesc(symbol).orElse(null);
-        // if the cache holds a different interval, appending would splice two granularities
-        // into one series — do a full refresh instead
-        if (newest != null && !timeframeMatches(newest)) return refresh(symbol);
-
-        if (newest == null) {                    // first fetch — pull the full history
-            log.info("MarketData: poll {} — first fetch, full history @ {}", symbol, client.configuredTimeframe());
-            List<PriceBarEntity> bars = client.fetchHistory(symbol);
-            repo.saveAll(bars);
-            log.info("MarketData: poll {} — cached {} bars", symbol, bars.size());
-            return bars.size();
-        }
-
-        // incremental: only ask Alpaca for bars since the last cached one (minus a small
-        // look-back so a gap from a missed poll or a still-forming bar is picked up), instead
-        // of re-downloading years of history every tick
-        Instant cachedThrough = newest.getBarTime();
-        Instant since = cachedThrough.minus(Duration.ofDays(pollLookbackDays));
-        List<PriceBarEntity> bars = client.fetchHistory(symbol, since);
-        List<PriceBarEntity> newBars = bars.stream()
-                .filter(b -> b.getBarTime().isAfter(cachedThrough))
-                .toList();
-        repo.saveAll(newBars);
-        if (!newBars.isEmpty())
-            log.info("MarketData: poll {} — +{} new bars (through {})", symbol, newBars.size(),
-                    newBars.get(newBars.size() - 1).getBarTime());
-        return newBars.size();
     }
 
     @Transactional
