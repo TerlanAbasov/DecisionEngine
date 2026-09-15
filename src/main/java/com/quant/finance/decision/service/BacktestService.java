@@ -18,8 +18,7 @@ import com.quant.finance.decision.dto.Dtos.*;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import com.quant.finance.decision.strategy.impl.PairsStrategy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,9 +29,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 @Service
+@Slf4j
 public class BacktestService {
-
-    private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
 
     /** A single named strategy may lever up to 5×; a batch sweep is pinned at 1× so
      *  transaction-cost drag isn't multiplied across every strategy at once. */

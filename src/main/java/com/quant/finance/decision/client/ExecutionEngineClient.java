@@ -10,28 +10,19 @@ import org.springframework.web.bind.annotation.RequestBody;
 import java.util.Map;
 
 /**
- * Same pattern as ExecutionEngine's own
- * {@code com.quant.finance.execution.client.RoutingClient}: a {@code @FeignClient} interface
- * with Spring MVC method annotations, registered via {@code @EnableFeignClients} on the
- * application class (see {@code DecisionEngineApplication}).
- * <p>
- * Payload is a generic {@code Map} rather than sharing ExecutionEngine's
- * {@code TradeCommandDto} Java type across repos — {@link ExecutionEngineClient} builds the
- * field names to match what that DTO deserializes.
+ * Feign client mirroring ExecutionEngine's own {@code RoutingClient} pattern. Uses a generic
+ * {@code Map} payload (not ExecutionEngine's {@code TradeCommandDto}) since the DTO type
+ * isn't shared across repos — field names must match what it deserializes.
  */
 @FeignClient(name = "execution-engine-client",
-    // Deliberately NOT decision.execution-engine.base-url: that one is blank by default
-    // (the "integration disabled" signal ExecutionEngineClient.configured reads), and
-    // @FeignClient treats an empty url as "resolve by service discovery instead", which
-    // needs a load-balancer bean and crashes app startup outright without one. feign-url
-    // resolves from the same EXECUTION_ENGINE_URL env var but always falls back to a
-    // syntactically valid, unroutable host (RFC 2606 .invalid) instead of blank — only ever
-    // dialed if the configured-guard is bypassed.
+    // Not decision.execution-engine.base-url (blank by default): @FeignClient can't take a
+    // blank url without a load-balancer bean. feign-url falls back to an unroutable
+    // RFC 2606 .invalid host instead, only ever dialed if the configured-guard is bypassed.
     url = "${decision.execution-engine.feign-url}",
     configuration = ExecutionEngineClient.FeignConfiguration.class)
 public interface ExecutionEngineClient {
 
-    /** POST /api/v1/trades/command — typed trade command; returns a short ack string. */
+    /** Typed trade command; returns a short ack string. */
     @PostMapping("/api/v1/trades/command")
     @Headers("Content-Type: application/json")
     String tradeCommand(@RequestBody Map<String, Object> body);

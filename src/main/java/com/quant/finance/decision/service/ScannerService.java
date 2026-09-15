@@ -11,8 +11,7 @@ import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.repository.SignalRepository;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +20,8 @@ import java.time.Instant;
 import java.util.*;
 
 @Service
+@Slf4j
 public class ScannerService {
-
-    private static final Logger log = LoggerFactory.getLogger(ScannerService.class);
 
     private final MarketDataService marketData;
     private final StrategyService strategies;
@@ -31,12 +29,9 @@ public class ScannerService {
     private final SignalRepository signalRepo;
     private final CommandService executionEngine;
 
-    /** Forward new LONG/SHORT signals to ExecutionEngine's TradeController
-     *  (POST /api/v1/trades/command) as they're detected. */
     @Value("${decision.execution-engine.auto-forward:false}")
     private boolean autoForward;
 
-    /** Blank = no restriction (every enabled strategy's new signals are forwarded). */
     @Value("${decision.execution-engine.strategies:}")
     private String forwardStrategiesCsv;
 
@@ -55,12 +50,6 @@ public class ScannerService {
         return scan(symbols, includeFlat, null);
     }
 
-    /**
-     * Generate live signals. Each strategy is run on bars resampled up to its own
-     * {@code recommendedTimeframe} (so signals match how it was backtested) — unless
-     * {@code timeframe} pins every strategy to one explicit frame. Blank / "AUTO" =
-     * per-strategy. Source bars (e.g. 1-minute) are loaded once and resampled per frame.
-     */
     @Transactional
     public List<SignalDto> scan(List<String> symbols, boolean includeFlat, String timeframe) {
         List<String> syms = (symbols != null && !symbols.isEmpty())
@@ -137,14 +126,14 @@ public class ScannerService {
                 : Arrays.stream(forwardStrategiesCsv.split(","))
                         .map(String::trim).filter(s -> !s.isEmpty()).collect(java.util.stream.Collectors.toSet());
 
-        for (SignalDto s : signals) {
-            if (!s.isNew() || "FLAT".equals(s.signal())) continue;
-            if (allow != null && !allow.contains(s.strategy())) continue;
+        for (SignalDto signalDto : signals) {
+            if (!signalDto.isNew() || "FLAT".equals(signalDto.signal())) continue;
+            if (allow != null && !allow.contains(signalDto.strategy())) continue;
             try {
-                executionEngine.sendTradeCommand(s);
+                executionEngine.sendTradeCommand(signalDto);
             } catch (Exception e) {
                 log.warn("Auto-forward to ExecutionEngine failed for {} {}: {}",
-                        s.strategy(), s.symbol(), e.getMessage());
+                        signalDto.strategy(), signalDto.symbol(), e.getMessage());
             }
         }
     }
@@ -163,11 +152,6 @@ public class ScannerService {
 
     private static final int MAX_MARKERS = 1000;
 
-    /**
-     * Per-bar position-change markers for one symbol, for the chart overlay. Each strategy runs
-     * on the given {@code timeframe} (blank / "AUTO" = its own recommended frame). A marker is
-     * emitted where the target position's sign changes: BUY (→ long), SELL (→ short), EXIT (→ flat).
-     */
     @Transactional
     public SignalOverlayDto chartSignals(String symbol, String timeframe, List<String> names, int limit) {
         String sym = symbol.trim().toUpperCase();

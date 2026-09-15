@@ -9,13 +9,11 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 /** Vectorised, next-bar backtesting engine. */
+@Slf4j
 public final class Backtester {
-
-    private static final Logger log = LoggerFactory.getLogger(Backtester.class);
 
     /** Emit a per-(strategy × stock) INFO line while running a portfolio. */
     private final boolean tracePerSymbol;

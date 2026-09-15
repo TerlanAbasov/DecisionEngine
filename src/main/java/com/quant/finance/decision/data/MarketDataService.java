@@ -8,8 +8,7 @@ import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.repository.PriceBarRepository;
 import com.quant.finance.decision.strategy.BarSeries;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,9 +22,8 @@ import java.util.List;
 
 /** Loads bars from the DB cache, fetching from the active client on a miss. */
 @Service
+@Slf4j
 public class MarketDataService {
-
-    private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
 
     private final PriceBarRepository repo;
     private final MarketDataClient client;

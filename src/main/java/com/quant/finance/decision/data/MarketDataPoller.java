@@ -2,8 +2,7 @@ package com.quant.finance.decision.data;
 
 import com.quant.finance.decision.service.ScannerService;
 import com.quant.finance.decision.service.UniverseService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,9 +16,8 @@ import java.util.List;
  */
 @Component
 @ConditionalOnProperty(name = "decision.poll.enabled", havingValue = "true", matchIfMissing = true)
+@Slf4j
 public class MarketDataPoller {
-
-    private static final Logger log = LoggerFactory.getLogger(MarketDataPoller.class);
 
     private final MarketDataService marketData;
     private final UniverseService universe;

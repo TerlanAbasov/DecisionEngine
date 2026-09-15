@@ -2,8 +2,7 @@ package com.quant.finance.decision.config;
 
 import com.quant.finance.decision.data.MarketDataClient;
 import com.quant.finance.decision.repository.PriceBarRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -17,9 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @Order(0)
+@Slf4j
 public class MarketDataTimeframeGuard implements CommandLineRunner {
-
-    private static final Logger log = LoggerFactory.getLogger(MarketDataTimeframeGuard.class);
 
     private final PriceBarRepository repo;
     private final MarketDataClient client;

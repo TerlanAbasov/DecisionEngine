@@ -8,6 +8,7 @@ import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -20,11 +21,11 @@ import java.util.*;
  * result is a single equity curve plus each leg's standalone metrics.
  */
 @Service
+@Slf4j
 public class EnsembleService {
 
     private static final int MAX_LEGS = 40;
     private static final double CAPITAL_DEFAULT = 100_000;
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(EnsembleService.class);
 
     private final BacktestService backtests;
     private final StrategyService strategies;

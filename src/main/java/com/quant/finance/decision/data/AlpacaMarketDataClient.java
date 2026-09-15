@@ -2,8 +2,7 @@ package com.quant.finance.decision.data;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.quant.finance.decision.domain.PriceBarEntity;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -23,9 +22,8 @@ import java.util.Optional;
  * "1Hour" (hourly), or minute bars like "1Min" / "5Min" / "15Min" if you need those.
  */
 @Component
+@Slf4j
 public class AlpacaMarketDataClient implements MarketDataClient {
-
-    private static final Logger log = LoggerFactory.getLogger(AlpacaMarketDataClient.class);
 
     @Value("${decision.alpaca.api-key-id:}")
     private String apiKeyId;

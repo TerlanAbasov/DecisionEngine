@@ -5,8 +5,7 @@ import com.quant.finance.decision.engine.BacktestConfig;
 import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -18,11 +17,10 @@ import java.util.concurrent.CompletableFuture;
  * loaded once and reused for every cell.
  */
 @Service
+@Slf4j
 public class OptimizerService {
 
     private static final int MAX_CELLS = 400;
-    private static final Logger log = LoggerFactory.getLogger(OptimizerService.class);
-
     private final BacktestService backtests;
     private final StrategyService strategies;
 

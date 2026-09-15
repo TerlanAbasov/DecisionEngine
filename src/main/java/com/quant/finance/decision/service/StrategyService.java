@@ -8,17 +8,15 @@ import com.quant.finance.decision.repository.StrategyConfigRepository;
 import com.quant.finance.decision.strategy.ConfiguredStrategy;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import com.quant.finance.decision.strategy.impl.StrategyCatalog;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
 @Service
+@Slf4j
 public class StrategyService {
-
-    private static final Logger log = LoggerFactory.getLogger(StrategyService.class);
 
     private static final Set<String> DIRECTIONS = Set.of("long_only", "short_only", "long_short");
 

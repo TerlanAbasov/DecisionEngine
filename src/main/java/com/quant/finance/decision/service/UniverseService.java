@@ -3,15 +3,13 @@ package com.quant.finance.decision.service;
 import com.quant.finance.decision.domain.UniverseSymbolEntity;
 import com.quant.finance.decision.repository.UniverseSymbolRepository;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class UniverseService {
-
-  private static final Logger log = LoggerFactory.getLogger(UniverseService.class);
 
   private static final List<String> DEFAULTS = List.of("MU", "SNDK");
 
