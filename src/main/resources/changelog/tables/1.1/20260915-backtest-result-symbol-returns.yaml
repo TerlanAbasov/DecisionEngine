@@ -1,0 +1,15 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260915-backtest-result-symbol-returns
+            author: Tarlan Abasov
+            comment: >
+                Per-symbol total return % breakdown for a backtest run, so the run-detail
+                view can show each stock's own contribution alongside the strategy's
+                overall total return. Nullable — historical runs simply have none to show.
+            changes:
+                -   addColumn:
+                        tableName: backtest_result
+                        columns:
+                            -   column:
+                                    name: symbol_returns_json
+                                    type: TEXT

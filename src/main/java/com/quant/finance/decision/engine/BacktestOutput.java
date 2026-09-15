@@ -14,10 +14,15 @@ public final class BacktestOutput {
     public final double[] drawdown;      // fraction, <= 0
     public final List<TradeResult> trades;
     public final Map<String, Double> metrics;
+    /** Each symbol's own total return %, computed the same way as the portfolio's
+     *  {@code metrics.totalReturnPct} but on that symbol's own return stream alone.
+     *  Empty when a per-symbol breakdown isn't meaningful (e.g. a pairs run). */
+    public final Map<String, Double> symbolReturnsPct;
 
     public BacktestOutput(String strategy, List<String> symbols, Instant[] dates,
                           double[] equity, double[] benchmark, double[] drawdown,
-                          List<TradeResult> trades, Map<String, Double> metrics) {
+                          List<TradeResult> trades, Map<String, Double> metrics,
+                          Map<String, Double> symbolReturnsPct) {
         this.strategy = strategy;
         this.symbols = symbols;
         this.dates = dates;
@@ -28,5 +33,6 @@ public final class BacktestOutput {
         this.drawdown = drawdown;
         this.trades = trades;
         this.metrics = metrics;
+        this.symbolReturnsPct = symbolReturnsPct;
     }
 }

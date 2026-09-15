@@ -50,4 +50,4 @@ decision:
     order-type: MKT                      # MKT | LMT | STP | ... (com.ib.client.OrderType names)
     tif: DAY                             # DAY | GTC | IOC | ... (com.ib.client.Types.TimeInForce names)
     quantity:                            # blank = omit from the payload (ExecutionEngine has no sizing on this path yet)
-  cors-allowed-origins: http://localhost:8081
+  cors-allowed-origins: http://localhost:5173   # EngineUI's Vite dev server

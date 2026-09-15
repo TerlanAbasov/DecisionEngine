@@ -92,7 +92,8 @@ public final class Dtos {
                                     Instant start, Instant end, String timeframe, int bars,
                                     Map<String, Double> metrics,
                                     List<String> dates, double[] equity, double[] benchmark,
-                                    double[] drawdown, List<TradeDto> trades) {}
+                                    double[] drawdown, List<TradeDto> trades,
+                                    Map<String, Double> symbolReturnsPct) {}
 
     /** One selectable resample target for the backtest form. */
     public record TimeframeDto(String id, String label, boolean nativeFrame) {}

@@ -1,4 +1,4 @@
-package com.quant.finance.decision.web;
+package com.quant.finance.decision.controller;
 
 import com.quant.finance.decision.dto.Dtos.*;
 import com.quant.finance.decision.service.BacktestService;

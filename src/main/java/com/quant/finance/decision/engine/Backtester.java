@@ -154,7 +154,8 @@ public final class Backtester {
         double[] benchEq = PerformanceMetrics.equityCurve(s.bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
         Map<String, Double> m = PerformanceMetrics.compute(s.net, s.pos, s.absPos, s.bench, s.trades, cfg, s.dates);
-        return new BacktestOutput(strat.name(), List.of(b.symbol), s.dates, eq, benchEq, dd, s.trades, m);
+        return new BacktestOutput(strat.name(), List.of(b.symbol), s.dates, eq, benchEq, dd, s.trades, m,
+                Map.of(b.symbol, m.get("totalReturnPct")));
     }
 
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
@@ -216,13 +217,23 @@ public final class Backtester {
         for (int i = 0; i < nd; i++) if (cnt[i] > 0) {
             net[i] /= cnt[i]; bench[i] /= cnt[i]; pos[i] /= cnt[i]; absPos[i] /= cnt[i];
         }
+
+        // Each symbol's own total return %, independent of the others — the portfolio's
+        // equal-weight blend just averages these per-bar, so a lone symbol's sum-of-net
+        // (same formula as PerformanceMetrics' totalReturnPct) is exact, not an approximation.
+        Map<String, Double> symbolReturnsPct = new LinkedHashMap<>();
+        for (int i = 0; i < symbols.size(); i++) {
+            double total = 0;
+            for (double r : series.get(i).net) total += r;
+            symbolReturnsPct.put(symbols.get(i), Math.round(total * 10000) / 100.0);
+        }
         series.clear();   // per-bar arrays no longer needed — free them before metrics
 
         double[] eq = PerformanceMetrics.equityCurve(net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
         Map<String, Double> m = PerformanceMetrics.compute(net, pos, absPos, bench, allTrades, cfg, dates);
-        return new BacktestOutput(strat.name(), symbols, dates, eq, benchEq, dd, allTrades, m);
+        return new BacktestOutput(strat.name(), symbols, dates, eq, benchEq, dd, allTrades, m, symbolReturnsPct);
     }
 
     public BacktestOutput runPairs(BarSeries a, BarSeries b, PairsStrategy strat, BacktestConfig cfg) {
@@ -268,7 +279,8 @@ public final class Backtester {
         Map<String, Double> m = PerformanceMetrics.compute(net, posA, absPos, bench, trades, cfg, dates);
         if (tracePerSymbol)
             log.info("Backtest: pairs_trading × {}/{} — {} common bars, {} trades", a.symbol, b.symbol, n, trades.size());
-        return new BacktestOutput("pairs_trading", List.of(a.symbol, b.symbol), dates, eq, benchEq, dd, trades, m);
+        return new BacktestOutput("pairs_trading", List.of(a.symbol, b.symbol), dates, eq, benchEq, dd, trades, m,
+                Map.of());
     }
 
     /** Point-to-point trade return, guarded against a bad entry/exit price. */

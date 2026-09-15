@@ -32,4 +32,8 @@ public class BacktestResultEntity {
     private String benchmarkJson;
     @Column(columnDefinition = "text")
     private String drawdownJson;
+
+    /** JSON: {"NVDA":12.3,"TSLA":-4.5,...} — each symbol's own total return %. */
+    @Column(columnDefinition = "text")
+    private String symbolReturnsJson;
 }

@@ -1,4 +1,4 @@
-package com.quant.finance.decision.web;
+package com.quant.finance.decision.controller;
 
 import com.quant.finance.decision.service.UniverseService;
 import org.springframework.web.bind.annotation.*;

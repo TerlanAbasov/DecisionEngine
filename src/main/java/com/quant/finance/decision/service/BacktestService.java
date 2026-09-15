@@ -415,6 +415,7 @@ public class BacktestService {
         result.setEquityJson(json.write(o.equity));
         result.setBenchmarkJson(json.write(o.benchmark));
         result.setDrawdownJson(json.write(o.drawdown));
+        result.setSymbolReturnsJson(json.write(o.symbolReturnsPct));
         resultRepo.save(result);
 
         List<TradeEntity> trades = new ArrayList<>();
@@ -456,7 +457,8 @@ public class BacktestService {
         return new BacktestResultDto(runId, run.getStrategyName(), symbols,
                 run.getStartDate(), run.getEndDate(), tf, bars, json.readMetrics(res.getMetricsJson()),
                 dates, json.readDoubles(res.getEquityJson()),
-                json.readDoubles(res.getBenchmarkJson()), json.readDoubles(res.getDrawdownJson()), trades);
+                json.readDoubles(res.getBenchmarkJson()), json.readDoubles(res.getDrawdownJson()), trades,
+                json.readMetrics(res.getSymbolReturnsJson()));
     }
 
     @Transactional
@@ -612,7 +614,8 @@ public class BacktestService {
                         t.entryPx, t.exitPx, t.bars, t.returnPct))
                 .toList();
         return new BacktestResultDto(runId, o.strategy, o.symbols, o.startDate, o.endDate,
-                timeframe, bars, o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown, trades);
+                timeframe, bars, o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown, trades,
+                o.symbolReturnsPct);
     }
 
     /** Copy the headline metrics from a metrics map onto the run row (for sort/filter in SQL). */

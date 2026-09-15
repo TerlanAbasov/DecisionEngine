@@ -1,4 +1,4 @@
-package com.quant.finance.decision.web;
+package com.quant.finance.decision.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
