@@ -11,6 +11,7 @@ import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.repository.SignalRepository;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.*;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class ScannerService {
 
@@ -34,16 +36,6 @@ public class ScannerService {
 
     @Value("${decision.execution-engine.strategies:}")
     private String forwardStrategiesCsv;
-
-    public ScannerService(MarketDataService marketData, StrategyService strategies,
-                          UniverseService universe, SignalRepository signalRepo,
-                          CommandService executionEngine) {
-        this.marketData = marketData;
-        this.strategies = strategies;
-        this.universe = universe;
-        this.signalRepo = signalRepo;
-        this.executionEngine = executionEngine;
-    }
 
     @Transactional
     public List<SignalDto> scan(List<String> symbols, boolean includeFlat) {

@@ -2,7 +2,6 @@ package com.quant.finance.decision.service;
 
 import com.quant.finance.decision.client.ExecutionEngineClient;
 import com.quant.finance.decision.dto.Dtos.SignalDto;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,9 +25,8 @@ import org.springframework.stereotype.Service;
 public class CommandService {
     private final ExecutionEngineClient executionEngineClient;
 
-    @Getter
-    private final boolean configured;
-
+    @Value("${decision.execution-engine.base-url:}")
+    private String baseUrl;
     @Value("${decision.execution-engine.order-type:MKT}")
     private String orderType;
     @Value("${decision.execution-engine.tif:DAY}")
@@ -37,10 +35,8 @@ public class CommandService {
     @Value("${decision.execution-engine.quantity:}")
     private String quantity;
 
-    public CommandService(com.quant.finance.decision.client.ExecutionEngineClient executionEngineClient,
-                          @Value("${decision.execution-engine.base-url:}") String baseUrl) {
-        this.executionEngineClient = executionEngineClient;
-        this.configured = baseUrl != null && !baseUrl.isBlank();
+    public boolean isConfigured() {
+        return baseUrl != null && !baseUrl.isBlank();
     }
 
     /**
@@ -48,7 +44,7 @@ public class CommandService {
      * unconfigured. Order sizing/type/TIF come from {@code decision.execution-engine.*}.
      */
     public void sendTradeCommand(SignalDto signal) {
-        if (!configured) {
+        if (!isConfigured()) {
             throw new IllegalStateException(
                 "ExecutionEngine integration not configured: set decision.execution-engine.base-url");
         }

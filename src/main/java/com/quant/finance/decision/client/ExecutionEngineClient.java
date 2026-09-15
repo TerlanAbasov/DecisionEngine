@@ -2,6 +2,8 @@ package com.quant.finance.decision.client;
 
 import feign.Headers;
 import feign.Logger;
+import feign.codec.ErrorDecoder;
+import feign.error.AnnotationErrorDecoder;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -9,15 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Map;
 
-/**
- * Feign client mirroring ExecutionEngine's own {@code RoutingClient} pattern. Uses a generic
- * {@code Map} payload (not ExecutionEngine's {@code TradeCommandDto}) since the DTO type
- * isn't shared across repos — field names must match what it deserializes.
- */
 @FeignClient(name = "execution-engine-client",
-    // Not decision.execution-engine.base-url (blank by default): @FeignClient can't take a
-    // blank url without a load-balancer bean. feign-url falls back to an unroutable
-    // RFC 2606 .invalid host instead, only ever dialed if the configured-guard is bypassed.
     url = "${decision.execution-engine.feign-url}",
     configuration = ExecutionEngineClient.FeignConfiguration.class)
 public interface ExecutionEngineClient {
@@ -30,7 +24,14 @@ public interface ExecutionEngineClient {
     class FeignConfiguration {
         @Bean
         Logger.Level feignLoggerLevel() {
-            return Logger.Level.BASIC;
+            return Logger.Level.FULL;
+        }
+
+        @Bean
+        public ErrorDecoder feignErrorDecoder() {
+            return AnnotationErrorDecoder
+                .builderFor(ExecutionEngineClient.class)
+                .build();
         }
     }
 }
