@@ -1,0 +1,19 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260916-strategy-risk-defaults
+            author: Tarlan Abasov
+            comment: >
+                Per-strategy default stop-loss % and take-profit %, alongside the existing
+                recommended_timeframe. Nullable — null means "no override" (engine default
+                is off/0), same convention as recommended_timeframe falling back to the
+                category default. Populated by the risk-default optimizer.
+            changes:
+                -   addColumn:
+                        tableName: strategy_config
+                        columns:
+                            -   column:
+                                    name: default_stop_loss_pct
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: default_take_profit_pct
+                                    type: DOUBLE PRECISION

@@ -8,6 +8,7 @@ import com.quant.finance.decision.strategy.TradingStrategy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -92,6 +93,93 @@ public class OptimizerService {
         log.info("Optimize: '{}' done in {} ms — best {} {}={}", name, System.currentTimeMillis() - t0,
                 best != null ? best.params() : "{}", metric, best != null ? best.score() : Double.NaN);
         return new OptimizeResultDto(name, metric, defaults, bestParams, best, grid);
+    }
+
+    // ---- risk-default sweep: timeframe x stop-loss% x take-profit%, scored by total return ----
+
+    private static final List<Timeframe> RISK_TIMEFRAMES = List.of(Timeframe.M15, Timeframe.H1, Timeframe.D1);
+    private static final double[] SL_GRID = {0, 1, 2, 3, 5};
+    private static final double[] TP_GRID = {0, 2, 5, 10, 15};
+
+    /** Finds the best (timeframe, stopLoss%, takeProfit%) combo for one strategy, without saving it. */
+    public RiskOptimizeResultDto optimizeRiskDefaults(String name, List<String> symbols, LocalDate start,
+                                                      LocalDate end, Double capital, Double commissionBps,
+                                                      Double slippageBps, Boolean allowShort) {
+        List<String> syms = backtests.universeOr(symbols);
+        Map<Timeframe, List<BarSeries>> dataByTf = new LinkedHashMap<>();
+        for (Timeframe tf : RISK_TIMEFRAMES) dataByTf.put(tf, backtests.loadData(syms, start, end, tf));
+        return sweep(name, dataByTf,
+                capital != null ? capital : 100_000, commissionBps != null ? commissionBps : 1.0,
+                slippageBps != null ? slippageBps : 2.0, allowShort == null || allowShort);
+    }
+
+    /**
+     * Runs {@link #optimizeRiskDefaults} for every enabled, non-archived strategy and persists
+     * each winner via {@link StrategyService#saveRiskDefaults}. Bars are loaded once per
+     * timeframe and shared across every strategy (3 loads total, not one set per strategy) —
+     * only the strategy and its params change per sweep, not the underlying data.
+     */
+    public RiskOptimizeBulkResultDto optimizeRiskDefaultsBulk(List<String> symbols, LocalDate start, LocalDate end,
+                                                              Double capital, Double commissionBps,
+                                                              Double slippageBps, Boolean allowShort) {
+        List<String> names = new ArrayList<>(strategies.getEnabledStrategies().keySet());
+        List<String> syms = backtests.universeOr(symbols);
+        Map<Timeframe, List<BarSeries>> dataByTf = new LinkedHashMap<>();
+        for (Timeframe tf : RISK_TIMEFRAMES) dataByTf.put(tf, backtests.loadData(syms, start, end, tf));
+
+        double cap = capital != null ? capital : 100_000;
+        double comm = commissionBps != null ? commissionBps : 1.0;
+        double slip = slippageBps != null ? slippageBps : 2.0;
+        boolean allowShortEff = allowShort == null || allowShort;
+
+        long t0 = System.currentTimeMillis();
+        List<RiskOptimizeBulkEntryDto> results = new ArrayList<>();
+        int ok = 0, failed = 0;
+        for (String name : names) {
+            try {
+                RiskOptimizeResultDto r = sweep(name, dataByTf, cap, comm, slip, allowShortEff);
+                strategies.saveRiskDefaults(name, r.best().timeframe(), r.best().stopLossPct(), r.best().takeProfitPct());
+                results.add(new RiskOptimizeBulkEntryDto(name, r.best(), true, null));
+                ok++;
+            } catch (RuntimeException e) {
+                log.warn("Risk-default optimize: '{}' failed — {}: {}", name, e.getClass().getSimpleName(), e.getMessage());
+                results.add(new RiskOptimizeBulkEntryDto(name, null, false, e.getMessage()));
+                failed++;
+            }
+        }
+        log.info("Risk-default optimize: {} strategies — {} ok, {} failed, in {} ms",
+                names.size(), ok, failed, System.currentTimeMillis() - t0);
+        return new RiskOptimizeBulkResultDto(names.size(), ok, failed, results);
+    }
+
+    private RiskOptimizeResultDto sweep(String name, Map<Timeframe, List<BarSeries>> dataByTf,
+                                        double capital, double commissionBps, double slippageBps, boolean allowShort) {
+        TradingStrategy strat = strategies.getStrategy(name);
+        Map<String, Double> params = strategies.getParams(name);
+
+        List<CompletableFuture<RiskCellDto>> futures = new ArrayList<>();
+        for (Timeframe tf : RISK_TIMEFRAMES) {
+            List<BarSeries> data = dataByTf.get(tf);
+            BacktestConfig baseCfg = BacktestConfig.builder()
+                    .capital(capital).commissionBps(commissionBps).slippageBps(slippageBps)
+                    .allowShort(allowShort).timeframe(tf).build();
+            for (double sl : SL_GRID) {
+                for (double tp : TP_GRID) {
+                    final double slF = sl, tpF = tp;
+                    futures.add(CompletableFuture.supplyAsync(() -> {
+                        Map<String, Double> m = backtests.evaluate(strat, params, data, baseCfg.withRisk(slF, tpF));
+                        double score = m.getOrDefault("totalReturnPct", Double.NEGATIVE_INFINITY);
+                        return new RiskCellDto(tf.name(), slF, tpF, m, score);
+                    }, backtests.executor()));
+                }
+            }
+        }
+        RiskCellDto best = null;
+        for (CompletableFuture<RiskCellDto> f : futures) {
+            RiskCellDto cell = f.join();
+            if (best == null || cell.score() > best.score()) best = cell;
+        }
+        return new RiskOptimizeResultDto(name, "totalReturnPct", best, futures.size());
     }
 
     private static void require(String param, Map<String, Double> defaults, String which) {

@@ -60,4 +60,18 @@ public class StrategyController {
     public OptimizeResultDto optimize(@PathVariable String name, @RequestBody OptimizeRequest req) {
         return optimizer.optimize(name, req);
     }
+
+    /** Finds the best timeframe/stop-loss%/take-profit% for one strategy; does not save it. */
+    @PostMapping("/{name}/optimize-risk-defaults")
+    public RiskOptimizeResultDto optimizeRiskDefaults(@PathVariable String name, @RequestBody RiskOptimizeRequest req) {
+        return optimizer.optimizeRiskDefaults(name, req.symbols(), req.start(), req.end(),
+                req.capital(), req.commissionBps(), req.slippageBps(), req.allowShort());
+    }
+
+    /** Runs the risk-default sweep for every enabled strategy and saves each winner. */
+    @PostMapping("/optimize-risk-defaults/bulk")
+    public RiskOptimizeBulkResultDto optimizeRiskDefaultsBulk(@RequestBody RiskOptimizeRequest req) {
+        return optimizer.optimizeRiskDefaultsBulk(req.symbols(), req.start(), req.end(),
+                req.capital(), req.commissionBps(), req.slippageBps(), req.allowShort());
+    }
 }

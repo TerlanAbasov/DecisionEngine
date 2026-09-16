@@ -119,6 +119,13 @@ public class StrategyService {
         return repo.findByName(name).map(e -> Boolean.TRUE.equals(e.getArchived())).orElse(false);
     }
 
+    /** Permanently removes the strategy's config row. Irreversible — unlike archiving. */
+    @Transactional
+    public void deleteStrategy(String name) {
+        repo.deleteByName(name);
+        log.info("Strategy '{}' permanently deleted", name);
+    }
+
     /** Un-archive every archived strategy (leaves the enabled flag as-is). Returns how many. */
     @Transactional
     public int unarchiveAll() {
@@ -158,6 +165,8 @@ public class StrategyService {
             e.setRecommendedTimeframe(tf);
         }
         if (u.intraday() != null) e.setIntraday(u.intraday());
+        if (u.defaultStopLossPct() != null) e.setDefaultStopLossPct(Math.max(0, u.defaultStopLossPct()));
+        if (u.defaultTakeProfitPct() != null) e.setDefaultTakeProfitPct(Math.max(0, u.defaultTakeProfitPct()));
         if (u.archived() != null) {
             e.setArchived(u.archived());
             if (u.archived()) e.setEnabled(false);
@@ -253,6 +262,27 @@ public class StrategyService {
         return Timeframe.from(defaultTimeframe(category));
     }
 
+    /** This strategy's default stop-loss %, or null if none saved (engine default: off). */
+    public Double defaultStopLossPct(String name) {
+        return repo.findByName(name).map(StrategyConfigEntity::getDefaultStopLossPct).orElse(null);
+    }
+
+    /** This strategy's default take-profit %, or null if none saved (engine default: off). */
+    public Double defaultTakeProfitPct(String name) {
+        return repo.findByName(name).map(StrategyConfigEntity::getDefaultTakeProfitPct).orElse(null);
+    }
+
+    /** Persists the risk-default optimizer's winning (timeframe, stopLoss%, takeProfit%) combo. */
+    @Transactional
+    public void saveRiskDefaults(String name, String timeframe, double stopLossPct, double takeProfitPct) {
+        StrategyConfigEntity e = entity(name);
+        e.setRecommendedTimeframe(timeframe);
+        e.setDefaultStopLossPct(stopLossPct);
+        e.setDefaultTakeProfitPct(takeProfitPct);
+        repo.save(e);
+        log.info("Strategy '{}' risk defaults saved: tf={} SL={}% TP={}%", name, timeframe, stopLossPct, takeProfitPct);
+    }
+
     private static boolean isKnownTimeframe(String s) {
         try { Timeframe.valueOf(s.trim().toUpperCase()); return true; }
         catch (IllegalArgumentException ex) { return false; }
@@ -307,6 +337,7 @@ public class StrategyService {
                 tags, Boolean.TRUE.equals(e.getFavorite()),
                 e.getNotes() == null ? "" : e.getNotes(),
                 recTf, intraday,
+                e.getDefaultStopLossPct(), e.getDefaultTakeProfitPct(),
                 effective, defaults, new ArrayList<>(ov.keySet()));
     }
 }

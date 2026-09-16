@@ -18,13 +18,15 @@ public final class Dtos {
                               String description, boolean enabled, boolean archived, double weight, boolean invert,
                               String directionOverride, List<String> tags, boolean favorite, String notes,
                               String recommendedTimeframe, boolean intraday,
+                              Double defaultStopLossPct, Double defaultTakeProfitPct,
                               Map<String, Double> params, Map<String, Double> defaultParams,
                               List<String> overridden) {}
 
     /** Partial update of a strategy's behaviour controls — any null field is left unchanged. */
     public record StrategyControlsUpdate(Double weight, Boolean invert, String directionOverride,
                                          List<String> tags, Boolean favorite, String notes,
-                                         String recommendedTimeframe, Boolean intraday, Boolean archived) {}
+                                         String recommendedTimeframe, Boolean intraday, Boolean archived,
+                                         Double defaultStopLossPct, Double defaultTakeProfitPct) {}
 
     /** One cell of a parameter sweep: the params tried and the metrics they produced. */
     public record OptimizeCellDto(Map<String, Double> params, Map<String, Double> metrics, double score) {}
@@ -44,6 +46,27 @@ public final class Dtos {
     public record OptimizeResultDto(String strategy, String metric,
                                     Map<String, Double> defaultParams, Map<String, Double> bestParams,
                                     OptimizeCellDto best, List<OptimizeCellDto> grid) {}
+
+    /** Request for a risk-default sweep (timeframe x stop-loss% x take-profit%). */
+    public record RiskOptimizeRequest(List<String> symbols, LocalDate start, LocalDate end,
+                                      Double capital, Double commissionBps, Double slippageBps,
+                                      Boolean allowShort) {}
+
+    /**
+     * One cell of a risk-default sweep: a (timeframe, stopLossPct, takeProfitPct) combo and
+     * the portfolio metrics it produced.
+     */
+    public record RiskCellDto(String timeframe, double stopLossPct, double takeProfitPct,
+                              Map<String, Double> metrics, double score) {}
+
+    /** Best (timeframe, stopLossPct, takeProfitPct) combo found for a strategy, by totalReturnPct. */
+    public record RiskOptimizeResultDto(String strategy, String metric, RiskCellDto best, int cellsEvaluated) {}
+
+    /** One strategy's outcome from a bulk risk-default sweep, and whether it was saved. */
+    public record RiskOptimizeBulkEntryDto(String strategy, RiskCellDto best, boolean saved, String error) {}
+
+    public record RiskOptimizeBulkResultDto(int strategies, int succeeded, int failed,
+                                            List<RiskOptimizeBulkEntryDto> results) {}
 
     /**
      * start/end are calendar dates (the backtest window the user picked), independent of bar interval.
@@ -111,7 +134,7 @@ public final class Dtos {
 
     /** Result of pruning the strategy set to the most profitable subset. */
     public record PruneResultDto(String rankedBy, int rankWindow, int ranked, int keep,
-                                 List<String> kept, List<String> archived, int deletedRuns) {}
+                                 List<String> kept, List<String> losers, int deletedRuns) {}
 
     public record SignalDto(String strategy, String category, String symbol, String signal,
                             boolean isNew, int bars, double weight, double close, Instant date,

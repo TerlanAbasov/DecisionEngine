@@ -58,6 +58,10 @@ public class StrategyConfigEntity {
     /** Bar interval this strategy is tuned for, as a {@code Timeframe} name (M5, M15, H1, D1, …). */
     private String recommendedTimeframe;
 
+    /** Default stop-loss / take-profit %, found by the risk-default optimizer. Null => off (0). */
+    private Double defaultStopLossPct;
+    private Double defaultTakeProfitPct;
+
     /** Whether the strategy is appropriate for intraday day-trading (false e.g. for seasonal effects). */
     private Boolean intraday;
 

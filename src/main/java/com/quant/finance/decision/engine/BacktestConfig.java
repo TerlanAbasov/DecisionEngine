@@ -48,6 +48,17 @@ public final class BacktestConfig {
                 .build();
     }
 
+    /** Copy of this config with different stop-loss / take-profit % (for per-strategy runs). */
+    public BacktestConfig withRisk(double stopLossPct, double takeProfitPct) {
+        return builder()
+                .capital(capital).commissionBps(commissionBps).slippageBps(slippageBps)
+                .allowShort(allowShort).execLag(execLag).positionSize(positionSize)
+                .riskFreePct(riskFreePct).warmupBars(warmupBars)
+                .stopLossPct(stopLossPct).takeProfitPct(takeProfitPct)
+                .timeframe(timeframe)
+                .build();
+    }
+
     public static final class Builder {
         private double capital = 100_000;
         private double commissionBps = 1.0;

@@ -122,8 +122,14 @@ public class BacktestService {
         }
         if (r.riskFreePct() != null) b.riskFreePct(r.riskFreePct());
         if (r.warmupBars() != null) b.warmupBars(r.warmupBars());
-        if (r.stopLossPct() != null) b.stopLossPct(r.stopLossPct());
-        if (r.takeProfitPct() != null) b.takeProfitPct(r.takeProfitPct());
+        // unset SL/TP on a single named strategy falls back to its own saved default
+        // (same "AUTO" convention as timeframe) — a batch/ALL request resolves this per-job instead.
+        Double sl = r.stopLossPct();
+        if (sl == null && strategies.isStrategy(r.strategyName())) sl = strategies.defaultStopLossPct(r.strategyName());
+        if (sl != null) b.stopLossPct(sl);
+        Double tp = r.takeProfitPct();
+        if (tp == null && strategies.isStrategy(r.strategyName())) tp = strategies.defaultTakeProfitPct(r.strategyName());
+        if (tp != null) b.takeProfitPct(tp);
         BacktestConfig cfg = b.build();
         log.info("Config[{}]: tf={} tfReq={} capital={} comm={}bps slip={}bps posSize={} execLag={} SL={}% TP={}% warmup={} rf={}% allowShort={}",
                 r.strategyName(), cfg.timeframe, r.timeframe() == null ? "AUTO" : r.timeframe(), cfg.capital,
@@ -142,6 +148,8 @@ public class BacktestService {
         log.info("Symbols: {} from universe {}", syms.size(), preview(syms));
         return syms;
     }
+
+    private static double orZero(Double v) { return v == null ? 0 : v; }
 
     private static String preview(List<String> l) {
         return l.size() <= 12 ? l.toString() : l.subList(0, 12) + " …+" + (l.size() - 12);
@@ -301,6 +309,11 @@ public class BacktestService {
         // load native bars once per symbol, resample into every needed frame, drop the native bars
         Map<Timeframe, List<BarSeries>> tfData = loadResampled(symbols, start, end, frames);
 
+        // unset SL/TP on a batch request falls back to each strategy's own saved default
+        // (same "AUTO" convention as timeframe); an explicit value overrides uniformly for all.
+        boolean autoSL = req.stopLossPct() == null;
+        boolean autoTP = req.takeProfitPct() == null;
+
         // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---
         record Job(String name, TradingStrategy strat, Map<String, Double> params,
                    BacktestConfig cfg, List<BarSeries> data) {}
@@ -309,6 +322,11 @@ public class BacktestService {
             Map<String, Double> params = strategies.getParams(e.getKey());
             Timeframe tf = perStrategyTf ? batchFrame(strategies.recommendedTimeframe(e.getKey())) : sharedFrame;
             BacktestConfig runCfg = cfg.timeframe == tf ? cfg : cfg.withTimeframe(tf);
+            if (autoSL || autoTP) {
+                double sl = autoSL ? orZero(strategies.defaultStopLossPct(e.getKey())) : runCfg.stopLossPct;
+                double tp = autoTP ? orZero(strategies.defaultTakeProfitPct(e.getKey())) : runCfg.takeProfitPct;
+                runCfg = runCfg.withRisk(sl, tp);
+            }
             jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, tfData.get(tf)));
         }
         log.info("Backtest run-all: {} jobs prepared ({} distinct timeframe(s)) — submitting to pool",
@@ -474,11 +492,14 @@ public class BacktestService {
      * Rank every strategy that has run history by the average of its {@code recentRuns} most
      * recent runs' {@code by} metric ("totalReturnPct" or "sharpe"), keep the top {@code keep}
      * (or top {@code keepPct}%), and for the rest: delete all runs / results / trades and
-     * either archive them (removed from the UI, never run again) or just disable them.
-     * Strategies with no run history are left untouched.
+     * either archive them (hidden from the UI, never run again — reversible), just disable
+     * them, or permanently delete their {@code strategy_config} row too ({@code mode="delete"}
+     * — irreversible, unlike archiving). Strategies with no run history are left untouched.
      */
     @Transactional
-    public PruneResultDto pruneToTop(Integer keep, Integer keepPct, Integer recentRuns, String by, boolean archive) {
+    public PruneResultDto pruneToTop(Integer keep, Integer keepPct, Integer recentRuns, String by, String mode) {
+        boolean hardDelete = "delete".equalsIgnoreCase(mode);
+        boolean archive = !hardDelete && !"disable".equalsIgnoreCase(mode);
         boolean bySharpe = by != null && by.equalsIgnoreCase("sharpe");
         String rankedBy = bySharpe ? "sharpe" : "totalReturnPct";
         int window = recentRuns == null || recentRuns < 1 ? 2 : recentRuns;
@@ -506,8 +527,9 @@ public class BacktestService {
 
         List<String> kept = ranked.stream().limit(k).map(Scored::name).toList();
         List<String> losers = ranked.stream().skip(k).map(Scored::name).toList();
+        String action = hardDelete ? "permanently deleted" : archive ? "archived" : "disabled";
         log.info("Prune: {} strategies with history ranked by avg {} of last {} runs — keeping {}, {} {} + deleting their runs",
-                total, rankedBy, window, k, losers.size(), archive ? "archived" : "disabled");
+                total, rankedBy, window, k, losers.size(), action);
 
         int deletedRuns = 0;
         for (String name : losers) {
@@ -515,7 +537,8 @@ public class BacktestService {
             resultRepo.deleteByRunStrategyName(name);
             deletedRuns += runRepo.deleteByStrategyName(name);
             if (strategies.isStrategy(name)) {
-                if (archive) strategies.setArchived(name, true);
+                if (hardDelete) strategies.deleteStrategy(name);
+                else if (archive) strategies.setArchived(name, true);
                 else strategies.setEnabled(name, false);
             }
         }
@@ -525,8 +548,7 @@ public class BacktestService {
                 strategies.setEnabled(name, true);
             }
 
-        log.info("Prune: done — kept {}, {} {}, deleted {} runs", kept.size(),
-                losers.size(), archive ? "archived" : "disabled", deletedRuns);
+        log.info("Prune: done — kept {}, {} {}, deleted {} runs", kept.size(), losers.size(), action, deletedRuns);
         return new PruneResultDto(rankedBy, window, total, k, kept, losers, deletedRuns);
     }
 
