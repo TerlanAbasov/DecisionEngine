@@ -3,6 +3,7 @@ package com.quant.finance.decision.controller;
 import com.quant.finance.decision.data.MarketDataService;
 import com.quant.finance.decision.dto.Dtos.PriceSeriesDto;
 import com.quant.finance.decision.dto.Dtos.SymbolCoverageDto;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/market-data")
+@Slf4j
 public class MarketDataController {
 
     private final MarketDataService service;
@@ -42,11 +44,22 @@ public class MarketDataController {
         return service.priceSeries(symbol, timeframe, start, end, Math.min(Math.max(limit, 50), 5000));
     }
 
-    /** Refresh cached bars for the given symbols. */
+    /**
+     * Refresh cached bars for the given symbols. One symbol's fetch failing (bad ticker, data
+     * source hiccup) doesn't abort the rest — its value is {@code -1} instead of a bar count.
+     */
     @PostMapping("/pull")
     public Map<String, Integer> pull(@RequestParam List<String> symbols) {
         Map<String, Integer> out = new LinkedHashMap<>();
-        for (String s : symbols) out.put(s.toUpperCase(), service.refresh(s.toUpperCase()));
+        for (String s : symbols) {
+            String sym = s.toUpperCase();
+            try {
+                out.put(sym, service.refresh(sym));
+            } catch (RuntimeException e) {
+                log.warn("Pull: {} failed — {}: {}", sym, e.getClass().getSimpleName(), e.getMessage());
+                out.put(sym, -1);
+            }
+        }
         return out;
     }
 }

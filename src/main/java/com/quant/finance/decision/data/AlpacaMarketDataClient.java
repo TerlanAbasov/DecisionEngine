@@ -9,7 +9,9 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -64,18 +66,22 @@ public class AlpacaMarketDataClient implements MarketDataClient {
                 + "decision.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
         }
 
-        List<PriceBarEntity> out = new ArrayList<>();
+        // keyed by bar time to dedupe: Alpaca can hand back the same bar twice across a page
+        // boundary, and price_bar's (symbol, bar_time) unique constraint turns that into a
+        // hard insert failure downstream if it isn't collapsed here first.
+        Map<Instant, PriceBarEntity> byTime = new LinkedHashMap<>();
         String pageToken = null;
         do {
             AlpacaBarsResponse page = fetchPage(symbol, start, end, pageToken);
             if (page == null || page.bars() == null) break;
             for (AlpacaBar b : page.bars()) {
                 Instant barTime = Instant.parse(b.t());
-                out.add(new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca", timeframe));
+                byTime.put(barTime, new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca", timeframe));
             }
             pageToken = page.nextPageToken();
         } while (pageToken != null);
 
+        List<PriceBarEntity> out = new ArrayList<>(byTime.values());
         log.info("Fetched {} {} bars for {} from Alpaca ({} feed, since {})", out.size(), timeframe, symbol, feed, start);
         return out;
     }
