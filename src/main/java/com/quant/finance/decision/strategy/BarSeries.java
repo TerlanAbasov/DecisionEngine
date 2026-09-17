@@ -1,6 +1,7 @@
 package com.quant.finance.decision.strategy;
 
 import java.time.Instant;
+import java.util.Arrays;
 
 /**
  * Framework-free OHLCV container. Column arrays (not row objects) so the
@@ -27,5 +28,24 @@ public final class BarSeries {
 
     public int size() {
         return close.length;
+    }
+
+    /**
+     * Splits this series at {@code trainFraction} of its length: the leading part for fitting/
+     * selecting a parameter combo, the trailing part as an unseen holdout to score it honestly.
+     * Index-based (not calendar-based) — simple, and bars are regularly spaced so it's a close
+     * enough proxy for a time-based split.
+     */
+    public BarSeries[] trainTestSplit(double trainFraction) {
+        int n = size();
+        int cut = Math.max(0, Math.min(n, (int) Math.round(n * trainFraction)));
+        return new BarSeries[] { slice(0, cut), slice(cut, n) };
+    }
+
+    private BarSeries slice(int from, int to) {
+        return new BarSeries(symbol,
+                Arrays.copyOfRange(date, from, to), Arrays.copyOfRange(open, from, to),
+                Arrays.copyOfRange(high, from, to), Arrays.copyOfRange(low, from, to),
+                Arrays.copyOfRange(close, from, to), Arrays.copyOfRange(volume, from, to));
     }
 }

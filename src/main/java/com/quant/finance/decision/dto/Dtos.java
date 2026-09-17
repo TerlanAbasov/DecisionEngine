@@ -59,11 +59,19 @@ public final class Dtos {
     public record RiskCellDto(String timeframe, double stopLossPct, double takeProfitPct,
                               Map<String, Double> metrics, double score) {}
 
-    /** Best (timeframe, stopLossPct, takeProfitPct) combo found for a strategy, by totalReturnPct. */
-    public record RiskOptimizeResultDto(String strategy, String metric, RiskCellDto best, int cellsEvaluated) {}
+    /**
+     * Best (timeframe, stopLossPct, takeProfitPct) combo found for a strategy, selected on the
+     * training slice only. {@code outOfSample} re-runs that exact combo on the held-out test
+     * slice it never saw during selection — the honest number; {@code best}'s score is in-sample
+     * and will typically look better than {@code outOfSample} (that gap is the overfitting, not
+     * a bug). {@code trainFraction} is how much of the window was used for selection (e.g. 0.7).
+     */
+    public record RiskOptimizeResultDto(String strategy, String metric, RiskCellDto best,
+                                        RiskCellDto outOfSample, double trainFraction, int cellsEvaluated) {}
 
     /** One strategy's outcome from a bulk risk-default sweep, and whether it was saved. */
-    public record RiskOptimizeBulkEntryDto(String strategy, RiskCellDto best, boolean saved, String error) {}
+    public record RiskOptimizeBulkEntryDto(String strategy, RiskCellDto best, RiskCellDto outOfSample,
+                                           boolean saved, String error) {}
 
     public record RiskOptimizeBulkResultDto(int strategies, int succeeded, int failed,
                                             List<RiskOptimizeBulkEntryDto> results) {}
