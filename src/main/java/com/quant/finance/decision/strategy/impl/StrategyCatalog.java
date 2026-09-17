@@ -3,8 +3,8 @@ package com.quant.finance.decision.strategy.impl;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import java.util.List;
 
-/** The registry of all built-in single-asset strategies (50, pruned from 110 by backtest
- *  Sharpe ranking). Pairs is separate. */
+/** The registry of all built-in single-asset strategies (53: 50 kept by backtest Sharpe
+ *  ranking, plus 3 restored on request despite ranking low there). Pairs is separate. */
 public final class StrategyCatalog {
     private StrategyCatalog() {}
 
@@ -17,12 +17,14 @@ public final class StrategyCatalog {
             new CoppockCurve(), new DonchianMidline(),
             // mean reversion (1)
             new Rsi2(),
-            // momentum (10)
+            // momentum (11)
             new RocMomentum(), new High52wBreakout(), new DualMomentum(),
             new VolScaledMomentum(), new RsiMomentum(), new MultiHorizonMomentum(),
             new ForceIndexMomentum(), new CciMomentum(), new TrixMomentum(), new MaStackMomentum(),
-            // breakout (3)
+            new HullMomentum(),
+            // breakout (5)
             new Donchian(), new TurtleSystem(), new KeltnerBreakout(),
+            new RangeExpansionBreakout(), new LinregChannelBreakout(),
             // volume (5)
             new VwapReversion(), new VolumeSpikeBreakout(), new VolumePriceTrend(),
             new RelativeVolumeZscore(), new VwmaVolumeConfirm(),
