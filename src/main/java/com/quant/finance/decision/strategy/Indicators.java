@@ -572,12 +572,27 @@ public final class Indicators {
         for (int i = 0; i < len; i++) ap[i] = (b.high[i] + b.low[i] + b.close[i]) / 3.0;
         double[] esa = ema(ap, channelLen);
         double[] absDiff = new double[len];
-        for (int i = 0; i < len; i++) absDiff[i] = Math.abs(ap[i] - esa[i]);
-        double[] d = ema(absDiff, channelLen);
+        for (int i = 0; i < len; i++) absDiff[i] = Math.abs(ap[i] - esa[i]);   // NaN while esa warms up
+        double[] d = fromFirstValid(absDiff, a -> ema(a, channelLen));
         double[] ci = new double[len];
         for (int i = 0; i < len; i++) ci[i] = d[i] == 0 ? 0 : (ap[i] - esa[i]) / (0.015 * d[i]);
-        double[] wt1 = ema(ci, avgLen);
-        double[] wt2 = sma(wt1, 4);
+        double[] wt1 = fromFirstValid(ci, a -> ema(a, avgLen));
+        double[] wt2 = fromFirstValid(wt1, a -> sma(a, 4));
         return new double[][] { wt1, wt2 };
+    }
+
+    /**
+     * Applies a smoother to {@code s} starting at its first non-NaN value. {@link #ema} and
+     * {@link #sma} are seeded from the first {@code n} inputs, so a NaN warm-up prefix (from an
+     * earlier smoothing stage) would otherwise poison every value after it.
+     */
+    private static double[] fromFirstValid(double[] s, java.util.function.UnaryOperator<double[]> smoother) {
+        int first = 0;
+        while (first < s.length && Double.isNaN(s[first])) first++;
+        if (first == 0) return smoother.apply(s);
+        double[] out = nan(s.length);
+        double[] tail = smoother.apply(java.util.Arrays.copyOfRange(s, first, s.length));
+        System.arraycopy(tail, 0, out, first, tail.length);
+        return out;
     }
 }
