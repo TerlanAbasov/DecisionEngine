@@ -78,6 +78,14 @@ public class MarketDataService {
         }
     }
 
+    /** Permanently drops a symbol's cached bars — no re-fetch. Re-adding it later starts from scratch. */
+    @Transactional
+    public int purge(String symbol) {
+        int n = repo.deleteBySymbol(symbol);
+        log.info("MarketData: purged {} — {} bars deleted", symbol, n);
+        return n;
+    }
+
     @Transactional
     public int refresh(String symbol) {
         log.info("MarketData: refreshing {} (full re-fetch @ {})", symbol, client.configuredTimeframe());

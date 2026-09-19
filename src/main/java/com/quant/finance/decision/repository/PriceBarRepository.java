@@ -25,7 +25,7 @@ public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> 
      */
     @Modifying
     @Query("delete from PriceBarEntity b where b.symbol = :symbol")
-    long deleteBySymbol(@Param("symbol") String symbol);
+    int deleteBySymbol(@Param("symbol") String symbol);
 
     /** Drop every cached bar not fetched at the given timeframe (legacy nulls included). */
     @Modifying

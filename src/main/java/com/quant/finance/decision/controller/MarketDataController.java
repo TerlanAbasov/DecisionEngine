@@ -62,4 +62,10 @@ public class MarketDataController {
         }
         return out;
     }
+
+    /** Permanently drops a symbol's cached bars. Not a universe removal — see /api/universe. */
+    @DeleteMapping("/{symbol}")
+    public Map<String, Integer> purge(@PathVariable String symbol) {
+        return Map.of("deleted", service.purge(symbol.toUpperCase()));
+    }
 }

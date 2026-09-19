@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class UniverseService {
 
-  private static final List<String> DEFAULTS = List.of("MU", "SNDK");
+  private static final List<String> DEFAULTS = List.of("MU", "SNDK", "RKLB", "TSLA");
 
   private final UniverseSymbolRepository repo;
 
