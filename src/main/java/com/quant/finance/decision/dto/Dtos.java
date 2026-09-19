@@ -116,15 +116,51 @@ public final class Dtos {
                                     List<String> dates, double[] equity, double[] benchmark,
                                     double[] drawdown, List<EnsembleLegDto> legs) {}
 
-    public record TradeDto(String symbol, String side, Instant entryDate, Instant exitDate,
-                           double entryPx, double exitPx, int bars, double returnPct) {}
+    /**
+     * One symbol's standalone result within a run: the full metric set from its own return
+     * stream, and its return per calendar year (UTC, percent, oldest first).
+     */
+    public record SymbolResultDto(String symbol, Map<String, Double> metrics,
+                                  Map<String, Double> yearlyReturnsPct) {}
 
+    /**
+     * The run itself: headline metrics, curves, and the per-symbol breakdown. The trade log is
+     * not embedded (a run can have tens of thousands of trades) — {@code tradeCount} says how
+     * many there are and {@code GET /api/backtests/{id}/trades} pages through them.
+     * {@code symbolResults} is empty for runs saved before per-symbol results existed.
+     */
     public record BacktestResultDto(Long runId, String strategy, List<String> symbols,
                                     Instant start, Instant end, String timeframe, int bars,
                                     Map<String, Double> metrics,
                                     List<String> dates, double[] equity, double[] benchmark,
-                                    double[] drawdown, List<TradeDto> trades,
-                                    Map<String, Double> symbolReturnsPct) {}
+                                    double[] drawdown,
+                                    Map<String, Double> symbolReturnsPct,
+                                    List<SymbolResultDto> symbolResults,
+                                    Map<String, Double> yearlyReturnsPct,
+                                    long tradeCount) {}
+
+    /**
+     * One trade with its accounting spelled out. Percentages are percent of the run's starting
+     * capital and money is in the run's currency, both in the per-symbol standalone view
+     * ({@code notional} = capital x exposure, i.e. the symbol traded alone with the full capital);
+     * {@code contribPct} is the trade's share of the blended portfolio's total return instead.
+     * {@code grossPct - commissionPct - slippagePct == netPct}, and likewise for the money columns.
+     * {@code open}: still held on the last bar, so marked to market with no exit cost yet.
+     */
+    public record TradeDetailDto(long id, String symbol, String side, Instant entryDate, Instant exitDate,
+                                 double entryPx, double exitPx, int bars, boolean open,
+                                 double exposure, double notional, double shares,
+                                 double grossPct, double commissionPct, double slippagePct,
+                                 double netPct, double contribPct,
+                                 double grossPnl, double commission, double slippage, double netPnl) {}
+
+    /** Totals over every trade matching the filter (not just the current page). */
+    public record TradeSummaryDto(long trades, long longs, long shorts, long wins, double winRatePct,
+                                  double grossPnl, double commission, double slippage, double netPnl,
+                                  double avgNetPct, double bestNetPct, double worstNetPct) {}
+
+    public record TradePageDto(List<TradeDetailDto> items, long total, int page, int size,
+                               TradeSummaryDto summary) {}
 
     /** One selectable resample target for the backtest form. */
     public record TimeframeDto(String id, String label, boolean nativeFrame) {}

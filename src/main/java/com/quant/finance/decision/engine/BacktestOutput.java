@@ -18,11 +18,17 @@ public final class BacktestOutput {
      *  {@code metrics.totalReturnPct} but on that symbol's own return stream alone.
      *  Empty when a per-symbol breakdown isn't meaningful (e.g. a pairs run). */
     public final Map<String, Double> symbolReturnsPct;
+    /** Full standalone result per symbol (metrics + calendar-year returns); empty for pairs runs. */
+    public final Map<String, SymbolResult> symbolResults;
+    /** The blended portfolio's return in each calendar year (UTC), in percent. */
+    public final Map<String, Double> yearlyReturnsPct;
 
     public BacktestOutput(String strategy, List<String> symbols, Instant[] dates,
                           double[] equity, double[] benchmark, double[] drawdown,
                           List<TradeResult> trades, Map<String, Double> metrics,
-                          Map<String, Double> symbolReturnsPct) {
+                          Map<String, Double> symbolReturnsPct,
+                          Map<String, SymbolResult> symbolResults,
+                          Map<String, Double> yearlyReturnsPct) {
         this.strategy = strategy;
         this.symbols = symbols;
         this.dates = dates;
@@ -34,5 +40,7 @@ public final class BacktestOutput {
         this.trades = trades;
         this.metrics = metrics;
         this.symbolReturnsPct = symbolReturnsPct;
+        this.symbolResults = symbolResults;
+        this.yearlyReturnsPct = yearlyReturnsPct;
     }
 }

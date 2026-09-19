@@ -63,6 +63,23 @@ public class BacktestController {
         return service.getRun(id);
     }
 
+    /**
+     * A run's trade log, one page at a time. {@code symbol} / {@code side} (LONG|SHORT) filter;
+     * {@code sort} is one of entryDate (default), exitDate, symbol, side, bars, entryPx, exitPx,
+     * grossPct, netPct, contribPct, commission, netPnl; {@code dir} asc|desc (default desc).
+     * {@code size} is capped at 500. The summary covers every trade matching the filter.
+     */
+    @GetMapping("/{id}/trades")
+    public TradePageDto trades(@PathVariable Long id,
+                               @RequestParam(required = false) String symbol,
+                               @RequestParam(required = false) String side,
+                               @RequestParam(required = false) String sort,
+                               @RequestParam(required = false) String dir,
+                               @RequestParam(defaultValue = "0") int page,
+                               @RequestParam(defaultValue = "50") int size) {
+        return service.getTrades(id, symbol, side, sort, dir, page, size);
+    }
+
     @GetMapping
     public List<LeaderboardEntryDto> list(
             @RequestParam(required = false) String strategy,

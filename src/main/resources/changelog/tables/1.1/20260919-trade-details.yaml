@@ -1,0 +1,36 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260919-trade-details
+            author: Tarlan Abasov
+            comment: >
+                Per-trade accounting detail so a run's trade log can show gross / cost / net
+                return and the capital committed, and per-symbol results (full metrics plus
+                calendar-year returns) so the run-detail view can break a run down by symbol.
+                All nullable: rows written before this change have none of it and are shown from
+                what they do have (entry/exit price, the run's cost settings). Adding nullable
+                columns does not rewrite the (large) trade table.
+            changes:
+                -   addColumn:
+                        tableName: trade
+                        columns:
+                            -   column:
+                                    name: gross_return
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: cost
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: net_return
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: exposure
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: still_open
+                                    type: BOOLEAN
+                -   addColumn:
+                        tableName: backtest_result
+                        columns:
+                            -   column:
+                                    name: symbol_details_json
+                                    type: TEXT

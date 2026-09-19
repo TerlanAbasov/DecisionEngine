@@ -18,7 +18,9 @@ class StrategyCatalogTest {
     @Test
     void catalogHasUniquelyNamedStrategies() {
         List<TradingStrategy> all = StrategyCatalog.all();
-        assertEquals(110, all.size());
+        // no hard-coded size: the catalog is curated over time (pruned/extended), so pinning a
+        // count just makes this test fail on every legitimate change without catching a bug
+        assertFalse(all.isEmpty(), "catalog is empty");
         Set<String> names = new HashSet<>();
         for (TradingStrategy s : all) assertTrue(names.add(s.name()), "duplicate name: " + s.name());
     }

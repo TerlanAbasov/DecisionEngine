@@ -52,6 +52,23 @@ public final class PerformanceMetrics {
         return eq;
     }
 
+    /**
+     * Return in each calendar year (UTC), in percent, oldest first: the sum of that year's
+     * per-bar net returns (returns are additive on the starting capital, see {@link #equityCurve}),
+     * so the years add up to the total return. The first and last year are usually partial.
+     */
+    public static Map<String, Double> yearlyReturnsPct(double[] net, Instant[] dates) {
+        Map<Integer, Double> byYear = new java.util.TreeMap<>();
+        int n = Math.min(net.length, dates.length);
+        for (int i = 0; i < n; i++) {
+            double r = (Double.isNaN(net[i]) || Double.isInfinite(net[i])) ? 0 : net[i];
+            byYear.merge(dates[i].atZone(java.time.ZoneOffset.UTC).getYear(), r, Double::sum);
+        }
+        Map<String, Double> out = new LinkedHashMap<>();
+        byYear.forEach((y, r) -> out.put(String.valueOf(y), round(r * 100, 2)));
+        return out;
+    }
+
     public static double[] drawdown(double[] equity) {
         double[] dd = new double[equity.length];
         double peak = Double.NEGATIVE_INFINITY;

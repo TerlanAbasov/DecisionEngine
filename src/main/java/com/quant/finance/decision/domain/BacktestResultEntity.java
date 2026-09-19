@@ -36,4 +36,8 @@ public class BacktestResultEntity {
     /** JSON: {"NVDA":12.3,"TSLA":-4.5,...} — each symbol's own total return %. */
     @Column(columnDefinition = "text")
     private String symbolReturnsJson;
+
+    /** JSON {@code SymbolDetails}: per-symbol metrics + calendar-year returns, and the blend's yearly returns. */
+    @Column(columnDefinition = "text")
+    private String symbolDetailsJson;
 }

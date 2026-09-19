@@ -37,6 +37,16 @@ public class JsonCodec {
         return readParams(json);
     }
 
+    /** Parses a stored JSON document into {@code type}; null / blank -> null (nothing stored). */
+    public <T> T read(String json, Class<T> type) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return mapper.readValue(json, type);
+        } catch (Exception e) {
+            throw new RuntimeException("JSON parse failed", e);
+        }
+    }
+
     public double[] readDoubles(String json) {
         if (json == null || json.isBlank()) return new double[0];
         try {

@@ -10,6 +10,7 @@ import com.quant.finance.decision.engine.BacktestOutput;
 import com.quant.finance.decision.engine.Backtester;
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
+import com.quant.finance.decision.engine.SymbolResult;
 import com.quant.finance.decision.engine.TradeResult;
 import com.quant.finance.decision.repository.BacktestResultRepository;
 import com.quant.finance.decision.repository.BacktestRunRepository;
@@ -224,15 +225,15 @@ public class BacktestService {
     /** Run one portfolio backtest against already-loaded data and return only its metrics (no persistence). */
     public Map<String, Double> evaluate(TradingStrategy strat, Map<String, Double> params,
                                         List<BarSeries> data, BacktestConfig cfg) {
-        BacktestOutput
-            o = backtester.runPortfolio(data, strat, params == null || params.isEmpty() ? null : params, cfg);
+        BacktestOutput o = backtester.runPortfolio(data, strat,
+                params == null || params.isEmpty() ? null : params, cfg, null, false);
         return o.metrics;
     }
 
     /** Full portfolio output against already-loaded data (no persistence) — for the ensemble blend. */
     public BacktestOutput runOnce(TradingStrategy strat, Map<String, Double> params,
                                   List<BarSeries> data, BacktestConfig cfg) {
-        return backtester.runPortfolio(data, strat, params == null || params.isEmpty() ? null : params, cfg);
+        return backtester.runPortfolio(data, strat, params == null || params.isEmpty() ? null : params, cfg, null, false);
     }
 
     @Transactional
@@ -434,6 +435,7 @@ public class BacktestService {
         result.setBenchmarkJson(json.write(o.benchmark));
         result.setDrawdownJson(json.write(o.drawdown));
         result.setSymbolReturnsJson(json.write(o.symbolReturnsPct));
+        result.setSymbolDetailsJson(json.write(new SymbolDetails(o.yearlyReturnsPct, o.symbolResults)));
         resultRepo.save(result);
 
         List<TradeEntity> trades = new ArrayList<>();
@@ -448,6 +450,11 @@ public class BacktestService {
             te.setExitPx(t.exitPx);
             te.setBars(t.bars);
             te.setReturnPct(t.returnPct);
+            te.setGrossReturn(t.grossReturn);
+            te.setCost(t.cost);
+            te.setNetReturn(t.netReturn);
+            te.setExposure(t.exposure);
+            te.setStillOpen(t.open);
             trades.add(te);
         }
         tradeRepo.saveAll(trades);
@@ -463,10 +470,8 @@ public class BacktestService {
                 .orElseThrow(() -> new NoSuchElementException("No run " + runId));
         BacktestResultEntity res = resultRepo.findByRunId(runId)
                 .orElseThrow(() -> new NoSuchElementException("No result for run " + runId));
-        List<TradeDto> trades = tradeRepo.findByRunId(runId).stream()
-                .map(t -> new TradeDto(t.getSymbol(), t.getSide(), t.getEntryDate(), t.getExitDate(),
-                        t.getEntryPx(), t.getExitPx(), t.getBars(), t.getReturnPct()))
-                .toList();
+        // runs saved before per-symbol results existed have no details document: empty, not an error
+        SymbolDetails details = json.read(res.getSymbolDetailsJson(), SymbolDetails.class);
         List<String> symbols = run.getSymbolsCsv() == null ? List.of()
                 : Arrays.asList(run.getSymbolsCsv().split(","));
         List<String> dates = readStrings(res.getDatesJson());
@@ -475,8 +480,37 @@ public class BacktestService {
         return new BacktestResultDto(runId, run.getStrategyName(), symbols,
                 run.getStartDate(), run.getEndDate(), tf, bars, json.readMetrics(res.getMetricsJson()),
                 dates, json.readDoubles(res.getEquityJson()),
-                json.readDoubles(res.getBenchmarkJson()), json.readDoubles(res.getDrawdownJson()), trades,
-                json.readMetrics(res.getSymbolReturnsJson()));
+                json.readDoubles(res.getBenchmarkJson()), json.readDoubles(res.getDrawdownJson()),
+                json.readMetrics(res.getSymbolReturnsJson()),
+                details == null ? List.of() : symbolResultDtos(details.symbols()),
+                details == null || details.portfolioYearlyReturnsPct() == null ? Map.of() : details.portfolioYearlyReturnsPct(),
+                tradeRepo.countByRunId(runId));
+    }
+
+    /**
+     * One page of a run's trades, optionally for one symbol / side, with totals over everything
+     * that matches. Loaded whole and paged in memory (see {@link TradeDetails}).
+     */
+    public TradePageDto getTrades(Long runId, String symbol, String side, String sort, String dir,
+                                  Integer page, Integer size) {
+        BacktestRunEntity run = runRepo.findById(runId)
+                .orElseThrow(() -> new NoSuchElementException("No run " + runId));
+        TradeDetails.RunCosts costs = new TradeDetails.RunCosts(run.getCapital(), run.getCommissionBps(),
+                run.getSlippageBps(), run.getPositionSize() != null ? run.getPositionSize() : 1.0);
+        List<TradeDetailDto> all = tradeRepo.findByRunId(runId).stream()
+                .map(t -> TradeDetails.toDto(t, costs)).toList();
+        return TradeDetails.page(all, symbol, side, sort, dir,
+                page == null ? 0 : page, size == null ? TradeDetails.DEFAULT_PAGE_SIZE : size);
+    }
+
+    /** What {@code backtest_result.symbol_details_json} holds. */
+    public record SymbolDetails(Map<String, Double> portfolioYearlyReturnsPct, Map<String, SymbolResult> symbols) {}
+
+    private static List<SymbolResultDto> symbolResultDtos(Map<String, SymbolResult> results) {
+        if (results == null) return List.of();
+        List<SymbolResultDto> out = new ArrayList<>(results.size());
+        results.forEach((sym, r) -> out.add(new SymbolResultDto(sym, r.metrics(), r.yearlyReturnsPct())));
+        return out;
     }
 
     @Transactional
@@ -631,13 +665,9 @@ public class BacktestService {
     }
 
     private BacktestResultDto toDto(Long runId, String timeframe, int bars, BacktestOutput o) {
-        List<TradeDto> trades = o.trades.stream()
-                .map(t -> new TradeDto(t.symbol, t.side, t.entryDate, t.exitDate,
-                        t.entryPx, t.exitPx, t.bars, t.returnPct))
-                .toList();
         return new BacktestResultDto(runId, o.strategy, o.symbols, o.startDate, o.endDate,
-                timeframe, bars, o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown, trades,
-                o.symbolReturnsPct);
+                timeframe, bars, o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown,
+                o.symbolReturnsPct, symbolResultDtos(o.symbolResults), o.yearlyReturnsPct, o.trades.size());
     }
 
     /** Copy the headline metrics from a metrics map onto the run row (for sort/filter in SQL). */

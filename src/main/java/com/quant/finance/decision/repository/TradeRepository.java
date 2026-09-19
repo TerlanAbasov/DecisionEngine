@@ -10,6 +10,7 @@ import java.util.List;
 
 public interface TradeRepository extends JpaRepository<TradeEntity, Long> {
     List<TradeEntity> findByRunId(Long runId);
+    long countByRunId(Long runId);
 
     @Modifying
     @Query("delete from TradeEntity t where t.run.id = :runId")

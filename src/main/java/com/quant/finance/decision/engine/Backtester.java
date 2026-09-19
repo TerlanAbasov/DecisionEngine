@@ -38,14 +38,14 @@ public final class Backtester {
     }
 
     /** Per-symbol computed series aligned to the symbol's own dates. */
-    private record Series(Instant[] dates, double[] net, double[] bench,
+    private record Series(Instant[] dates, double[] close, double[] net, double[] bench,
                           double[] pos, double[] absPos, List<TradeResult> trades) {}
 
     /** {@link #computeSeries} plus a per-(strategy × stock) trace line. */
     private Series computeOne(BarSeries b, TradingStrategy strat,
-                              Map<String, Double> params, BacktestConfig cfg, double tradeWeight) {
+                              Map<String, Double> params, BacktestConfig cfg) {
         long t0 = System.currentTimeMillis();
-        Series s = computeSeries(b, strat, params, cfg, tradeWeight);
+        Series s = computeSeries(b, strat, params, cfg);
         if (tracePerSymbol && log.isInfoEnabled()) {
             double ret = 0;
             for (double n : s.net) if (!Double.isNaN(n)) ret += n;
@@ -57,7 +57,7 @@ public final class Backtester {
     }
 
     private Series computeSeries(BarSeries b, TradingStrategy strat,
-                                 Map<String, Double> params, BacktestConfig cfg, double tradeWeight) {
+                                 Map<String, Double> params, BacktestConfig cfg) {
         int n = b.size();
         double[] target = strat.generateSignals(b, params);
         for (int i = 0; i < n; i++) {
@@ -83,8 +83,8 @@ public final class Backtester {
             absPos[i] = Math.abs(pos[i]);
             if (i < cfg.warmupBars) { net[i] = 0; absPos[i] = 0; }   // ignore burn-in P&L
         }
-        List<TradeResult> trades = extractTrades(pos, b.close, b.date, b.symbol, costRate, cfg.warmupBars, tradeWeight);
-        return new Series(b.date, net, bench, pos, absPos, trades);
+        List<TradeResult> trades = extractTrades(pos, b.close, b.date, b.symbol, costRate, cfg.warmupBars, null);
+        return new Series(b.date, b.close, net, bench, pos, absPos, trades);
     }
 
     /**
@@ -117,80 +117,158 @@ public final class Backtester {
     }
 
     /**
-     * @param weight portfolio weight of this symbol's sleeve. In a portfolio backtest the
-     *               blended return is the mean of the per-symbol returns (1/N each), so each
-     *               trade's return is scaled to its contribution to the whole book — that way
-     *               Σ trade.returnPct reconciles with the reported total return.
+     * Splits one symbol's executed position path into round trips that add up exactly to that
+     * symbol's equity accounting (the same {@code pos}, bar returns and cost model as
+     * {@link #computeSeries}), so {@code Σ trade.netReturn == Σ net}.
+     *
+     * <p>Position {@code pos[i]} earns bar {@code i}'s return, i.e. the move from
+     * {@code close[i-1]} to {@code close[i]} — the fill is the close of the bar <em>before</em>
+     * the first held bar. So a trade held over bars {@code ei..x-1} entered at {@code close[ei-1]}
+     * and exited at {@code close[x-1]}; the timestamps are the open of bar {@code ei} / {@code x}
+     * (= the close of the previous bar). Turnover cost is charged where it is in the equity
+     * accounting: on the bar the position changes, split between the trade that ends and the
+     * one that begins. A trade still open on the last bar is marked at that close with no exit
+     * cost yet, again as in the equity.
+     *
+     * <p>{@code netReturn} and friends are per-symbol standalone (weight 1). {@code returnPct} is
+     * the trade's contribution to a blend: every bar's gross P&amp;L and cost is scaled by that bar's
+     * weight {@code barWeight[i]} ({@code null} = 1, the standalone view), so it stays exact when the
+     * weight changes mid-trade (a symbol whose history starts or ends while the trade is open).
+     * The one unattributed sliver: with {@code warmupBars > 0}
+     * the exit cost of a position already held when warm-up ends belongs to a trade that started
+     * inside the (ignored) warm-up, so it isn't in any trade.
      */
     private List<TradeResult> extractTrades(double[] pos, double[] close, Instant[] date,
-                                            String symbol, double costRate, int fromIdx, double weight) {
+                                            String symbol, double costRate, int warmupBars, double[] barWeight) {
+        List<TradeResult> out = new ArrayList<>();
+        int n = pos.length;
+        int side = 0, entryBar = -1, held = 0;
+        double gross = 0, cost = 0, exposure = 0, weighted = 0;
+        for (int i = Math.max(0, warmupBars); i < n; i++) {
+            double cur = pos[i];
+            double prev = i > 0 ? pos[i - 1] : 0;
+            int d = (int) Math.signum(cur);
+            double w = barWeight == null ? 1.0 : barWeight[i];
+            if (side != 0 && d != side) {
+                // the open trade ends: its last held bar is i-1, so close[i-1] is the exit fill
+                double exitCost = Math.abs(prev) * costRate;
+                cost += exitCost; weighted -= w * exitCost;
+                out.add(trade(symbol, side, date, close, entryBar, i - 1, i, held, gross, cost, exposure, weighted, false));
+                side = 0;
+            }
+            if (d == 0) continue;
+            if (side == 0) {
+                side = d; entryBar = i; held = 0; gross = 0; exposure = Math.abs(cur);
+                // entry cost: the whole position, unless it was already held at the same sign
+                cost = Math.abs(cur - ((int) Math.signum(prev) == d ? prev : 0)) * costRate;
+                weighted = -w * cost;
+            } else {
+                double resize = Math.abs(cur - prev) * costRate;   // resized while held
+                cost += resize; weighted -= w * resize;
+            }
+            double barGross = cur * barReturn(close, i);
+            gross += barGross; weighted += w * barGross;
+            held++;
+        }
+        if (side != 0) out.add(trade(symbol, side, date, close, entryBar, n - 1, n - 1, held, gross, cost, exposure, weighted, true));
+        return out;
+    }
+
+    private static TradeResult trade(String symbol, int side, Instant[] date, double[] close,
+                                     int entryBar, int lastHeldBar, int exitDateBar, int held,
+                                     double gross, double cost, double exposure, double returnPct, boolean open) {
+        return new TradeResult(symbol, side > 0 ? "LONG" : "SHORT",
+                date[entryBar], date[exitDateBar],
+                close[Math.max(entryBar - 1, 0)], close[lastHeldBar],
+                held, returnPct, gross, cost, exposure, open);
+    }
+
+    /**
+     * Price-based round trips for the pairs strategy only (leg A, weight 0.5): a different
+     * accounting model from {@link #extractTrades} — trade return from entry/exit price with a
+     * flat round-trip cost. Kept as it was; pairs trades do not reconcile with the pairs equity.
+     */
+    private List<TradeResult> extractPairTrades(double[] pos, double[] close, Instant[] date,
+                                                String symbol, double costRate, int fromIdx, double weight) {
         List<TradeResult> out = new ArrayList<>();
         int cur = 0, ei = -1;
         double epx = 0;
         for (int i = Math.max(0, fromIdx); i < pos.length; i++) {
             int d = (int) Math.signum(pos[i]);
             if (d != cur) {
-                if (cur != 0) {
-                    double ret = weight * (cur * tradeReturn(epx, close[i]) - 2 * costRate);
-                    out.add(new TradeResult(symbol, cur > 0 ? "LONG" : "SHORT",
-                            date[ei], date[i], round2(epx), round2(close[i]), i - ei, ret));
-                }
+                if (cur != 0) out.add(pairTrade(symbol, cur, date[ei], date[i], epx, close[i], i - ei,
+                        costRate, weight, Math.abs(pos[ei]), false));
                 if (d != 0 && close[i] > 0) { cur = d; ei = i; epx = close[i]; } else { cur = 0; ei = -1; }
             }
         }
         if (cur != 0) {
             int last = pos.length - 1;
-            double ret = weight * (cur * tradeReturn(epx, close[last]) - 2 * costRate);
-            out.add(new TradeResult(symbol, cur > 0 ? "LONG" : "SHORT",
-                    date[ei], date[last], round2(epx), round2(close[last]), last - ei, ret));
+            out.add(pairTrade(symbol, cur, date[ei], date[last], epx, close[last], last - ei,
+                    costRate, weight, Math.abs(pos[ei]), true));
         }
         return out;
     }
 
+    private static TradeResult pairTrade(String symbol, int side, Instant entry, Instant exit, double epx,
+                                         double xpx, int bars, double costRate, double weight,
+                                         double exposure, boolean open) {
+        double gross = side * tradeReturn(epx, xpx), cost = 2 * costRate;
+        return new TradeResult(symbol, side > 0 ? "LONG" : "SHORT", entry, exit, epx, xpx, bars,
+                weight * (gross - cost), gross, cost, exposure, open);
+    }
+
     public BacktestOutput runSingle(BarSeries b, TradingStrategy strat,
                                     Map<String, Double> params, BacktestConfig cfg) {
-        Series s = computeSeries(b, strat, params, cfg, 1.0);
+        Series s = computeSeries(b, strat, params, cfg);
         double[] eq = PerformanceMetrics.equityCurve(s.net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(s.bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
         Map<String, Double> m = PerformanceMetrics.compute(s.net, s.pos, s.absPos, s.bench, s.trades, cfg, s.dates);
+        Map<String, Double> yearly = PerformanceMetrics.yearlyReturnsPct(s.net, s.dates);
         return new BacktestOutput(strat.name(), List.of(b.symbol), s.dates, eq, benchEq, dd, s.trades, m,
-                Map.of(b.symbol, m.get("totalReturnPct")));
+                Map.of(b.symbol, m.get("totalReturnPct")),
+                Map.of(b.symbol, new SymbolResult(m, yearly)), yearly);
     }
 
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
                                        Map<String, Double> params, BacktestConfig cfg) {
-        return runPortfolio(data, strat, params, cfg, null);
+        return runPortfolio(data, strat, params, cfg, null, true);
+    }
+
+    public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
+                                       Map<String, Double> params, BacktestConfig cfg, Executor executor) {
+        return runPortfolio(data, strat, params, cfg, executor, true);
     }
 
     /**
      * @param executor when non-null and there is more than one symbol, each symbol's
      *                 {@code computeSeries} (the CPU-heavy part) runs on the pool in parallel;
      *                 the (cheap) portfolio blend and metrics stay single-threaded.
+     * @param symbolDetails compute each symbol's own metrics / yearly returns. Off for callers that
+     *                 only read the portfolio (parameter sweeps run this thousands of times and
+     *                 would discard them); the per-symbol maps are then empty.
      */
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
-                                       Map<String, Double> params, BacktestConfig cfg, Executor executor) {
+                                       Map<String, Double> params, BacktestConfig cfg, Executor executor,
+                                       boolean symbolDetails) {
         List<Series> series = new ArrayList<>();
         List<String> symbols = new ArrayList<>();
-        List<TradeResult> allTrades = new ArrayList<>();
         TreeSet<Instant> allDates = new TreeSet<>();
-        double tradeWeight = 1.0 / Math.max(1, data.size());   // equal-weight sleeve per symbol
 
         List<Series> computed;
         if (executor != null && data.size() > 1) {
             List<CompletableFuture<Series>> fs = data.stream()
                     .map(b -> CompletableFuture.supplyAsync(
-                            () -> computeOne(b, strat, params, cfg, tradeWeight), executor))
+                            () -> computeOne(b, strat, params, cfg), executor))
                     .toList();
             computed = fs.stream().map(CompletableFuture::join).toList();
         } else {
-            computed = data.stream().map(b -> computeOne(b, strat, params, cfg, tradeWeight)).toList();
+            computed = data.stream().map(b -> computeOne(b, strat, params, cfg)).toList();
         }
         for (int i = 0; i < data.size(); i++) {
             Series s = computed.get(i);
             series.add(s);
             symbols.add(data.get(i).symbol);
-            allTrades.addAll(s.trades);
             allDates.addAll(Arrays.asList(s.dates));
         }
         computed = null;   // release the immutable holder; per-symbol series live in `series` now
@@ -218,14 +296,32 @@ public final class Backtester {
             net[i] /= cnt[i]; bench[i] /= cnt[i]; pos[i] /= cnt[i]; absPos[i] /= cnt[i];
         }
 
-        // Each symbol's own total return %, independent of the others — the portfolio's
-        // equal-weight blend just averages these per-bar, so a lone symbol's sum-of-net
-        // (same formula as PerformanceMetrics' totalReturnPct) is exact, not an approximation.
+        // Each bar is the mean over the symbols that have that bar (1/cnt), so a symbol's weight is
+        // 1/N only where every symbol has data. Re-cut each symbol's trades with that per-bar weight so
+        // Σ returnPct reconciles exactly with the blended total, however the histories are staggered.
+        double costRate = (cfg.commissionBps + cfg.slippageBps) / 1e4;
+        List<TradeResult> allTrades = new ArrayList<>();
+        for (int k = 0; k < series.size(); k++) {
+            Series s = series.get(k);
+            double[] w = new double[s.dates.length];
+            for (int i = 0; i < w.length; i++) {
+                Integer j = idx.get(s.dates[i]);
+                w[i] = j == null || cnt[j] == 0 ? 0 : 1.0 / cnt[j];
+            }
+            allTrades.addAll(extractTrades(s.pos, s.close, s.dates, symbols.get(k), costRate, cfg.warmupBars, w));
+        }
+
+        // Each symbol's own standalone result, independent of the others — the blend just averages
+        // these per-bar, so a lone symbol's numbers (same formulas as the portfolio's) are exact,
+        // not an approximation. Its trades are the unweighted ones, so win rate / profit factor /
+        // average win are per-trade figures for that symbol.
         Map<String, Double> symbolReturnsPct = new LinkedHashMap<>();
-        for (int i = 0; i < symbols.size(); i++) {
-            double total = 0;
-            for (double r : series.get(i).net) total += r;
-            symbolReturnsPct.put(symbols.get(i), Math.round(total * 10000) / 100.0);
+        Map<String, SymbolResult> symbolResults = new LinkedHashMap<>();
+        for (int i = 0; symbolDetails && i < symbols.size(); i++) {
+            Series s = series.get(i);
+            Map<String, Double> sm = PerformanceMetrics.compute(s.net, s.pos, s.absPos, s.bench, s.trades, cfg, s.dates);
+            symbolResults.put(symbols.get(i), new SymbolResult(sm, PerformanceMetrics.yearlyReturnsPct(s.net, s.dates)));
+            symbolReturnsPct.put(symbols.get(i), sm.get("totalReturnPct"));
         }
         series.clear();   // per-bar arrays no longer needed — free them before metrics
 
@@ -233,7 +329,8 @@ public final class Backtester {
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
         Map<String, Double> m = PerformanceMetrics.compute(net, pos, absPos, bench, allTrades, cfg, dates);
-        return new BacktestOutput(strat.name(), symbols, dates, eq, benchEq, dd, allTrades, m, symbolReturnsPct);
+        return new BacktestOutput(strat.name(), symbols, dates, eq, benchEq, dd, allTrades, m, symbolReturnsPct,
+                symbolResults, PerformanceMetrics.yearlyReturnsPct(net, dates));
     }
 
     public BacktestOutput runPairs(BarSeries a, BarSeries b, PairsStrategy strat, BacktestConfig cfg) {
@@ -272,7 +369,7 @@ public final class Backtester {
         double[] closeA = new double[n];
         for (int i = 0; i < n; i++) closeA[i] = pa[i];
         // net = 0.5*legA + 0.5*legB, and trades are extracted from leg A only, so weight the A-leg trades by 0.5
-        List<TradeResult> trades = extractTrades(posA, closeA, dates, a.symbol + "/" + b.symbol, costRate, cfg.warmupBars, 0.5);
+        List<TradeResult> trades = extractPairTrades(posA, closeA, dates, a.symbol + "/" + b.symbol, costRate, cfg.warmupBars, 0.5);
         double[] eq = PerformanceMetrics.equityCurve(net, cfg.capital);
         double[] benchEq = PerformanceMetrics.equityCurve(bench, cfg.capital);
         double[] dd = PerformanceMetrics.drawdown(eq);
@@ -280,7 +377,7 @@ public final class Backtester {
         if (tracePerSymbol)
             log.info("Backtest: pairs_trading × {}/{} — {} common bars, {} trades", a.symbol, b.symbol, n, trades.size());
         return new BacktestOutput("pairs_trading", List.of(a.symbol, b.symbol), dates, eq, benchEq, dd, trades, m,
-                Map.of());
+                Map.of(), Map.of(), PerformanceMetrics.yearlyReturnsPct(net, dates));
     }
 
     /** Point-to-point trade return, guarded against a bad entry/exit price. */
@@ -288,5 +385,4 @@ public final class Backtester {
         return (entryPx > 0 && exitPx > 0) ? exitPx / entryPx - 1 : 0;
     }
 
-    private static double round2(double v) { return Math.round(v * 100.0) / 100.0; }
 }

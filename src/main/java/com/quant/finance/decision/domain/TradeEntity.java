@@ -28,5 +28,16 @@ public class TradeEntity {
     private double entryPx;
     private double exitPx;
     private int bars;
+    /** Contribution to the run's blended total (weight * net return), as a fraction. */
     private double returnPct;
+
+    // Per-symbol standalone accounting, fractions of starting capital. Null on rows written
+    // before these columns existed — TradeDetailMapper derives them from prices + the run's costs.
+    private Double grossReturn;
+    private Double cost;
+    private Double netReturn;
+    /** Fraction of capital committed at entry (|position|). */
+    private Double exposure;
+    /** Still open on the last bar (marked to market, no exit cost yet). */
+    private Boolean stillOpen;
 }
