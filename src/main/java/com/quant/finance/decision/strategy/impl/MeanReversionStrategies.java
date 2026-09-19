@@ -258,3 +258,56 @@ class StochRsi extends AbstractStrategy {
         return clean(hold(lt(k, p(pr, "low")), gt(k, 50), gt(k, p(pr, "high")), lt(k, 50)));
     }
 }
+
+class WaveTrend extends AbstractStrategy {
+    public String name() { return "wave_trend"; }
+    public String category() { return "mean_reversion"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "LazyBear's WaveTrend oscillator: WT1/WT2 signal-line cross gated by overbought/oversold zones."; }
+    public Map<String, Double> defaultParams() {
+        return Map.of("channelLen", 10.0, "avgLen", 21.0, "obLevel", 60.0, "osLevel", -60.0);
+    }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[][] wt = Indicators.waveTrend(b, pi(pr, "channelLen"), pi(pr, "avgLen"));
+        double[] wt1 = wt[0], wt2 = wt[1];
+        double ob = p(pr, "obLevel"), os = p(pr, "osLevel");
+        return clean(hold(
+                and(gt(wt1, wt2), lt(wt2, os)),   // long: bullish cross while oversold
+                gt(wt1, ob),                      // exit long: reached overbought
+                and(lt(wt1, wt2), gt(wt2, ob)),   // short: bearish cross while overbought
+                lt(wt1, os)));                    // exit short: reached oversold
+    }
+}
+
+class SupportResistanceBounce extends AbstractStrategy {
+    public String name() { return "support_resistance_bounce"; }
+    public String category() { return "mean_reversion"; }
+    public String direction() { return "long_short"; }
+    public String description() {
+        return "Fade a rolling swing-high resistance / swing-low support: buy the bounce off "
+             + "support, sell the decline off resistance, exit at the midpoint.";
+    }
+    public Map<String, Double> defaultParams() { return Map.of("n", 20.0, "bufferPct", 15.0); }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        int n = pi(pr, "n"), len = b.size();
+        double bufPct = p(pr, "bufferPct") / 100.0;
+        double[] resistance = Indicators.rollingMax(b.high, n);
+        double[] support = Indicators.rollingMin(b.low, n);
+        double[] mid = new double[len], supportZone = new double[len], resistZone = new double[len];
+        for (int i = 0; i < len; i++) {
+            if (nan(resistance[i]) || nan(support[i])) {
+                mid[i] = supportZone[i] = resistZone[i] = Double.NaN;
+                continue;
+            }
+            double range = resistance[i] - support[i];
+            mid[i] = (resistance[i] + support[i]) / 2.0;
+            supportZone[i] = support[i] + bufPct * range;      // "at/near support"
+            resistZone[i] = resistance[i] - bufPct * range;    // "at/near resistance"
+        }
+        return clean(hold(
+                lt(b.close, supportZone),   // buy: price back near support
+                gt(b.close, mid),           // exit long: reverted to the midpoint
+                gt(b.close, resistZone),    // sell: price back near resistance
+                lt(b.close, mid)));         // exit short: reverted to the midpoint
+    }
+}

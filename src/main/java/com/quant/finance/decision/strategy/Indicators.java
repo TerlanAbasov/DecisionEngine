@@ -558,4 +558,26 @@ public final class Indicators {
         }
         return out;
     }
+
+    /**
+     * LazyBear's WaveTrend oscillator: {@code channelLen} smooths the (H+L+C)/3 typical price
+     * and its mean absolute deviation into a CCI-like ratio, {@code avgLen} smooths that ratio
+     * into WT1, and WT2 is a 4-bar SMA of WT1 — the pair is read like a MACD/signal-line cross,
+     * gated by overbought/oversold zones (commonly +-60).
+     * @return {@code {wt1, wt2}}
+     */
+    public static double[][] waveTrend(BarSeries b, int channelLen, int avgLen) {
+        int len = b.size();
+        double[] ap = new double[len];
+        for (int i = 0; i < len; i++) ap[i] = (b.high[i] + b.low[i] + b.close[i]) / 3.0;
+        double[] esa = ema(ap, channelLen);
+        double[] absDiff = new double[len];
+        for (int i = 0; i < len; i++) absDiff[i] = Math.abs(ap[i] - esa[i]);
+        double[] d = ema(absDiff, channelLen);
+        double[] ci = new double[len];
+        for (int i = 0; i < len; i++) ci[i] = d[i] == 0 ? 0 : (ap[i] - esa[i]) / (0.015 * d[i]);
+        double[] wt1 = ema(ci, avgLen);
+        double[] wt2 = sma(wt1, 4);
+        return new double[][] { wt1, wt2 };
+    }
 }
