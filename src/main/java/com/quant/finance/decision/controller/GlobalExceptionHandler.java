@@ -1,6 +1,8 @@
 package com.quant.finance.decision.controller;
 
 import com.quant.finance.decision.job.JobConflictException;
+import com.quant.finance.decision.live.AlpacaApiException;
+import com.quant.finance.decision.live.LiveTradingScheduler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,6 +28,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(JobConflictException.class)
     public ResponseEntity<Map<String, Object>> conflict(JobConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage(), "activeJob", e.active()));
+    }
+
+    /** A manual paper-trading action while a cycle is running. */
+    @ExceptionHandler(LiveTradingScheduler.BusyException.class)
+    public ResponseEntity<Map<String, String>> busy(LiveTradingScheduler.BusyException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
+
+    /** Alpaca refused or could not be reached. */
+    @ExceptionHandler(AlpacaApiException.class)
+    public ResponseEntity<Map<String, String>> alpaca(AlpacaApiException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "Alpaca: " + e.getMessage()));
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)

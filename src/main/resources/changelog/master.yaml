@@ -45,3 +45,5 @@ databaseChangeLog:
             file: changelog/tables/1.1/20260919-trade-details.yaml
     -   include:
             file: changelog/tables/1.1/20260920-backtest-job.yaml
+    -   include:
+            file: changelog/tables/1.1/20260921-paper-trading.yaml

@@ -1,0 +1,474 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260921-paper-trading
+            author: Tarlan Abasov
+            comment: >
+                Paper (demo-account) trading job. live_config is the single editable settings row;
+                live_slot is the virtual position of each strategy in each symbol (Alpaca nets positions
+                per symbol, so per-strategy results are tracked here); live_trade are the closed virtual
+                trades; live_order the orders sent to Alpaca; live_cycle the job's run log; live_equity and
+                live_strategy_pnl the account and per-strategy curves. Everything is new, nothing existing changes.
+            changes:
+                -   createTable:
+                        tableName: live_config
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: enabled
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: dry_run
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: interval_seconds
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: allocation_usd
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: position_size
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: allow_short
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: timeframe_mode
+                                    type: VARCHAR(16)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: lookback_bars
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: strategy_names
+                                    type: TEXT
+                            -   column:
+                                    name: symbols
+                                    type: TEXT
+                            -   column:
+                                    name: max_gross_usd
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: max_orders_per_cycle
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: market_hours_only
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: fill_timeout_seconds
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: use_risk_defaults
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: updated_at
+                                    type: TIMESTAMP
+                -   createTable:
+                        tableName: live_slot
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: strategy
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(32)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: direction
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: qty
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: entry_price
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: entry_time
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: blocked_dir
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: last_signal
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: last_signal_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: last_price
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: realized_pnl
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: updated_at
+                                    type: TIMESTAMP
+                -   createIndex:
+                        tableName: live_slot
+                        indexName: uk_live_slot
+                        unique: true
+                        columns:
+                            -   column:
+                                    name: strategy
+                            -   column:
+                                    name: symbol
+                -   createTable:
+                        tableName: live_trade
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: strategy
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(32)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: side
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: qty
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: entry_time
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: entry_price
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: exit_time
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: exit_price
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: pnl_usd
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: return_pct
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: exit_reason
+                                    type: VARCHAR(24)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: cycle_id
+                                    type: BIGINT
+                -   createIndex:
+                        tableName: live_trade
+                        indexName: ix_live_trade_strategy
+                        columns:
+                            -   column:
+                                    name: strategy
+                -   createIndex:
+                        tableName: live_trade
+                        indexName: ix_live_trade_exit
+                        columns:
+                            -   column:
+                                    name: exit_time
+                -   createTable:
+                        tableName: live_order
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: cycle_id
+                                    type: BIGINT
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(32)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: side
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: qty
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: status
+                                    type: VARCHAR(24)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: alpaca_order_id
+                                    type: VARCHAR(64)
+                            -   column:
+                                    name: client_order_id
+                                    type: VARCHAR(80)
+                            -   column:
+                                    name: filled_qty
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: filled_avg_price
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: submitted_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: filled_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: error
+                                    type: TEXT
+                            -   column:
+                                    name: dry_run
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: reason
+                                    type: TEXT
+                            -   column:
+                                    name: target_qty
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: position_before
+                                    type: DOUBLE PRECISION
+                -   createIndex:
+                        tableName: live_order
+                        indexName: ix_live_order_submitted
+                        columns:
+                            -   column:
+                                    name: submitted_at
+                -   createTable:
+                        tableName: live_cycle
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: started_at
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: finished_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: status
+                                    type: VARCHAR(16)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: mode
+                                    type: VARCHAR(12)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: triggered_by
+                                    type: VARCHAR(12)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: dry_run
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: message
+                                    type: TEXT
+                            -   column:
+                                    name: symbols
+                                    type: INTEGER
+                            -   column:
+                                    name: strategies
+                                    type: INTEGER
+                            -   column:
+                                    name: signals
+                                    type: INTEGER
+                            -   column:
+                                    name: orders_planned
+                                    type: INTEGER
+                            -   column:
+                                    name: orders_filled
+                                    type: INTEGER
+                            -   column:
+                                    name: orders_failed
+                                    type: INTEGER
+                            -   column:
+                                    name: trades_closed
+                                    type: INTEGER
+                            -   column:
+                                    name: errors
+                                    type: INTEGER
+                            -   column:
+                                    name: duration_ms
+                                    type: BIGINT
+                -   createIndex:
+                        tableName: live_cycle
+                        indexName: ix_live_cycle_started
+                        columns:
+                            -   column:
+                                    name: started_at
+                -   createTable:
+                        tableName: live_equity
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: ts
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: equity
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: cash
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: buying_power
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: long_value
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: short_value
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: cycle_id
+                                    type: BIGINT
+                -   createIndex:
+                        tableName: live_equity
+                        indexName: ix_live_equity_ts
+                        columns:
+                            -   column:
+                                    name: ts
+                -   createTable:
+                        tableName: live_strategy_pnl
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: cycle_id
+                                    type: BIGINT
+                            -   column:
+                                    name: ts
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: strategy
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: realized
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: unrealized
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: open_slots
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                -   createIndex:
+                        tableName: live_strategy_pnl
+                        indexName: ix_live_strategy_pnl
+                        columns:
+                            -   column:
+                                    name: strategy
+                            -   column:
+                                    name: ts
