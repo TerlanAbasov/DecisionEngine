@@ -12,6 +12,9 @@ import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.engine.SymbolResult;
 import com.quant.finance.decision.engine.TradeResult;
+import com.quant.finance.decision.job.JobKind;
+import com.quant.finance.decision.job.JobProgress;
+import com.quant.finance.decision.job.JobProgress.Step;
 import com.quant.finance.decision.repository.BacktestResultRepository;
 import com.quant.finance.decision.repository.BacktestRunRepository;
 import com.quant.finance.decision.repository.TradeRepository;
@@ -157,15 +160,22 @@ public class BacktestService {
     }
 
     private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf) {
+        return load(symbols, start, end, tf, new JobProgress(JobKind.RUN));
+    }
+
+    private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf,
+                                 JobProgress progress) {
         long t0 = System.currentTimeMillis();
         log.info("Load bars: {} symbol(s) {}..{} @ {}", symbols.size(), start, end, tf);
         List<BarSeries> out = new ArrayList<>();
         int miss = 0;
         long bars = 0;
         for (String s : symbols) {
+            progress.checkCancelled();
             BarSeries b = marketData.getBars(s, start, end);
             if (b.size() > 0) { BarSeries rs = BarResampler.resample(b, tf); out.add(rs); bars += rs.size(); }
             else miss++;
+            progress.symbolLoaded(s, b.size() > 0);
         }
         log.info("Load bars: {} series ready, {} bars total{} in {} ms", out.size(), bars,
                 miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
@@ -182,20 +192,23 @@ public class BacktestService {
      * ~1.9M bars — resampling on the fly keeps the working set an order of magnitude smaller.
      */
     private Map<Timeframe, List<BarSeries>> loadResampled(List<String> symbols, LocalDate start,
-                                                          LocalDate end, Set<Timeframe> frames) {
+                                                          LocalDate end, Set<Timeframe> frames,
+                                                          JobProgress progress) {
         long t0 = System.currentTimeMillis();
         Map<Timeframe, List<BarSeries>> out = new LinkedHashMap<>();
         for (Timeframe tf : frames) out.put(tf, new ArrayList<>());
         long bars = 0;
         int miss = 0;
         for (String s : symbols) {
+            progress.checkCancelled();
             BarSeries nativeB = marketData.getBars(s, start, end);
-            if (nativeB.size() == 0) { miss++; continue; }
+            if (nativeB.size() == 0) { miss++; progress.symbolLoaded(s, false); continue; }
             for (Timeframe tf : frames) {
                 BarSeries rs = BarResampler.resample(nativeB, tf);
                 out.get(tf).add(rs);
                 bars += rs.size();
             }
+            progress.symbolLoaded(s, true);
         }
         log.info("Load bars: {} symbol(s) -> {} frame(s) {}, {} resampled bars total{} in {} ms",
                 symbols.size(), frames.size(), frames, bars,
@@ -215,6 +228,12 @@ public class BacktestService {
     /** Load + resample bars once so a sweep can reuse them across many runs. */
     public List<BarSeries> loadData(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf) {
         return load(symbols, start, end, tf);
+    }
+
+    /** As {@link #loadData(List, LocalDate, LocalDate, Timeframe)}, reporting each symbol to {@code progress}. */
+    public List<BarSeries> loadData(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf,
+                                    JobProgress progress) {
+        return load(symbols, start, end, tf, progress);
     }
 
     public BacktestConfig configOf(BacktestRequest req) { return cfg(req); }
@@ -238,17 +257,37 @@ public class BacktestService {
 
     @Transactional
     public BacktestResultDto run(BacktestRequest req) {
+        return run(req, new JobProgress(JobKind.RUN));
+    }
+
+    @Transactional
+    public BacktestResultDto run(BacktestRequest req, JobProgress progress) {
+        progress.begin(Step.PREPARE, 1, "Resolving symbols and settings");
         List<String> symbols = resolveSymbols(req.symbols());
         BacktestConfig cfg = cfg(req);
         TradingStrategy strat = strategies.getStrategy(req.strategyName());
         Map<String, Double> params = strategies.getParams(req.strategyName());
+        progress.planSymbols(symbols);
+        progress.planStrategies(List.of(req.strategyName()));
+        progress.complete(Step.PREPARE);
         long t0 = System.currentTimeMillis();
         log.info("Backtest: '{}' on {} symbol(s) {}..{} @ {}", req.strategyName(), symbols.size(),
                 req.start(), req.end(), cfg.timeframe);
-        List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe);
+        progress.begin(Step.LOAD, symbols.size(), "Loading market data");
+        List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe, progress);
+        progress.complete(Step.LOAD);
+        progress.checkCancelled();
         log.info("Backtest: '{}' computing portfolio over {} series (symbols in parallel)…", req.strategyName(), data.size());
-        BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg, executor);
+        progress.beginCompute(data.size(), 1, "Computing " + data.size() + " symbol(s)");
+        progress.strategyStarted(req.strategyName());
+        BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg, executor,
+                true, progress::symbolComputed);
+        progress.strategyFinished(req.strategyName(), true);
+        progress.complete(Step.COMPUTE);
+        progress.checkCancelled();
+        progress.begin(Step.SAVE, 1, "Saving the run, its results and trades");
         BacktestResultDto dto = persist(o, symbols, cfg, req.start(), req.end());
+        progress.complete(Step.SAVE);
         log.info("Backtest: '{}' done in {} ms — run #{} {}", req.strategyName(),
                 System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
         return dto;
@@ -256,6 +295,12 @@ public class BacktestService {
 
     @Transactional
     public List<LeaderboardEntryDto> runAll(BacktestRequest req) {
+        return runAll(req, new JobProgress(JobKind.RUN_ALL));
+    }
+
+    @Transactional
+    public List<LeaderboardEntryDto> runAll(BacktestRequest req, JobProgress progress) {
+        progress.begin(Step.PREPARE, 1, "Resolving symbols, strategies and settings");
         List<String> symbols = resolveSymbols(req.symbols());
 
         // cap the look-back window — hundreds of strategies over years of 1-min bars is what OOMs the box
@@ -307,8 +352,14 @@ public class BacktestService {
                 enabled.size(), scope, symbols.size(), start, end,
                 perStrategyTf ? "per-strategy timeframe " + frames : sharedFrame.toString());
 
+        progress.planSymbols(symbols);
+        progress.planStrategies(new ArrayList<>(enabled.keySet()));
+
         // load native bars once per symbol, resample into every needed frame, drop the native bars
-        Map<Timeframe, List<BarSeries>> tfData = loadResampled(symbols, start, end, frames);
+        progress.complete(Step.PREPARE);
+        progress.begin(Step.LOAD, symbols.size(), "Loading market data");
+        Map<Timeframe, List<BarSeries>> tfData = loadResampled(symbols, start, end, frames, progress);
+        progress.complete(Step.LOAD);
 
         // unset SL/TP on a batch request falls back to each strategy's own saved default
         // (same "AUTO" convention as timeframe); an explicit value overrides uniformly for all.
@@ -336,35 +387,55 @@ public class BacktestService {
         // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
         // one strategy failing (bad data, indicator NaN, …) must not abort the whole batch
         int total = jobs.size();
+        int units = 0;
+        for (Job j : jobs) units += j.data().size();     // one unit per (strategy, loaded symbol)
+        progress.beginCompute(units, total, total + " strategies × " + (units / Math.max(1, total)) + " symbol(s)");
         List<CompletableFuture<BacktestOutput>> futures = new ArrayList<>(total);
         for (Job j : jobs) {
             futures.add(CompletableFuture.supplyAsync(() -> {
+                if (progress.isCancelled()) return null;   // stopped: skip work that has not started yet
+                progress.strategyStarted(j.name());
+                boolean ok = false;
                 try {
                     long t0 = System.currentTimeMillis();
-                    BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg());
+                    BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg(),
+                            null, true, progress::symbolComputed);
                     log.info("Backtest run-all: '{}' @ {} computed in {} ms — {}",
                             j.name(), j.cfg().timeframe, System.currentTimeMillis() - t0, fmtMetrics(o.metrics));
+                    ok = true;
                     return o;
                 } catch (RuntimeException ex) {
                     log.warn("Backtest run-all: '{}' failed — {}: {}", j.name(),
                             ex.getClass().getSimpleName(), ex.getMessage());
                     return null;
+                } finally {
+                    progress.strategyFinished(j.name(), ok);
                 }
             }, executor));
         }
 
         // --- persist sequentially on this transaction thread ---
+        progress.begin(Step.SAVE, total, "Waiting for the first strategy");
         List<LeaderboardEntryDto> board = new ArrayList<>(total);
         int failed = 0;
         for (int i = 0; i < total; i++) {
+            progress.checkCancelled();
             Job j = jobs.get(i);
             BacktestOutput o = futures.get(i).join();
             futures.set(i, null);   // release the output once we've persisted / skipped it
-            if (o == null) { failed++; continue; }
+            progress.checkCancelled();
+            if (o == null) {
+                failed++;
+                progress.advance(Step.SAVE, j.name() + " failed (" + (i + 1) + "/" + total + ")");
+                continue;
+            }
             BacktestResultDto dto = persist(o, symbols, j.cfg(), start, end);
             board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(),
                     dto.symbols(), dto.metrics()));
+            progress.advance(Step.SAVE, "Saved " + j.name() + " (" + (i + 1) + "/" + total + ")");
         }
+        progress.complete(Step.COMPUTE);
+        progress.complete(Step.SAVE);
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
         log.info("Backtest run-all: {} of {} strategies done in {} ms (parallel){}", board.size(), total,
@@ -374,6 +445,12 @@ public class BacktestService {
 
     @Transactional
     public BacktestResultDto runPairs(PairsRequest req) {
+        return runPairs(req, new JobProgress(JobKind.PAIRS));
+    }
+
+    @Transactional
+    public BacktestResultDto runPairs(PairsRequest req, JobProgress progress) {
+        progress.begin(Step.PREPARE, 1, "Preparing the pair");
         BacktestConfig.Builder b = BacktestConfig.builder()
                 .capital(req.capital() != null ? req.capital() : 100_000)
                 .commissionBps(req.commissionBps() != null ? req.commissionBps() : 1.0)
@@ -384,21 +461,35 @@ public class BacktestService {
         if (req.stopLossPct() != null) b.stopLossPct(req.stopLossPct());
         if (req.takeProfitPct() != null) b.takeProfitPct(req.takeProfitPct());
         BacktestConfig cfg = b.build();
+        String symA = req.symbolA().toUpperCase(), symB = req.symbolB().toUpperCase();
+        progress.planSymbols(List.of(symA, symB));
+        progress.complete(Step.PREPARE);
 
         long t0 = System.currentTimeMillis();
         log.info("Backtest: pairs {}/{} {}..{} @ {}", req.symbolA(), req.symbolB(),
                 req.start(), req.end(), cfg.timeframe);
-        BarSeries a = BarResampler.resample(
-                marketData.getBars(req.symbolA().toUpperCase(), req.start(), req.end()), cfg.timeframe);
-        BarSeries bs = BarResampler.resample(
-                marketData.getBars(req.symbolB().toUpperCase(), req.start(), req.end()), cfg.timeframe);
+        progress.begin(Step.LOAD, 2, "Loading market data");
+        progress.checkCancelled();
+        BarSeries rawA = marketData.getBars(symA, req.start(), req.end());
+        progress.symbolLoaded(symA, rawA.size() > 0);
+        progress.checkCancelled();
+        BarSeries rawB = marketData.getBars(symB, req.start(), req.end());
+        progress.symbolLoaded(symB, rawB.size() > 0);
+        BarSeries a = BarResampler.resample(rawA, cfg.timeframe);
+        BarSeries bs = BarResampler.resample(rawB, cfg.timeframe);
+        progress.complete(Step.LOAD);
+        progress.checkCancelled();
         PairsStrategy strat = new PairsStrategy(
                 req.window() != null ? req.window() : 60,
                 req.entry() != null ? req.entry() : 2.0,
                 req.exit() != null ? req.exit() : 0.5);
+        progress.beginCompute(1, 0, "Backtesting the pair");
         BacktestOutput o = backtester.runPairs(a, bs, strat, cfg);
-        BacktestResultDto dto = persist(o, List.of(req.symbolA().toUpperCase(), req.symbolB().toUpperCase()),
-                cfg, req.start(), req.end());
+        progress.complete(Step.COMPUTE);
+        progress.checkCancelled();
+        progress.begin(Step.SAVE, 1, "Saving the run, its results and trades");
+        BacktestResultDto dto = persist(o, List.of(symA, symB), cfg, req.start(), req.end());
+        progress.complete(Step.SAVE);
         log.info("Backtest: pairs {}/{} done in {} ms — run #{} {}", req.symbolA(), req.symbolB(),
                 System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
         return dto;

@@ -6,6 +6,9 @@ import com.quant.finance.decision.engine.BacktestOutput;
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.engine.Timeframe;
+import com.quant.finance.decision.job.JobKind;
+import com.quant.finance.decision.job.JobProgress;
+import com.quant.finance.decision.job.JobProgress.Step;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +39,11 @@ public class EnsembleService {
     }
 
     public EnsembleResultDto ensemble(EnsembleRequest req) {
+        return ensemble(req, new JobProgress(JobKind.ENSEMBLE));
+    }
+
+    public EnsembleResultDto ensemble(EnsembleRequest req, JobProgress progress) {
+        progress.begin(Step.PREPARE, 1, "Resolving strategies, symbols and settings");
         List<String> names = (req.strategyNames() == null || req.strategyNames().isEmpty())
                 ? new ArrayList<>(strategies.getEnabledStrategies().keySet())
                 : req.strategyNames();
@@ -57,9 +65,14 @@ public class EnsembleService {
                 .build();
 
         List<String> symbols = backtests.universeOr(req.symbols());
+        progress.planSymbols(symbols);
+        progress.planStrategies(names);
+        progress.complete(Step.PREPARE);
         // per-strategy frame: load native once and resample per leg; otherwise resample once here
+        progress.begin(Step.LOAD, symbols.size(), "Loading market data");
         List<BarSeries> data = backtests.loadData(symbols, req.start(), req.end(),
-                perStrategyTf ? Timeframe.NATIVE : cfg.timeframe);
+                perStrategyTf ? Timeframe.NATIVE : cfg.timeframe, progress);
+        progress.complete(Step.LOAD);
 
         // --- run each leg, collect date-keyed return maps ---
         List<String> legNames = new ArrayList<>();
@@ -87,18 +100,30 @@ public class EnsembleService {
             }
             legJobs.add(new Leg(name, strategies.getStrategy(name), strategies.getParams(name), legCfg, legData));
         }
+        progress.checkCancelled();
+        progress.beginCompute(legJobs.size(), 0, legJobs.size() + " strategy leg(s) × " + data.size() + " symbol(s)");
         List<java.util.concurrent.CompletableFuture<BacktestOutput>> legFutures = new ArrayList<>();
         for (Leg leg : legJobs) {
             legFutures.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                long t0 = System.currentTimeMillis();
-                BacktestOutput o = backtests.runOnce(leg.strat(), leg.params(), leg.data(), leg.cfg());
-                log.info("Ensemble leg '{}' @ {} computed in {} ms", leg.name(), leg.cfg().timeframe,
-                        System.currentTimeMillis() - t0);
-                return o;
+                progress.checkCancelled();                 // stopped: skip legs that have not started yet
+                progress.strategyStarted(leg.name());
+                boolean ok = false;
+                try {
+                    long t0 = System.currentTimeMillis();
+                    BacktestOutput o = backtests.runOnce(leg.strat(), leg.params(), leg.data(), leg.cfg());
+                    log.info("Ensemble leg '{}' @ {} computed in {} ms", leg.name(), leg.cfg().timeframe,
+                            System.currentTimeMillis() - t0);
+                    ok = true;
+                    return o;
+                } finally {
+                    progress.strategyFinished(leg.name(), ok);
+                    progress.advance(Step.COMPUTE, leg.name());
+                }
             }, backtests.executor()));
         }
         for (int k = 0; k < legJobs.size(); k++) {
-            BacktestOutput o = legFutures.get(k).join();
+            progress.checkCancelled();
+            BacktestOutput o = joinLeg(legFutures.get(k));
             legNames.add(legJobs.get(k).name());
             legRet.add(toReturns(o.dates, o.equity, capital));
             legBench.add(toReturns(o.dates, o.benchmark, capital));
@@ -106,6 +131,8 @@ public class EnsembleService {
             allDates.addAll(Arrays.asList(o.dates));
         }
         if (allDates.isEmpty()) throw new IllegalStateException("Ensemble produced no dated results");
+        progress.complete(Step.COMPUTE);
+        progress.begin(Step.SAVE, 1, "Blending " + legNames.size() + " leg(s) into one portfolio");
 
         double[] weights = weights(weighting, legNames, legMetrics);
 
@@ -144,8 +171,19 @@ public class EnsembleService {
         log.info("Ensemble: {} legs done in {} ms — blended return={}% sharpe={}", names.size(),
                 System.currentTimeMillis() - batchStart,
                 metrics.getOrDefault("totalReturnPct", 0.0), metrics.getOrDefault("sharpe", 0.0));
+        progress.complete(Step.SAVE);
         return new EnsembleResultDto(symbols, dates[0], dates[dates.length - 1], tfLabel,
                 dates.length, weighting, metrics, dateStrs, equity, benchEq, dd, legs);
+    }
+
+    /** Joins a leg, surfacing a stop request (thrown inside the pool) as itself rather than as a wrapper. */
+    private static BacktestOutput joinLeg(java.util.concurrent.CompletableFuture<BacktestOutput> f) {
+        try {
+            return f.join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof com.quant.finance.decision.job.JobCancelledException c) throw c;
+            throw e;
+        }
     }
 
     /**

@@ -43,3 +43,5 @@ databaseChangeLog:
             file: changelog/tables/1.1/20260916-strategy-risk-defaults.yaml
     -   include:
             file: changelog/tables/1.1/20260919-trade-details.yaml
+    -   include:
+            file: changelog/tables/1.1/20260920-backtest-job.yaml

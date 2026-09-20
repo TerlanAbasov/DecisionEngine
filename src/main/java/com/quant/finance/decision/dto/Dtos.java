@@ -198,4 +198,23 @@ public final class Dtos {
     public record SignalOverlayDto(String symbol, List<StrategySignalsDto> strategies) {}
 
     public record EnabledUpdate(boolean enabled) {}
+
+    // ---- background backtest jobs -------------------------------------------------------------
+
+    /** One stage of a job (prepare / load / run / save) with its own counters; stages can overlap. */
+    public record JobStepDto(String key, String label, String state, int done, int total, String detail) {}
+
+    /** A symbol or strategy taking part in a job. state: pending | running | done | failed | nodata. */
+    public record JobItemDto(String name, String state, int done, int total) {}
+
+    /**
+     * A backtest running (or finished) in the background. {@code percent} is the weighted progress
+     * over all steps. {@code result} is only present once COMPLETED: a BacktestResultDto (RUN / PAIRS),
+     * a list of LeaderboardEntryDto (RUN_ALL) or an EnsembleResultDto (ENSEMBLE).
+     */
+    public record JobDto(String id, String kind, String status, String title,
+                         Instant createdAt, Instant startedAt, Instant finishedAt, long elapsedMs,
+                         int percent, List<JobStepDto> steps, List<JobItemDto> symbols,
+                         List<JobItemDto> strategies, List<String> running,
+                         boolean cancelRequested, String error, Object result) {}
 }

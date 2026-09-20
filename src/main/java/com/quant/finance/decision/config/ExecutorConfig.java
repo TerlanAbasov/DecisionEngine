@@ -19,6 +19,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ExecutorConfig {
 
     public static final String BACKTEST_EXECUTOR = "backtestExecutor";
+    public static final String BACKTEST_JOB_EXECUTOR = "backtestJobExecutor";
+
+    /**
+     * Runs one backtest job at a time (orchestration, transaction and persistence). The compute itself fans
+     * out onto {@link #BACKTEST_EXECUTOR}. Not a fixed-pool sibling: a second job thread would only fight the
+     * first for the same CPU and heap, and the job service admits a single active job anyway.
+     */
+    @Bean(name = BACKTEST_JOB_EXECUTOR, destroyMethod = "shutdownNow")
+    public ExecutorService backtestJobExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "bt-job");
+            t.setDaemon(true);
+            return t;
+        });
+    }
 
     @Bean(name = BACKTEST_EXECUTOR, destroyMethod = "shutdown")
     public ExecutorService backtestExecutor(@Value("${decision.backtest.threads:50}") int threads) {

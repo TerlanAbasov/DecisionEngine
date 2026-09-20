@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -40,6 +41,13 @@ public final class Backtester {
     /** Per-symbol computed series aligned to the symbol's own dates. */
     private record Series(Instant[] dates, double[] close, double[] net, double[] bench,
                           double[] pos, double[] absPos, List<TradeResult> trades) {}
+
+    private Series computedAndReported(BarSeries b, TradingStrategy strat, Map<String, Double> params,
+                                       BacktestConfig cfg, Consumer<String> onSymbolComputed) {
+        Series s = computeOne(b, strat, params, cfg);
+        if (onSymbolComputed != null) onSymbolComputed.accept(b.symbol);
+        return s;
+    }
 
     /** {@link #computeSeries} plus a per-(strategy × stock) trace line. */
     private Series computeOne(BarSeries b, TradingStrategy strat,
@@ -251,6 +259,16 @@ public final class Backtester {
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
                                        Map<String, Double> params, BacktestConfig cfg, Executor executor,
                                        boolean symbolDetails) {
+        return runPortfolio(data, strat, params, cfg, executor, symbolDetails, null);
+    }
+
+    /**
+     * @param onSymbolComputed called once per symbol as soon as its series is computed (possibly from a
+     *                 pool thread, so it must be thread-safe); {@code null} for none. Must not throw.
+     */
+    public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
+                                       Map<String, Double> params, BacktestConfig cfg, Executor executor,
+                                       boolean symbolDetails, Consumer<String> onSymbolComputed) {
         List<Series> series = new ArrayList<>();
         List<String> symbols = new ArrayList<>();
         TreeSet<Instant> allDates = new TreeSet<>();
@@ -259,11 +277,11 @@ public final class Backtester {
         if (executor != null && data.size() > 1) {
             List<CompletableFuture<Series>> fs = data.stream()
                     .map(b -> CompletableFuture.supplyAsync(
-                            () -> computeOne(b, strat, params, cfg), executor))
+                            () -> computedAndReported(b, strat, params, cfg, onSymbolComputed), executor))
                     .toList();
             computed = fs.stream().map(CompletableFuture::join).toList();
         } else {
-            computed = data.stream().map(b -> computeOne(b, strat, params, cfg)).toList();
+            computed = data.stream().map(b -> computedAndReported(b, strat, params, cfg, onSymbolComputed)).toList();
         }
         for (int i = 0; i < data.size(); i++) {
             Series s = computed.get(i);

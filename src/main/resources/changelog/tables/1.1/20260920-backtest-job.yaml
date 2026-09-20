@@ -1,0 +1,67 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260920-backtest-job
+            author: Tarlan Abasov
+            comment: >
+                Backtests run as background jobs so the UI can leave the page and come back to a run that
+                is still going (or has finished). One row per job: its lifecycle, the last progress
+                snapshot (steps, symbols, strategies) and, once completed, the result the UI displays.
+                Rows are short-lived (pruned on startup); a job left RUNNING by a restart is marked FAILED.
+            changes:
+                -   createTable:
+                        tableName: backtest_job
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: VARCHAR(36)
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: kind
+                                    type: VARCHAR(16)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: status
+                                    type: VARCHAR(16)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: title
+                                    type: VARCHAR(400)
+                            -   column:
+                                    name: request_json
+                                    type: TEXT
+                            -   column:
+                                    name: progress_json
+                                    type: TEXT
+                            -   column:
+                                    name: result_json
+                                    type: TEXT
+                            -   column:
+                                    name: error
+                                    type: TEXT
+                            -   column:
+                                    name: created_at
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: started_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: finished_at
+                                    type: TIMESTAMP
+                -   createIndex:
+                        tableName: backtest_job
+                        indexName: ix_backtest_job_status
+                        columns:
+                            -   column:
+                                    name: status
+                -   createIndex:
+                        tableName: backtest_job
+                        indexName: ix_backtest_job_created
+                        columns:
+                            -   column:
+                                    name: created_at

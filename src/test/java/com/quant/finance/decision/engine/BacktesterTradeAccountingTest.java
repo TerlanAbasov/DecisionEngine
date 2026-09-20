@@ -277,6 +277,23 @@ class BacktesterTradeAccountingTest {
     }
 
     @Test
+    void theProgressCallbackFiresOncePerSymbolWithAndWithoutAPool() throws Exception {
+        List<BarSeries> data = List.of(SyntheticData.generate("AAA", 1, END), SyntheticData.generate("BBB", 1, END),
+                SyntheticData.generate("CCC", 1, END));
+        BacktestConfig c = cfg(0, 0, 0);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(3);
+        try {
+            for (java.util.concurrent.Executor ex : new java.util.concurrent.Executor[] {null, pool}) {
+                java.util.List<String> seen = java.util.Collections.synchronizedList(new ArrayList<>());
+                BacktestOutput withCallback = new Backtester(false).runPortfolio(data, scripted(2, false), null, c, ex, true, seen::add);
+                assertEquals(List.of("AAA", "BBB", "CCC"), seen.stream().sorted().toList());
+                BacktestOutput without = new Backtester(false).runPortfolio(data, scripted(2, false), null, c, ex, true);
+                assertEquals(without.metrics, withCallback.metrics, "reporting progress must not change the result");
+            }
+        } finally { pool.shutdownNow(); }
+    }
+
+    @Test
     void yearlyReturnsSplitOnTheUtcCalendarYear() {
         Instant[] d = { Instant.parse("2025-12-31T23:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"),
                 Instant.parse("2026-06-01T12:00:00Z") };
