@@ -11,8 +11,20 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> {
-    List<PriceBarEntity> findBySymbolOrderByBarTime(String symbol);
-    List<PriceBarEntity> findBySymbolAndBarTimeBetweenOrderByBarTime(String symbol, Instant start, Instant end);
+    /*
+     * Bulk bar reads return plain rows, not entities. They load hundreds of thousands of rows (about a million
+     * for a few symbols of 1-minute data) only to copy them into a BarSeries; as managed entities every later
+     * query in the same transaction (a backtest run is one) auto-flushes and walks all of them, which cost
+     * roughly a second per query — even loaded read-only, since the flush still visits every managed entity.
+     */
+    @Query("select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
+            + "from PriceBarEntity b where b.symbol = :symbol order by b.barTime")
+    List<BarRow> findBarsBySymbol(@Param("symbol") String symbol);
+
+    @Query("select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
+            + "from PriceBarEntity b where b.symbol = :symbol and b.barTime between :from and :to order by b.barTime")
+    List<BarRow> findBarsBySymbolBetween(@Param("symbol") String symbol, @Param("from") Instant from, @Param("to") Instant to);
+
     Optional<PriceBarEntity> findTopBySymbolOrderByBarTimeDesc(String symbol);
     boolean existsBySymbol(String symbol);
 

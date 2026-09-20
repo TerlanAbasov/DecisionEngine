@@ -6,6 +6,7 @@ import com.quant.finance.decision.dto.Dtos.PriceSeriesDto;
 import com.quant.finance.decision.dto.Dtos.SymbolCoverageDto;
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
+import com.quant.finance.decision.repository.BarRow;
 import com.quant.finance.decision.repository.PriceBarRepository;
 import com.quant.finance.decision.strategy.BarSeries;
 import lombok.extern.slf4j.Slf4j;
@@ -99,13 +100,13 @@ public class MarketDataService {
     @Transactional
     public BarSeries getBars(String symbol, LocalDate start, LocalDate end) {
         ensureSymbol(symbol);
-        List<PriceBarEntity> rows;
+        List<BarRow> rows;
         if (start != null && end != null) {
             Instant from = start.atStartOfDay(ZoneOffset.UTC).toInstant();
             Instant to = end.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().minusNanos(1);
-            rows = repo.findBySymbolAndBarTimeBetweenOrderByBarTime(symbol, from, to);
+            rows = repo.findBarsBySymbolBetween(symbol, from, to);
         } else {
-            rows = repo.findBySymbolOrderByBarTime(symbol);
+            rows = repo.findBarsBySymbol(symbol);
         }
         return toBarSeries(symbol, rows);
     }
@@ -137,15 +138,15 @@ public class MarketDataService {
 
     private static double r4(double v) { return Math.round(v * 1e4) / 1e4; }
 
-    private BarSeries toBarSeries(String symbol, List<PriceBarEntity> rows) {
+    private BarSeries toBarSeries(String symbol, List<BarRow> rows) {
         int n = rows.size();
         Instant[] date = new Instant[n];
         double[] o = new double[n], h = new double[n], l = new double[n], c = new double[n], v = new double[n];
         for (int i = 0; i < n; i++) {
-            PriceBarEntity b = rows.get(i);
-            date[i] = b.getBarTime();
-            o[i] = b.getOpen(); h[i] = b.getHigh(); l[i] = b.getLow();
-            c[i] = b.getClose(); v[i] = b.getVolume();
+            BarRow b = rows.get(i);
+            date[i] = b.barTime();
+            o[i] = b.open(); h[i] = b.high(); l[i] = b.low();
+            c[i] = b.close(); v[i] = b.volume();
         }
         return new BarSeries(symbol, date, o, h, l, c, v);
     }
