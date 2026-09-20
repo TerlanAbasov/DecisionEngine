@@ -197,6 +197,85 @@ class BacktesterTradeAccountingTest {
         assertEquals(years.stream().sorted().toList(), years, "years are reported oldest first");
     }
 
+    /** Same listing span, but a random share of the interior bars missing — like a thinly traded name's intraday bars. */
+    private static BarSeries withGaps(BarSeries b, long seed, double dropFraction) {
+        Random r = new Random(seed);
+        List<Integer> keep = new ArrayList<>();
+        for (int i = 0; i < b.size(); i++) if (i == 0 || i == b.size() - 1 || r.nextDouble() >= dropFraction) keep.add(i);
+        int m = keep.size();
+        Instant[] d = new Instant[m];
+        double[] o = new double[m], h = new double[m], l = new double[m], c = new double[m], v = new double[m];
+        for (int k = 0; k < m; k++) {
+            int i = keep.get(k);
+            d[k] = b.date[i]; o[k] = b.open[i]; h[k] = b.high[i]; l[k] = b.low[i]; c[k] = b.close[i]; v[k] = b.volume[i];
+        }
+        return new BarSeries(b.symbol, d, o, h, l, c, v);
+    }
+
+    private static double symbolNet(BacktestOutput o, String symbol) {
+        double net = 0;
+        for (TradeResult t : o.trades) if (t.symbol.equals(symbol)) net += t.netReturn;
+        return net;
+    }
+
+    @Test
+    void portfolioTotalIsTheMeanOfTheSymbolTotalsWhenEverySymbolIsListedThroughout() {
+        // Regression: the blend averaged only over the symbols that had a bar at a timestamp, so a
+        // symbol with sparse bars got extra weight and the "portfolio" beat every one of its symbols
+        // (801% vs a best symbol of 753%). Each symbol is a fixed 1/N sleeve for as long as it is listed.
+        List<BarSeries> data = List.of(
+                withGaps(SyntheticData.generate("AAA", 2, END), 1, 0.6),
+                withGaps(SyntheticData.generate("BBB", 2, END), 2, 0.3),
+                withGaps(SyntheticData.generate("CCC", 2, END), 3, 0.85),
+                SyntheticData.generate("DDD", 2, END));
+        for (BacktestConfig c : List.of(cfg(0, 0, 0), cfg(2, 4, 0))) {
+            for (boolean fractional : new boolean[] {false, true}) {
+                BacktestOutput o = new Backtester(false).runPortfolio(data, scripted(21, fractional), null, c);
+                double mean = 0, best = Double.NEGATIVE_INFINITY, worst = Double.POSITIVE_INFINITY;
+                for (BarSeries b : data) {
+                    double net = symbolNet(o, b.symbol);
+                    mean += net / data.size(); best = Math.max(best, net); worst = Math.min(worst, net);
+                }
+                String what = "sl=" + c.stopLossPct + " fractional=" + fractional;
+                assertEquals(mean, totalReturn(o, c), 1e-9, what + ": total must be the mean of the symbols' totals");
+                assertEquals(totalReturn(o, c), sumTrades(o), 1e-9, what + ": contributions must add up to the total");
+                assertTrue(totalReturn(o, c) <= best + 1e-12 && totalReturn(o, c) >= worst - 1e-12,
+                        what + ": an equal-weight blend cannot beat its best symbol or trail its worst");
+            }
+        }
+    }
+
+    @Test
+    void gapsInsideASymbolsListingKeepItsWeightAndItsPositionInTheBlend() {
+        // one symbol has bars on every other day only; the blend must still weigh it 1/2 on the days it is
+        // missing, and carry its position across the gap so exposure isn't understated
+        BarSeries full = SyntheticData.generate("FULL", 1, END);
+        BarSeries sparse = withGaps(SyntheticData.generate("SPARSE", 1, END), 5, 0.7);
+        BacktestConfig c = cfg(0, 0, 0);
+        BacktestOutput o = new Backtester(false).runPortfolio(List.of(full, sparse), scripted(8, false), null, c);
+        assertEquals(full.size(), o.dates.length, "the union axis is the fuller symbol's bars");
+        double mean = (symbolNet(o, "FULL") + symbolNet(o, "SPARSE")) / 2;
+        assertEquals(mean, totalReturn(o, c), 1e-9);
+
+        // an always-long book holds the same position throughout, so its blended position must stay put
+        // across the gaps — turnover is just the one-off build-up (~100% of capital over the ~1y run)
+        TradingStrategy alwaysLong = new TradingStrategy() {
+            public String name() { return "always_long"; }
+            public String category() { return "test"; }
+            public String direction() { return "long_only"; }
+            public String description() { return "test"; }
+            public Map<String, Double> defaultParams() { return Map.of(); }
+            public double[] generateSignals(BarSeries b, Map<String, Double> params) {
+                double[] out = new double[b.size()];
+                java.util.Arrays.fill(out, 1.0);
+                return out;
+            }
+        };
+        BacktestOutput held = new Backtester(false).runPortfolio(List.of(full, sparse), alwaysLong, null, c);
+        double turnover = held.metrics.get("annTurnoverPct");
+        assertTrue(turnover > 50 && turnover < 200, "position must be carried across gaps, turnover was " + turnover + "%");
+    }
+
     @Test
     void yearlyReturnsSplitOnTheUtcCalendarYear() {
         Instant[] d = { Instant.parse("2025-12-31T23:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"),

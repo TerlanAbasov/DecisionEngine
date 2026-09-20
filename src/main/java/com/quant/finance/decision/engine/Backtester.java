@@ -273,9 +273,15 @@ public final class Backtester {
         }
         computed = null;   // release the immutable holder; per-symbol series live in `series` now
 
-        // Blend = equal-weight mean of the per-symbol streams on a union date axis.
-        // Scatter-add each symbol's bars into the shared arrays via one index map — no
-        // per-symbol Map<Instant,Double> (that boxed millions of Doubles and OOM'd the box).
+        // Blend = equal-weight sleeves on a union date axis: a symbol is a 1/cnt sleeve for as long as
+        // it is listed (from its first to its last bar), where cnt is the number of listed symbols.
+        // Within that span a timestamp the symbol has no bar for contributes zero return and holds its
+        // position (its price move over the gap is booked on its next bar, so nothing is lost) — it must
+        // NOT drop out of the average, or the few symbols that do have a bar there would each get
+        // extra weight and the total would exceed every symbol's own return (intraday data from thinly
+        // traded names is full of such gaps). With every symbol listed throughout, the total is exactly
+        // the mean of the symbols' totals. Scatter-add via one index map — no per-symbol
+        // Map<Instant,Double> (that boxed millions of Doubles and OOM'd the box).
         Instant[] dates = allDates.toArray(new Instant[0]);
         int nd = dates.length;
         Map<Instant, Integer> idx = new HashMap<>(nd * 2);
@@ -284,11 +290,19 @@ public final class Backtester {
         double[] net = new double[nd], bench = new double[nd], pos = new double[nd], absPos = new double[nd];
         int[] cnt = new int[nd];
         for (Series s : series) {
-            for (int i = 0; i < s.dates.length; i++) {
-                Integer j = idx.get(s.dates[i]);
-                if (j == null) continue;
-                net[j] += s.net[i]; bench[j] += s.bench[i];
-                pos[j] += s.pos[i]; absPos[j] += s.absPos[i];
+            int n = s.dates.length;
+            if (n == 0) continue;
+            int first = idx.get(s.dates[0]), last = idx.get(s.dates[n - 1]);
+            int p = 0;
+            double heldPos = 0, heldAbs = 0;
+            for (int j = first; j <= last; j++) {
+                while (p < n && s.dates[p].isBefore(dates[j])) p++;   // only if a series were not ascending
+                if (p < n && s.dates[p].equals(dates[j])) {
+                    net[j] += s.net[p]; bench[j] += s.bench[p];
+                    heldPos = s.pos[p]; heldAbs = s.absPos[p];
+                    p++;
+                }
+                pos[j] += heldPos; absPos[j] += heldAbs;
                 cnt[j]++;
             }
         }
@@ -296,18 +310,15 @@ public final class Backtester {
             net[i] /= cnt[i]; bench[i] /= cnt[i]; pos[i] /= cnt[i]; absPos[i] /= cnt[i];
         }
 
-        // Each bar is the mean over the symbols that have that bar (1/cnt), so a symbol's weight is
-        // 1/N only where every symbol has data. Re-cut each symbol's trades with that per-bar weight so
-        // Σ returnPct reconciles exactly with the blended total, however the histories are staggered.
+        // A symbol's weight is 1/cnt at each of its bars, which is 1/N only while every symbol is
+        // listed. Re-cut each symbol's trades with that per-bar weight so Σ returnPct reconciles
+        // exactly with the blended total, however the histories are staggered.
         double costRate = (cfg.commissionBps + cfg.slippageBps) / 1e4;
         List<TradeResult> allTrades = new ArrayList<>();
         for (int k = 0; k < series.size(); k++) {
             Series s = series.get(k);
             double[] w = new double[s.dates.length];
-            for (int i = 0; i < w.length; i++) {
-                Integer j = idx.get(s.dates[i]);
-                w[i] = j == null || cnt[j] == 0 ? 0 : 1.0 / cnt[j];
-            }
+            for (int i = 0; i < w.length; i++) w[i] = 1.0 / cnt[idx.get(s.dates[i])];
             allTrades.addAll(extractTrades(s.pos, s.close, s.dates, symbols.get(k), costRate, cfg.warmupBars, w));
         }
 
