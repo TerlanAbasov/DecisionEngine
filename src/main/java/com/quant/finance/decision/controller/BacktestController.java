@@ -4,6 +4,9 @@ import com.quant.finance.decision.dto.Dtos.*;
 import com.quant.finance.decision.service.BacktestService;
 import com.quant.finance.decision.service.EnsembleService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +16,8 @@ import java.util.List;
 @RequestMapping("/api/backtests")
 @Slf4j
 public class BacktestController {
+
+    private static final MediaType XLSX = MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     private final BacktestService service;
     private final EnsembleService ensemble;
@@ -76,6 +81,28 @@ public class BacktestController {
                                @RequestParam(defaultValue = "0") int page,
                                @RequestParam(defaultValue = "50") int size) {
         return service.getTrades(id, symbol, side, sort, dir, page, size);
+    }
+
+    /** Every trade matching the same filter and sort as {@link #trades} (no paging) as an Excel workbook, for analysis outside the app. */
+    @GetMapping("/{id}/trades/export")
+    public ResponseEntity<byte[]> exportTrades(@PathVariable Long id,
+                                               @RequestParam(required = false) String symbol,
+                                               @RequestParam(required = false) String side,
+                                               @RequestParam(required = false) String sort,
+                                               @RequestParam(required = false) String dir) {
+        byte[] workbook = service.exportTrades(id, symbol, side, sort, dir);
+        return ResponseEntity.ok()
+                .contentType(XLSX)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(exportFileName(id, symbol, side)).build().toString())
+                .body(workbook);
+    }
+
+    /** {@code trades-run-12.xlsx}, or {@code trades-run-12-AAPL-LONG.xlsx} when filtered. */
+    private static String exportFileName(Long runId, String symbol, String side) {
+        StringBuilder name = new StringBuilder("trades-run-").append(runId);
+        for (String filter : new String[]{symbol, side})
+            if (filter != null && !filter.isBlank()) name.append('-').append(filter.trim().toUpperCase().replaceAll("[^A-Z0-9._]", "_"));
+        return name.append(".xlsx").toString();
     }
 
     @GetMapping

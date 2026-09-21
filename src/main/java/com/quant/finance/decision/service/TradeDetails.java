@@ -80,12 +80,8 @@ final class TradeDetails {
 
     static boolean isSortable(String key) { return SORTS.containsKey(key); }
 
-    /**
-     * Filters (symbol, LONG/SHORT side; case-insensitive, blank = all), sorts by a sortable key (default {@code entryDate}, "desc") and pages;
-     * throws IllegalArgumentException for an unknown sort key, side or direction.
-     */
-    static TradePageDto page(List<TradeDetailDto> all, String symbol, String side,
-                             String sort, String dir, int page, int size) {
+    /** The trades matching the filter (symbol, LONG/SHORT side; case-insensitive, blank = all), sorted by a sortable key (default {@code entryDate}, "desc"). */
+    static List<TradeDetailDto> select(List<TradeDetailDto> all, String symbol, String side, String sort, String dir) {
         String sym = symbol == null || symbol.isBlank() ? null : symbol.trim().toUpperCase(Locale.ROOT);
         String sd = side == null || side.isBlank() ? null : side.trim().toUpperCase(Locale.ROOT);
         if (sd != null && !sd.equals("LONG") && !sd.equals("SHORT"))
@@ -100,12 +96,17 @@ final class TradeDetails {
         if (d.equals("desc")) cmp = cmp.reversed();
         cmp = cmp.thenComparingLong(TradeDetailDto::id);       // stable, so paging never repeats or skips rows
 
-        List<TradeDetailDto> rows = all.stream()
+        return all.stream()
                 .filter(t -> sym == null || sym.equalsIgnoreCase(t.symbol()))
                 .filter(t -> sd == null || sd.equals(t.side()))
                 .sorted(cmp)
                 .toList();
+    }
 
+    /** One page of {@link #select}, with totals over every matching trade; throws IllegalArgumentException for an unknown sort key, side or direction. */
+    static TradePageDto page(List<TradeDetailDto> all, String symbol, String side,
+                             String sort, String dir, int page, int size) {
+        List<TradeDetailDto> rows = select(all, symbol, side, sort, dir);
         int p = Math.max(0, page);
         int s = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
         long from = (long) p * s;

@@ -583,14 +583,27 @@ public class BacktestService {
      */
     public TradePageDto getTrades(Long runId, String symbol, String side, String sort, String dir,
                                   Integer page, Integer size) {
-        BacktestRunEntity run = runRepo.findById(runId)
-                .orElseThrow(() -> new NoSuchElementException("No run " + runId));
-        TradeDetails.RunCosts costs = new TradeDetails.RunCosts(run.getCapital(), run.getCommissionBps(),
-                run.getSlippageBps(), run.getPositionSize() != null ? run.getPositionSize() : 1.0);
-        List<TradeDetailDto> all = tradeRepo.findByRunId(runId).stream()
-                .map(t -> TradeDetails.toDto(t, costs)).toList();
+        List<TradeDetailDto> all = tradeDetails(requireRun(runId));
         return TradeDetails.page(all, symbol, side, sort, dir,
                 page == null ? 0 : page, size == null ? TradeDetails.DEFAULT_PAGE_SIZE : size);
+    }
+
+    /** Every trade of the run matching the filter, in the requested order, as the bytes of an .xlsx workbook. */
+    public byte[] exportTrades(Long runId, String symbol, String side, String sort, String dir) {
+        BacktestRunEntity run = requireRun(runId);
+        List<TradeDetailDto> rows = TradeDetails.select(tradeDetails(run), symbol, side, sort, dir);
+        log.info("Backtest: exporting {} trades of run #{} to Excel", rows.size(), runId);
+        return TradeWorkbook.toBytes(run, symbol, side, rows);
+    }
+
+    private BacktestRunEntity requireRun(Long runId) {
+        return runRepo.findById(runId).orElseThrow(() -> new NoSuchElementException("No run " + runId));
+    }
+
+    private List<TradeDetailDto> tradeDetails(BacktestRunEntity run) {
+        TradeDetails.RunCosts costs = new TradeDetails.RunCosts(run.getCapital(), run.getCommissionBps(),
+                run.getSlippageBps(), run.getPositionSize() != null ? run.getPositionSize() : 1.0);
+        return tradeRepo.findByRunId(run.getId()).stream().map(t -> TradeDetails.toDto(t, costs)).toList();
     }
 
     /** What {@code backtest_result.symbol_details_json} holds. */

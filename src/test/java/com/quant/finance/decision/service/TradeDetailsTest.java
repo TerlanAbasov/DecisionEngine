@@ -152,6 +152,17 @@ class TradeDetailsTest {
     }
 
     @Test
+    void selectReturnsEveryMatchingTradeInOrderWithoutPaging() {
+        List<TradeDetailDto> all = new ArrayList<>();
+        for (long i = 1; i <= 7; i++) all.add(TradeDetails.toDto(trade(i, i % 2 == 0 ? "AAA" : "BBB", "LONG", 100, 100 + i), COSTS));
+        List<TradeDetailDto> rows = TradeDetails.select(all, "aaa", null, "netPnl", "asc");
+        assertEquals(3, rows.size());
+        assertTrue(rows.get(0).netPnl() <= rows.get(1).netPnl() && rows.get(1).netPnl() <= rows.get(2).netPnl());
+        assertEquals(7, TradeDetails.select(all, "", "", null, null).size());
+        assertThrows(IllegalArgumentException.class, () -> TradeDetails.select(all, null, "UP", null, null));
+    }
+
+    @Test
     void filtersBySymbolAndSideAndTheSummaryCoversTheWholeFilteredSet() {
         List<TradeDetailDto> all = sample();
         TradePageDto pg = TradeDetails.page(all, " mu ", "long", "entryDate", "asc", 0, 3);
