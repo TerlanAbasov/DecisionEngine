@@ -1,6 +1,6 @@
 package com.quant.finance.decision.service;
 
-import com.quant.finance.decision.domain.UniverseSymbolEntity;
+import com.quant.finance.decision.entity.UniverseSymbolEntity;
 import com.quant.finance.decision.repository.UniverseSymbolRepository;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;

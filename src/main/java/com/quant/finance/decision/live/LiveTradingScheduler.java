@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class LiveTradingScheduler {
 
+    private static final int FIRST_RUN_DELAY_SECONDS = 10;
+
     /** A manual action was refused because a cycle is already running. */
     public static class BusyException extends RuntimeException {
         public BusyException() { super("A paper-trading cycle is already running — try again in a moment."); }
@@ -33,7 +35,6 @@ public class LiveTradingScheduler {
     private final AtomicBoolean busy = new AtomicBoolean();
     private ScheduledFuture<?> schedule;
     private volatile Instant nextRun;
-    private volatile Long runningCycleSince;
 
     public LiveTradingScheduler(LiveTradingEngine engine, LiveConfigService config) {
         this.engine = engine;
@@ -72,9 +73,9 @@ public class LiveTradingScheduler {
             log.info("Paper trading: schedule off");
             return;
         }
-        Duration every = Duration.ofSeconds(s.intervalSeconds());
-        nextRun = Instant.now().plus(Duration.ofSeconds(Math.min(10, s.intervalSeconds())));
-        schedule = scheduler.scheduleWithFixedDelay(this::scheduledRun, Instant.now().plus(Duration.ofSeconds(Math.min(10, s.intervalSeconds()))), every);
+        Instant firstRun = Instant.now().plusSeconds(Math.min(FIRST_RUN_DELAY_SECONDS, s.intervalSeconds()));
+        nextRun = firstRun;
+        schedule = scheduler.scheduleWithFixedDelay(this::scheduledRun, firstRun, Duration.ofSeconds(s.intervalSeconds()));
         log.info("Paper trading: schedule on, every {} s ({}){}", s.intervalSeconds(), s.dryRun() ? "dry run" : "sending orders",
                 s.marketHoursOnly() ? ", market hours only" : "");
     }
@@ -83,21 +84,19 @@ public class LiveTradingScheduler {
         if (!busy.compareAndSet(false, true)) { log.info("Paper trading: previous cycle still running — skipping this tick"); return; }
         try {
             LiveSettings cfg = config.current();
-            if (!cfg.enabled()) return;
-            runningCycleSince = System.currentTimeMillis();
-            engine.runCycle(cfg, Trigger.SCHEDULED, Mode.NORMAL);
+            if (cfg.enabled()) engine.runCycle(cfg, Trigger.SCHEDULED, Mode.NORMAL);
         } catch (RuntimeException e) {
             log.error("Paper trading: scheduled cycle crashed", e);
         } finally {
-            finished();
-            nextRun = config.current().enabled() ? Instant.now().plusSeconds(config.current().intervalSeconds()) : null;
+            busy.set(false);
+            LiveSettings after = config.current();
+            nextRun = after.enabled() ? Instant.now().plusSeconds(after.intervalSeconds()) : null;
         }
     }
 
     /**
      * Starts one cycle now in the background, whether or not the job is enabled, with the saved settings.
-     *
-     * @throws BusyException a cycle is already running
+     * Throws {@link BusyException} while a cycle is already running.
      */
     public void runNow() {
         startBackground("manual run", () -> engine.runCycle(config.current(), Trigger.MANUAL, Mode.NORMAL));
@@ -116,7 +115,6 @@ public class LiveTradingScheduler {
 
     private void startBackground(String what, Runnable work) {
         if (!busy.compareAndSet(false, true)) throw new BusyException();
-        runningCycleSince = System.currentTimeMillis();
         try {
             scheduler.execute(() -> {
                 try {
@@ -124,23 +122,16 @@ public class LiveTradingScheduler {
                 } catch (RuntimeException e) {
                     log.error("Paper trading: {} crashed", what, e);
                 } finally {
-                    finished();
+                    busy.set(false);
                 }
             });
         } catch (RuntimeException e) {
-            finished();
+            busy.set(false);
             throw e;
         }
-    }
-
-    private void finished() {
-        runningCycleSince = null;
-        busy.set(false);
     }
 
     public boolean cycleRunning() { return busy.get(); }
 
     public Instant nextRun() { return nextRun; }
-
-    public Long runningSinceMillis() { return runningCycleSince; }
 }

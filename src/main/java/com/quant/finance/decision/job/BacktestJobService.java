@@ -1,8 +1,12 @@
 package com.quant.finance.decision.job;
 
 import com.quant.finance.decision.config.ExecutorConfig;
-import com.quant.finance.decision.domain.BacktestJobEntity;
+import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.domain.JobStatus;
+import com.quant.finance.decision.entity.BacktestJobEntity;
 import com.quant.finance.decision.dto.Dtos.JobDto;
+import com.quant.finance.decision.error.JobCancelledException;
+import com.quant.finance.decision.error.JobConflictException;
 import com.quant.finance.decision.repository.BacktestJobRepository;
 import com.quant.finance.decision.service.JsonCodec;
 import lombok.extern.slf4j.Slf4j;

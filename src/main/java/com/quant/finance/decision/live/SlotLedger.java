@@ -36,6 +36,9 @@ public final class SlotLedger {
     /** {@code qtyDelta} is the change in signed virtual shares this transition makes. */
     public record Transition(State next, List<ClosedTrade> closed, double qtyDelta, boolean traded) {}
 
+    /** What the strategy wants to hold after this signal: a direction (0 = flat), the direction now blocked, and why anything held is closed. */
+    private record Target(int direction, int blockedDir, String closeReason) {}
+
     /**
      * Applies a signal in [-1, 1] (NaN = flat): sizes and decides at {@code decisionPrice}, records fills at {@code execPrice} (the broker's fill once known),
      * and a non-null {@code forcedReason} (REMOVED, FLATTEN) forces the position flat with that exit reason.
@@ -44,63 +47,59 @@ public final class SlotLedger {
                                    Params p, String forcedReason) {
         if (!(decisionPrice > 0) || !(execPrice > 0)) return new Transition(s, List.of(), 0, false);
 
-        int wantDir = Double.isNaN(signal) || Math.abs(signal) < EPS ? 0 : (signal > 0 ? 1 : -1);
-        if (!p.allowShort() && wantDir < 0) wantDir = 0;
-        double mag = Math.min(1.0, Math.abs(Double.isNaN(signal) ? 0 : signal));
+        Target target = target(s, signal, decisionPrice, p, forcedReason);
+        int wantDir = target.direction();
+        double wantQty = wantDir == 0 ? 0 : p.allocationUsd() * strength(signal) * p.positionSize() / decisionPrice;
+        if (!(wantQty > 0)) wantDir = 0;                               // zero allocation: nothing to hold
 
-        int blocked = s.blockedDir();
-        String closeReason = SIGNAL;
-        if (forcedReason != null) {
-            wantDir = 0;
-            blocked = 0;
-            closeReason = forcedReason;
-        } else {
-            if (blocked != 0 && wantDir != blocked) blocked = 0;     // the strategy moved on: re-arm entry
-            if (blocked != 0) wantDir = 0;                             // still asking for the stopped-out direction
-            if (s.direction() != 0 && wantDir == s.direction() && s.entryPrice() > 0) {
-                double ret = s.direction() * (decisionPrice / s.entryPrice() - 1);
-                if (p.stopLossPct() > 0 && ret <= -p.stopLossPct() / 100.0) {
-                    wantDir = 0; blocked = s.direction(); closeReason = STOP_LOSS;
-                } else if (p.takeProfitPct() > 0 && ret >= p.takeProfitPct() / 100.0) {
-                    wantDir = 0; blocked = s.direction(); closeReason = TAKE_PROFIT;
-                }
-            }
-        }
-
-        double wantQty = wantDir == 0 ? 0 : p.allocationUsd() * mag * p.positionSize() / decisionPrice;
-        if (wantDir != 0 && !(wantQty > 0)) wantDir = 0;               // zero allocation: nothing to hold
+        boolean holding = s.direction() != 0;
+        boolean sameDir = holding && s.direction() == wantDir;
+        boolean resize = sameDir && Math.abs(wantQty - s.qty()) / s.qty() > RESIZE_TOLERANCE;
 
         List<ClosedTrade> closed = new ArrayList<>();
         double realized = s.realizedPnl();
-        int dir = s.direction();
-        double qty = s.qty();
-        double entry = s.entryPrice();
-        Instant entryTime = s.entryTime();
-        boolean traded = false;
-
-        boolean sameDir = dir != 0 && dir == wantDir;
-        boolean resize = sameDir && Math.abs(wantQty - qty) / qty > RESIZE_TOLERANCE;
-        if (dir != 0 && (!sameDir || resize)) {                         // close what we hold
-            ClosedTrade t = close(dir, qty, entryTime, entry, now, execPrice, !sameDir ? closeReason : RESIZE);
+        if (holding && (!sameDir || resize)) {                          // close what we hold
+            ClosedTrade t = close(s, now, execPrice, sameDir ? RESIZE : target.closeReason());
             closed.add(t);
             realized += t.pnlUsd();
-            dir = 0; qty = 0; entry = 0; entryTime = null;
-            traded = true;
-        }
-        if (dir == 0 && wantDir != 0) {                                 // open the wanted position
-            dir = wantDir; qty = wantQty; entry = execPrice; entryTime = now;
-            traded = true;
+            holding = false;
         }
 
-        State next = new State(dir, qty, entry, entryTime, blocked, realized);
+        State next;
+        if (holding) next = new State(s.direction(), s.qty(), s.entryPrice(), s.entryTime(), target.blockedDir(), realized);
+        else if (wantDir != 0) next = new State(wantDir, wantQty, execPrice, now, target.blockedDir(), realized);   // open the wanted position
+        else next = new State(0, 0, 0, null, target.blockedDir(), realized);
+        boolean traded = !closed.isEmpty() || (!holding && wantDir != 0);
         return new Transition(next, closed, next.signedQty() - s.signedQty(), traded);
     }
 
-    private static ClosedTrade close(int dir, double qty, Instant entryTime, double entry, Instant now,
-                                     double exit, String reason) {
-        double pnl = dir * qty * (exit - entry);
-        double ret = entry > 0 ? dir * (exit / entry - 1) * 100 : 0;
-        return new ClosedTrade(dir > 0 ? "LONG" : "SHORT", qty, entryTime, entry, now, exit, pnl, ret, reason);
+    /** The direction the signal asks for (0 when short is off or the signal is flat), then the stop-loss / take-profit rules over it. */
+    private static Target target(State s, double signal, double price, Params p, String forcedReason) {
+        if (forcedReason != null) return new Target(0, 0, forcedReason);
+
+        int wantDir = Double.isNaN(signal) || Math.abs(signal) < EPS ? 0 : (signal > 0 ? 1 : -1);
+        if (!p.allowShort() && wantDir < 0) wantDir = 0;
+        int blocked = s.blockedDir();
+        if (blocked != 0 && wantDir != blocked) blocked = 0;           // the strategy moved on: re-arm entry
+        if (blocked != 0) wantDir = 0;                                  // still asking for the stopped-out direction
+
+        if (s.direction() != 0 && wantDir == s.direction() && s.entryPrice() > 0) {
+            double ret = s.direction() * (price / s.entryPrice() - 1);
+            if (p.stopLossPct() > 0 && ret <= -p.stopLossPct() / 100.0) return new Target(0, s.direction(), STOP_LOSS);
+            if (p.takeProfitPct() > 0 && ret >= p.takeProfitPct() / 100.0) return new Target(0, s.direction(), TAKE_PROFIT);
+        }
+        return new Target(wantDir, blocked, SIGNAL);
+    }
+
+    /** How much of the full allocation the signal asks for, in [0, 1]. */
+    private static double strength(double signal) {
+        return Double.isNaN(signal) ? 0 : Math.min(1.0, Math.abs(signal));
+    }
+
+    private static ClosedTrade close(State s, Instant now, double exit, String reason) {
+        double pnl = s.direction() * s.qty() * (exit - s.entryPrice());
+        double ret = s.entryPrice() > 0 ? s.direction() * (exit / s.entryPrice() - 1) * 100 : 0;
+        return new ClosedTrade(s.direction() > 0 ? "LONG" : "SHORT", s.qty(), s.entryTime(), s.entryPrice(), now, exit, pnl, ret, reason);
     }
 
     /** Open profit or loss of a held position at {@code price}. */

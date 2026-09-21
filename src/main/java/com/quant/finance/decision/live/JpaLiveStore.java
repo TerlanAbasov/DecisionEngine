@@ -1,7 +1,13 @@
 package com.quant.finance.decision.live;
 
-import com.quant.finance.decision.domain.*;
+import com.quant.finance.decision.entity.LiveCycleEntity;
+import com.quant.finance.decision.entity.LiveEquityEntity;
+import com.quant.finance.decision.entity.LiveOrderEntity;
+import com.quant.finance.decision.entity.LiveSlotEntity;
+import com.quant.finance.decision.entity.LiveStrategyPnlEntity;
+import com.quant.finance.decision.entity.LiveTradeEntity;
 import com.quant.finance.decision.repository.*;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -10,7 +16,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** The job's state in the database. */
 @Component
+@RequiredArgsConstructor
 public class JpaLiveStore implements LiveStore {
 
     private final LiveCycleRepository cycles;
@@ -19,16 +27,6 @@ public class JpaLiveStore implements LiveStore {
     private final LiveOrderRepository orders;
     private final LiveEquityRepository equity;
     private final LiveStrategyPnlRepository pnl;
-
-    public JpaLiveStore(LiveCycleRepository cycles, LiveSlotRepository slotRepo, LiveTradeRepository trades,
-                        LiveOrderRepository orders, LiveEquityRepository equity, LiveStrategyPnlRepository pnl) {
-        this.cycles = cycles;
-        this.slotRepo = slotRepo;
-        this.trades = trades;
-        this.orders = orders;
-        this.equity = equity;
-        this.pnl = pnl;
-    }
 
     @Override
     public LiveCycleEntity saveCycle(LiveCycleEntity cycle) { return cycles.save(cycle); }

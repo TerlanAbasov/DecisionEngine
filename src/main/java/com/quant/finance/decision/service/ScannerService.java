@@ -1,7 +1,7 @@
 package com.quant.finance.decision.service;
 
 import com.quant.finance.decision.data.MarketDataService;
-import com.quant.finance.decision.domain.SignalEntity;
+import com.quant.finance.decision.entity.SignalEntity;
 import com.quant.finance.decision.dto.Dtos.SignalDto;
 import com.quant.finance.decision.dto.Dtos.SignalMarkerDto;
 import com.quant.finance.decision.dto.Dtos.SignalOverlayDto;

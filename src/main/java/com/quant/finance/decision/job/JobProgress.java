@@ -1,8 +1,11 @@
 package com.quant.finance.decision.job;
 
+import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.domain.JobStatus;
 import com.quant.finance.decision.dto.Dtos.JobItemDto;
 import com.quant.finance.decision.dto.Dtos.JobStepDto;
 
+import com.quant.finance.decision.error.JobCancelledException;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;

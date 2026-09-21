@@ -6,7 +6,8 @@ import com.quant.finance.decision.engine.BacktestOutput;
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.job.JobKind;
+import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.error.JobCancelledException;
 import com.quant.finance.decision.job.JobProgress;
 import com.quant.finance.decision.job.JobProgress.Step;
 import com.quant.finance.decision.strategy.BarSeries;
@@ -179,7 +180,7 @@ public class EnsembleService {
         try {
             return f.join();
         } catch (java.util.concurrent.CompletionException e) {
-            if (e.getCause() instanceof com.quant.finance.decision.job.JobCancelledException c) throw c;
+            if (e.getCause() instanceof JobCancelledException c) throw c;
             throw e;
         }
     }

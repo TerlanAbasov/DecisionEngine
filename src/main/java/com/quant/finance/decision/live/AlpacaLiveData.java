@@ -57,8 +57,7 @@ public class AlpacaLiveData implements LiveDataSource {
                 out.put(Instant.parse(b.path("t").asText()),
                         new BarWindow.Bar(b.path("o").asDouble(), b.path("h").asDouble(), b.path("l").asDouble(),
                                 b.path("c").asDouble(), b.path("v").asDouble()));
-            String next = page.path("next_page_token").asText("");
-            pageToken = next.isBlank() || "null".equals(next) ? null : next;
+            pageToken = AlpacaJson.text(page, "next_page_token");
         } while (pageToken != null);
         return out;
     }
@@ -69,13 +68,18 @@ public class AlpacaLiveData implements LiveDataSource {
         if (symbols.isEmpty()) return out;
         JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl, String.join(",", symbols), creds.feed()));
         JsonNode snaps = root.has("snapshots") ? root.path("snapshots") : root;   // both response shapes exist
-        for (String s : symbols) {
-            JsonNode n = snaps.path(s);
-            double p = n.path("latestTrade").path("p").asDouble(0);
-            if (p <= 0) p = n.path("minuteBar").path("c").asDouble(0);
-            if (p <= 0) p = n.path("dailyBar").path("c").asDouble(0);
-            if (p > 0) out.put(s, p);
+        for (String symbol : symbols) {
+            double price = priceOf(snaps.path(symbol));
+            if (price > 0) out.put(symbol, price);
         }
         return out;
+    }
+
+    /** The last trade, else the last minute bar's close, else the last daily bar's; 0 when there is none. */
+    private static double priceOf(JsonNode snapshot) {
+        double price = snapshot.path("latestTrade").path("p").asDouble(0);
+        if (price <= 0) price = snapshot.path("minuteBar").path("c").asDouble(0);
+        if (price <= 0) price = snapshot.path("dailyBar").path("c").asDouble(0);
+        return price;
     }
 }

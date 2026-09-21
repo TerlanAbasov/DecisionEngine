@@ -1,5 +1,8 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.live.AlpacaModels.AccountInfo;
+import com.quant.finance.decision.live.AlpacaModels.MarketClock;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -16,7 +19,17 @@ public final class LiveDtos {
 
     public record BrokerDto(boolean reachable, String error, String accountStatus, Double equity, Double cash,
                             Double buyingPower, Double longValue, Double shortValue, Boolean marketOpen,
-                            Instant nextOpen, Instant nextClose) {}
+                            Instant nextOpen, Instant nextClose) {
+
+        static BrokerDto unavailable(String reason) {
+            return new BrokerDto(false, reason, null, null, null, null, null, null, null, null, null);
+        }
+
+        static BrokerDto of(AccountInfo a, MarketClock c) {
+            return new BrokerDto(true, null, a.status(), a.equity(), a.cash(), a.buyingPower(), a.longMarketValue(),
+                    a.shortMarketValue(), c.open(), c.nextOpen(), c.nextClose());
+        }
+    }
 
     public record StatusDto(LiveSettings settings, boolean scheduled, boolean cycleRunning, Instant nextRun,
                             boolean paperEndpoint, boolean credentialsConfigured, BrokerDto broker, CycleDto lastCycle,

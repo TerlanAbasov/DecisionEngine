@@ -47,9 +47,7 @@ final class SignalEvaluator {
     static BarSeries completedOnly(BarSeries bars, Timeframe tf, Instant now) {
         int n = bars.size();
         if (n == 0) return bars;
-        boolean lastIncomplete = tf.seconds > 0
-                ? bars.date[n - 1].plusSeconds(tf.seconds).isAfter(now)
-                : true;
+        boolean lastIncomplete = tf.seconds <= 0 || bars.date[n - 1].plusSeconds(tf.seconds).isAfter(now);
         if (!lastIncomplete) return bars;
         int m = n - 1;
         return new BarSeries(bars.symbol, Arrays.copyOf(bars.date, m), Arrays.copyOf(bars.open, m),
@@ -57,10 +55,7 @@ final class SignalEvaluator {
                 Arrays.copyOf(bars.volume, m));
     }
 
-    /**
-     * @return the strategy's target position (clamped to [-1, 1]) after the last completed bar, or {@code null}
-     *         when there is not enough history to evaluate it
-     */
+    /** The strategy's target position (clamped to [-1, 1]) after the last completed bar, or null when there is not enough history to evaluate it. */
     static Double lastSignal(TradingStrategy strategy, Map<String, Double> params, BarSeries base, Timeframe tf,
                              Instant now) {
         BarSeries resampled = BarResampler.resample(base, tf);

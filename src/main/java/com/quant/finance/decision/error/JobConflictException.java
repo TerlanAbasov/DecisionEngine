@@ -1,4 +1,4 @@
-package com.quant.finance.decision.job;
+package com.quant.finance.decision.error;
 
 import com.quant.finance.decision.dto.Dtos.JobDto;
 

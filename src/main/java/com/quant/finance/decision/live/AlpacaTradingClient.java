@@ -10,13 +10,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import static com.quant.finance.decision.live.AlpacaJson.instant;
+import static com.quant.finance.decision.live.AlpacaJson.num;
+import static com.quant.finance.decision.live.AlpacaJson.text;
 
 /**
  * The paper-trading gateway over {@link AlpacaClient}: every call first checks the configured endpoint is Alpaca's paper host (or localhost, for tests)
@@ -98,14 +100,14 @@ public class AlpacaTradingClient implements TradingGateway {
         body.put("time_in_force", "day");
         body.put("client_order_id", clientOrderId);
         log.info("Alpaca paper order: {} {} x{} ({})", side, symbol, qty, clientOrderId);
-        return order(AlpacaCalls.once(() -> client.submitOrder(body)));
+        return toOrder(AlpacaCalls.once(() -> client.submitOrder(body)));
     }
 
     @Override
     public Optional<OrderInfo> findByClientOrderId(String clientOrderId) {
         requirePaper();
         try {
-            return Optional.of(order(AlpacaCalls.read(() -> client.orderByClientId(clientOrderId))));
+            return Optional.of(toOrder(AlpacaCalls.read(() -> client.orderByClientId(clientOrderId))));
         } catch (AlpacaApiException e) {
             if (e.status() == 404) return Optional.empty();
             throw e;
@@ -115,7 +117,7 @@ public class AlpacaTradingClient implements TradingGateway {
     @Override
     public OrderInfo order(String orderId) {
         requirePaper();
-        return order(AlpacaCalls.read(() -> client.order(orderId)));
+        return toOrder(AlpacaCalls.read(() -> client.order(orderId)));
     }
 
     @Override
@@ -132,28 +134,14 @@ public class AlpacaTradingClient implements TradingGateway {
     public List<OrderInfo> openOrders() {
         requirePaper();
         List<OrderInfo> out = new ArrayList<>();
-        for (JsonNode o : AlpacaCalls.read(() -> client.orders("open", 500))) out.add(order(o));
+        for (JsonNode o : AlpacaCalls.read(() -> client.orders("open", 500))) out.add(toOrder(o));
         return out;
     }
 
-    private static OrderInfo order(JsonNode o) {
-        String fap = o.path("filled_avg_price").asText("");
+    private static OrderInfo toOrder(JsonNode o) {
+        String avgPrice = text(o, "filled_avg_price");
         return new OrderInfo(o.path("id").asText(), o.path("client_order_id").asText(""), o.path("symbol").asText(),
                 o.path("side").asText(""), num(o, "qty"), o.path("status").asText("").toLowerCase(), num(o, "filled_qty"),
-                fap.isBlank() || "null".equals(fap) ? null : Double.parseDouble(fap),
-                instant(o, "submitted_at"), instant(o, "filled_at"));
-    }
-
-    /** Alpaca sends numbers as strings ("12.5") and leaves fields out or null when they do not apply. */
-    static double num(JsonNode n, String field) {
-        String s = n.path(field).asText("");
-        if (s.isBlank() || "null".equals(s)) return 0;
-        try { return Double.parseDouble(s); } catch (NumberFormatException e) { return 0; }
-    }
-
-    static Instant instant(JsonNode n, String field) {
-        String s = n.path(field).asText("");
-        if (s.isBlank() || "null".equals(s)) return null;
-        try { return OffsetDateTime.parse(s).toInstant(); } catch (Exception e) { return null; }
+                avgPrice == null ? null : Double.parseDouble(avgPrice), instant(o, "submitted_at"), instant(o, "filled_at"));
     }
 }

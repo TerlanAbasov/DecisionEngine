@@ -1,6 +1,6 @@
 package com.quant.finance.decision.data;
 
-import com.quant.finance.decision.domain.PriceBarEntity;
+import com.quant.finance.decision.entity.PriceBarEntity;
 import com.quant.finance.decision.dto.Dtos.BarDto;
 import com.quant.finance.decision.dto.Dtos.PriceSeriesDto;
 import com.quant.finance.decision.dto.Dtos.SymbolCoverageDto;

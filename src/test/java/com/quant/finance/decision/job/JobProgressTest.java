@@ -1,7 +1,10 @@
 package com.quant.finance.decision.job;
 
+import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.domain.JobStatus;
 import com.quant.finance.decision.dto.Dtos.JobItemDto;
 import com.quant.finance.decision.dto.Dtos.JobStepDto;
+import com.quant.finance.decision.error.JobCancelledException;
 import com.quant.finance.decision.job.JobProgress.Snapshot;
 import com.quant.finance.decision.job.JobProgress.Step;
 import org.junit.jupiter.api.Test;

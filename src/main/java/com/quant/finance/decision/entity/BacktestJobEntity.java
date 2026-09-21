@@ -1,4 +1,4 @@
-package com.quant.finance.decision.domain;
+package com.quant.finance.decision.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -1,8 +1,9 @@
 package com.quant.finance.decision.live;
 
-import com.quant.finance.decision.domain.LiveConfigEntity;
+import com.quant.finance.decision.entity.LiveConfigEntity;
 import com.quant.finance.decision.repository.LiveConfigRepository;
 import com.quant.finance.decision.service.StrategyService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -14,18 +15,13 @@ import java.util.List;
 /** Loads and saves the paper-trading job's settings (one row), validating every change. */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class LiveConfigService {
 
     private final LiveConfigRepository repo;
     private final StrategyService strategies;
     private final ApplicationEventPublisher events;
     private volatile LiveSettings cached;
-
-    public LiveConfigService(LiveConfigRepository repo, StrategyService strategies, ApplicationEventPublisher events) {
-        this.repo = repo;
-        this.strategies = strategies;
-        this.events = events;
-    }
 
     public synchronized LiveSettings current() {
         if (cached == null) {
@@ -52,9 +48,7 @@ public class LiveConfigService {
     /** Turns the job off without touching anything else (used by the flatten action and as a kill switch). */
     public LiveSettings disable() {
         LiveSettings c = current();
-        return c.enabled() ? update(new LiveSettings(false, c.dryRun(), c.intervalSeconds(), c.allocationUsd(),
-                c.positionSize(), c.allowShort(), c.timeframeMode(), c.lookbackBars(), c.strategyNames(), c.symbols(),
-                c.maxGrossUsd(), c.maxOrdersPerCycle(), c.marketHoursOnly(), c.fillTimeoutSeconds(), c.useRiskDefaults())) : c;
+        return c.enabled() ? update(c.withEnabled(false)) : c;
     }
 
     private static LiveSettings toSettings(LiveConfigEntity e) {

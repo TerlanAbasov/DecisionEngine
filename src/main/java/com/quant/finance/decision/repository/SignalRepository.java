@@ -1,6 +1,6 @@
 package com.quant.finance.decision.repository;
 
-import com.quant.finance.decision.domain.SignalEntity;
+import com.quant.finance.decision.entity.SignalEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 

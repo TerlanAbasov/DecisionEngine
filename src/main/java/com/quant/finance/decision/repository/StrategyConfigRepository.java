@@ -1,6 +1,6 @@
 package com.quant.finance.decision.repository;
 
-import com.quant.finance.decision.domain.StrategyConfigEntity;
+import com.quant.finance.decision.entity.StrategyConfigEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 

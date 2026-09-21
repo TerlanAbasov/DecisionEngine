@@ -1,6 +1,6 @@
 package com.quant.finance.decision.repository;
 
-import com.quant.finance.decision.domain.LiveOrderEntity;
+import com.quant.finance.decision.entity.LiveOrderEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LiveOrderRepository extends JpaRepository<LiveOrderEntity, Long> {

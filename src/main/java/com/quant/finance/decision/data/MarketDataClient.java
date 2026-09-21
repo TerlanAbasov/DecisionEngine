@@ -1,6 +1,6 @@
 package com.quant.finance.decision.data;
 
-import com.quant.finance.decision.domain.PriceBarEntity;
+import com.quant.finance.decision.entity.PriceBarEntity;
 
 import java.time.Instant;
 import java.util.List;

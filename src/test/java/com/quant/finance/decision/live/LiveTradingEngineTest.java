@@ -1,7 +1,10 @@
 package com.quant.finance.decision.live;
 
-import com.quant.finance.decision.domain.*;
 import com.quant.finance.decision.engine.Timeframe;
+import com.quant.finance.decision.entity.LiveCycleEntity;
+import com.quant.finance.decision.entity.LiveOrderEntity;
+import com.quant.finance.decision.entity.LiveSlotEntity;
+import com.quant.finance.decision.entity.LiveTradeEntity;
 import com.quant.finance.decision.live.AlpacaModels.*;
 import com.quant.finance.decision.live.LiveFakes.*;
 import com.quant.finance.decision.live.LiveTradingEngine.Mode;

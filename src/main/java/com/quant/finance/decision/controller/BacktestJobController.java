@@ -2,7 +2,7 @@ package com.quant.finance.decision.controller;
 
 import com.quant.finance.decision.dto.Dtos.*;
 import com.quant.finance.decision.job.BacktestJobService;
-import com.quant.finance.decision.job.JobKind;
+import com.quant.finance.decision.domain.JobKind;
 import com.quant.finance.decision.service.BacktestService;
 import com.quant.finance.decision.service.EnsembleService;
 import lombok.extern.slf4j.Slf4j;

@@ -1,7 +1,7 @@
 package com.quant.finance.decision.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.quant.finance.decision.domain.TradeEntity;
+import com.quant.finance.decision.entity.TradeEntity;
 import com.quant.finance.decision.dto.Dtos.TradeDetailDto;
 import com.quant.finance.decision.dto.Dtos.TradePageDto;
 import com.quant.finance.decision.engine.SymbolResult;

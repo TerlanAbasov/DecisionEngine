@@ -1,6 +1,6 @@
 package com.quant.finance.decision.repository;
 
-import com.quant.finance.decision.domain.LiveCycleEntity;
+import com.quant.finance.decision.entity.LiveCycleEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

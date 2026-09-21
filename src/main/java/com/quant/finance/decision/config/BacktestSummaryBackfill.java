@@ -1,7 +1,7 @@
 package com.quant.finance.decision.config;
 
-import com.quant.finance.decision.domain.BacktestResultEntity;
-import com.quant.finance.decision.domain.BacktestRunEntity;
+import com.quant.finance.decision.entity.BacktestResultEntity;
+import com.quant.finance.decision.entity.BacktestRunEntity;
 import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.repository.BacktestResultRepository;
 import com.quant.finance.decision.repository.BacktestRunRepository;

@@ -1,13 +1,23 @@
 package com.quant.finance.decision.live;
 
-import com.quant.finance.decision.error.AlpacaApiException;
-import com.quant.finance.decision.domain.*;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.AlpacaModels.*;
+import com.quant.finance.decision.entity.LiveCycleEntity;
+import com.quant.finance.decision.entity.LiveSlotEntity;
+import com.quant.finance.decision.entity.LiveStrategyPnlEntity;
+import com.quant.finance.decision.entity.LiveTradeEntity;
+import com.quant.finance.decision.error.AlpacaApiException;
+import com.quant.finance.decision.live.AlpacaModels.AccountInfo;
+import com.quant.finance.decision.live.AlpacaModels.AssetInfo;
+import com.quant.finance.decision.live.AlpacaModels.MarketClock;
+import com.quant.finance.decision.live.AlpacaModels.PositionInfo;
 import com.quant.finance.decision.live.LiveDataSource.Base;
+import com.quant.finance.decision.live.OrderExecutor.Sleeper;
+import com.quant.finance.decision.live.OrderPlanner.Plan;
+import com.quant.finance.decision.live.OrderPlanner.Skipped;
 import com.quant.finance.decision.live.OrderPlanner.SymbolPlan;
 import com.quant.finance.decision.live.SlotLedger.ClosedTrade;
 import com.quant.finance.decision.live.SlotLedger.Params;
+import com.quant.finance.decision.live.SlotLedger.State;
 import com.quant.finance.decision.live.SlotLedger.Transition;
 import com.quant.finance.decision.service.StrategyService;
 import com.quant.finance.decision.service.UniverseService;
@@ -18,7 +28,18 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalDouble;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -34,12 +55,10 @@ public class LiveTradingEngine {
 
     public enum Mode { NORMAL, FLATTEN }
 
-    /** Client order ids of this job start with this, so leftovers can be told apart from anyone else's orders. */
-    static final String ORDER_PREFIX = "qe-";
-    private static final Duration ASSET_TTL = Duration.ofHours(6);
+    private enum CycleStatus { RUNNING, COMPLETED, SKIPPED, FAILED }
 
-    /** Pauses between polls of an order; replaceable so tests do not wait. */
-    interface Sleeper { void sleep(long millis); }
+    private static final Duration ASSET_TTL = Duration.ofHours(6);
+    private static final Duration CURVE_RETENTION = Duration.ofDays(30);
 
     private final TradingGateway gateway;
     private final LiveDataSource data;
@@ -48,14 +67,12 @@ public class LiveTradingEngine {
     private final LiveStore store;
     private final Clock clock;
     private final Executor executor;
-    private final Sleeper sleeper;
+    private final OrderExecutor orders;
     private final Map<String, CachedAsset> assets = new HashMap<>();
-
-    private record CachedAsset(AssetInfo info, Instant at) {}
 
     public LiveTradingEngine(TradingGateway gateway, LiveDataSource data, StrategyService strategies,
                              UniverseService universe, LiveStore store, Clock clock, Executor executor) {
-        this(gateway, data, strategies, universe, store, clock, executor, LiveTradingEngine::realSleep);
+        this(gateway, data, strategies, universe, store, clock, executor, LiveTradingEngine::sleep);
     }
 
     LiveTradingEngine(TradingGateway gateway, LiveDataSource data, StrategyService strategies,
@@ -67,12 +84,55 @@ public class LiveTradingEngine {
         this.store = store;
         this.clock = clock;
         this.executor = executor;
-        this.sleeper = sleeper;
+        this.orders = new OrderExecutor(gateway, store, clock, sleeper);
     }
 
-    private static void realSleep(long ms) {
+    private static void sleep(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
+
+    // ---- values passed between the steps of a cycle --------------------------------------------
+
+    /** What this cycle is doing and where it records what it did. */
+    private record Run(LiveSettings cfg, Mode mode, LiveCycleEntity cycle, CycleStats stats, Instant now) {}
+
+    /** What is in play: the strategies and symbols the settings ask for, plus every symbol with an open position. */
+    private record Scope(Map<String, TradingStrategy> strategies, List<String> symbols, Set<String> allSymbols) {}
+
+    /** Latest prices, and the assets that may be traded. */
+    private record Market(Map<String, Double> prices, Map<String, AssetInfo> tradable) {
+        boolean isTradable(String symbol) { return tradable.containsKey(symbol); }
+        double price(String symbol) { return prices.get(symbol); }
+        boolean isShortable(String symbol) { return tradable.get(symbol).shortable(); }
+    }
+
+    private record SlotId(String strategy, String symbol) {
+        String key() { return LiveStore.key(strategy, symbol); }
+    }
+
+    /** A strategy's virtual position after this cycle's signal, worked out at the last price; redone at the fill price once the order filled. */
+    private record Move(SlotId id, LiveSlotEntity slot, State before, double signal, double price, Params params,
+                        String forcedExit, Transition planned) {
+
+        static Move decide(SlotId id, LiveSlotEntity slot, double signal, double price, Params params, String forcedExit, Instant now) {
+            State before = slot == null ? State.FLAT : LiveRows.stateOf(slot);
+            Transition planned = SlotLedger.apply(before, signal, price, price, now, params, forcedExit);
+            return new Move(id, slot, before, signal, price, params, forcedExit, planned);
+        }
+
+        String symbol() { return id.symbol(); }
+
+        Transition filledAt(double fillPrice, Instant now) {
+            return SlotLedger.apply(before, signal, price, fillPrice, now, params, forcedExit);
+        }
+    }
+
+    /** Slots and closed trades of one symbol, saved together. */
+    private record Commit(Set<LiveSlotEntity> slots, List<LiveTradeEntity> trades) {
+        Commit() { this(new LinkedHashSet<>(), new ArrayList<>()); }
+    }
+
+    private record CachedAsset(AssetInfo info, Instant at) {}
 
     // ---- a cycle -------------------------------------------------------------------------------
 
@@ -81,31 +141,24 @@ public class LiveTradingEngine {
         Instant started = clock.instant();
         LiveCycleEntity cycle = new LiveCycleEntity();
         cycle.setStartedAt(started);
-        cycle.setStatus("RUNNING");
+        cycle.setStatus(CycleStatus.RUNNING.name());
         cycle.setMode(mode.name());
         cycle.setTriggeredBy(trigger.name());
         cycle.setDryRun(cfg.dryRun());
         cycle = store.saveCycle(cycle);
 
-        Stats st = new Stats();
+        CycleStats stats = new CycleStats();
         try {
-            String skipped = execute(cfg, mode, cycle, st);
-            cycle.setStatus(skipped != null ? "SKIPPED" : "COMPLETED");
-            cycle.setMessage(skipped != null ? skipped : st.summary(cfg.dryRun()));
+            String skipReason = execute(cfg, mode, cycle, stats);
+            cycle.setStatus((skipReason != null ? CycleStatus.SKIPPED : CycleStatus.COMPLETED).name());
+            cycle.setMessage(skipReason != null ? skipReason : stats.summary(cfg.dryRun()));
         } catch (Exception e) {
             log.error("Paper trading cycle #{} failed", cycle.getId(), e);
-            st.errors++;
-            cycle.setStatus("FAILED");
-            cycle.setMessage(describe(e));
+            stats.errors++;
+            cycle.setStatus(CycleStatus.FAILED.name());
+            cycle.setMessage(CycleStats.describe(e));
         }
-        cycle.setSymbols(st.symbols);
-        cycle.setStrategies(st.strategies);
-        cycle.setSignals(st.signals);
-        cycle.setOrdersPlanned(st.ordersPlanned);
-        cycle.setOrdersFilled(st.ordersFilled);
-        cycle.setOrdersFailed(st.ordersFailed);
-        cycle.setTradesClosed(st.tradesClosed);
-        cycle.setErrors(st.errors);
+        stats.writeTo(cycle);
         Instant finished = clock.instant();
         cycle.setFinishedAt(finished);
         cycle.setDurationMs(Duration.between(started, finished).toMillis());
@@ -114,432 +167,301 @@ public class LiveTradingEngine {
         return cycle;
     }
 
-    private static final class Stats {
-        int symbols, strategies, signals, ordersPlanned, ordersFilled, ordersFailed, tradesClosed, errors;
-        final List<String> notes = new ArrayList<>();
+    /** Runs the steps in order; returns why the cycle did nothing on purpose (e.g. market closed), else null. */
+    private String execute(LiveSettings cfg, Mode mode, LiveCycleEntity cycle, CycleStats stats) {
+        AccountInfo account = requireTradableAccount();
+        MarketClock marketClock = gateway.clock();
+        Run run = new Run(cfg, mode, cycle, stats, clock.instant());
 
-        String summary(boolean dryRun) {
-            String s = signals + " signals, " + ordersPlanned + " order" + (ordersPlanned == 1 ? "" : "s")
-                    + (dryRun ? " planned (dry run: none sent)" : " (" + ordersFilled + " filled, " + ordersFailed + " failed)")
-                    + ", " + tradesClosed + " trade" + (tradesClosed == 1 ? "" : "s") + " closed";
-            if (errors > 0) s += ", " + errors + " error" + (errors == 1 ? "" : "s");
-            return notes.isEmpty() ? s : s + ". " + String.join("; ", notes.subList(0, Math.min(5, notes.size())));
+        if (cfg.marketHoursOnly() && !marketClock.open())
+            return skip(run, account, "Market closed" + (marketClock.nextOpen() != null ? "; next open " + marketClock.nextOpen() : ""));
+        if (!cfg.dryRun()) orders.cancelLeftovers();
+
+        Map<String, LiveSlotEntity> slots = store.slots();
+        Scope scope = scopeOf(run, slots);
+        stats.symbols = scope.symbols().size();
+        stats.strategies = scope.strategies().size();
+        if (scope.allSymbols().isEmpty())
+            return skip(run, account, "Nothing to do: no symbols in scope and no open positions.");
+
+        Map<String, Double> actual = accountPositions(scope.allSymbols());
+        Market market = quote(run, scope.allSymbols());
+        Map<String, Double> signals = mode == Mode.FLATTEN ? Map.of() : evaluateSignals(run, scope, market);
+        List<Move> moves = decideMoves(run, scope, market, signals, slots);
+
+        Plan plan = OrderPlanner.plan(netVirtualQty(moves, slots, market), actual, market.prices(),
+                cfg.maxGrossUsd(), cfg.maxOrdersPerCycle());
+        stats.ordersPlanned = plan.orderCount();
+        Set<String> unsettled = recordHeldBack(run, plan);
+
+        if (cfg.dryRun()) {
+            plan.withOrders().forEach(sp -> orders.recordDryRun(cycle, sp, reasonOf(sp, moves)));
+            saveEquity(run, account);
+            return null;
         }
+
+        Map<String, Double> fills = sendOrders(run, plan, moves, unsettled);
+        settle(run, slots, moves, market, fills, unsettled);
+        saveStrategyPnl(run, slots);
+        saveEquity(run, stats.ordersFilled > 0 ? refreshed(account) : account);
+        store.pruneCurves(run.now().minus(CURVE_RETENTION));
+        return null;
     }
 
-    /** @return a reason when the cycle did nothing on purpose (e.g. market closed), else null */
-    private String execute(LiveSettings cfg, Mode mode, LiveCycleEntity cycle, Stats st) {
+    private String skip(Run run, AccountInfo account, String reason) {
+        saveEquity(run, account);
+        return reason;
+    }
+
+    private AccountInfo requireTradableAccount() {
         if (!gateway.isPaper())
             throw new IllegalStateException("Refusing to trade: the configured Alpaca endpoint is not the paper-trading one.");
         AccountInfo account = gateway.account();
         if (account.tradingBlocked() || account.accountBlocked())
             throw new IllegalStateException("The Alpaca account is blocked from trading (status " + account.status() + ").");
-        MarketClock market = gateway.clock();
-        Instant now = clock.instant();
-        if (cfg.marketHoursOnly() && !market.open()) {
-            saveEquity(account, cycle, now);
-            return "Market closed" + (market.nextOpen() != null ? "; next open " + market.nextOpen() : "");
-        }
-        if (!cfg.dryRun()) cancelLeftoverOrders();
+        return account;
+    }
 
-        // ---- scope ----
-        Map<String, TradingStrategy> strats = mode == Mode.FLATTEN ? Map.of()
-                : cfg.strategyNames().isEmpty() ? strategies.getEnabledStrategies() : strategies.getStrategies(cfg.strategyNames());
-        List<String> scopeSymbols = mode == Mode.FLATTEN ? List.of()
-                : cfg.symbols().isEmpty() ? universe.get() : cfg.symbols();
-        Map<String, LiveSlotEntity> slots = store.slots();
-        Set<String> symbols = new TreeSet<>(scopeSymbols);
-        slots.values().stream().filter(s -> s.getDirection() != 0).forEach(s -> symbols.add(s.getSymbol()));
-        st.symbols = scopeSymbols.size();
-        st.strategies = strats.size();
-        if (symbols.isEmpty()) { saveEquity(account, cycle, now); return "Nothing to do: no symbols in scope and no open positions."; }
+    // ---- what is in play -----------------------------------------------------------------------
 
+    /** A flatten cycle has no strategies or symbols in scope: it only closes what is open. */
+    private Scope scopeOf(Run run, Map<String, LiveSlotEntity> slots) {
+        boolean flatten = run.mode() == Mode.FLATTEN;
+        Map<String, TradingStrategy> strats = flatten ? Map.of() : run.cfg().strategiesIn(strategies);
+        List<String> symbols = flatten ? List.of() : run.cfg().symbolsIn(universe);
+
+        Set<String> all = new TreeSet<>(symbols);
+        for (LiveSlotEntity s : slots.values()) if (LiveRows.isOpen(s)) all.add(s.getSymbol());
+        return new Scope(strats, symbols, all);
+    }
+
+    /** The account's signed share count for each of {@code symbols} it holds. */
+    private Map<String, Double> accountPositions(Set<String> symbols) {
         Map<String, Double> actual = new HashMap<>();
         for (PositionInfo p : gateway.positions()) if (symbols.contains(p.symbol())) actual.put(p.symbol(), p.qty());
+        return actual;
+    }
+
+    /** Fetches prices and asset details; a symbol with no price or that is not tradable is left out and noted. */
+    private Market quote(Run run, Set<String> symbols) {
         Map<String, Double> prices = data.latestPrices(symbols);
-        Set<String> tradable = new HashSet<>();
-        Map<String, Boolean> shortable = new HashMap<>();
-        for (String sym : symbols) {
-            if (!prices.containsKey(sym)) { st.errors++; st.notes.add("no price for " + sym); continue; }
-            try {
-                AssetInfo a = asset(sym, now);
-                if (!a.tradable()) { st.errors++; st.notes.add(sym + " is not tradable"); continue; }
-                tradable.add(sym);
-                shortable.put(sym, a.shortable());
-            } catch (AlpacaApiException e) {
-                st.errors++; st.notes.add("asset " + sym + ": " + e.getMessage());
-            }
-        }
-
-        // ---- signals ----
-        Map<String, Double> signals = mode == Mode.FLATTEN ? Map.of()
-                : evaluateSignals(cfg, strats, scopeSymbols.stream().filter(tradable::contains).toList(), now, st);
-
-        // ---- virtual positions ----
-        List<Pending> pending = new ArrayList<>();
-        Set<String> keys = new LinkedHashSet<>();
-        for (TradingStrategy s : strats.values())
-            for (String sym : scopeSymbols) if (tradable.contains(sym)) keys.add(LiveStore.key(s.name(), sym));
-        slots.forEach((k, s) -> { if (s.getDirection() != 0 && tradable.contains(s.getSymbol())) keys.add(k); });
-        Map<String, Double> virtual = new HashMap<>();
-        slots.values().forEach(s -> { if (symbols.contains(s.getSymbol())) virtual.merge(s.getSymbol(), signed(s), Double::sum); });
-        for (String sym : symbols) if (tradable.contains(sym)) virtual.putIfAbsent(sym, 0.0);
-        virtual.keySet().retainAll(tradable);
-
-        for (String key : keys) {
-            int bar = key.indexOf('|');
-            String strategy = key.substring(0, bar), symbol = key.substring(bar + 1);
-            boolean inScope = strats.containsKey(strategy) && scopeSymbols.contains(symbol) && mode == Mode.NORMAL;
-            String forced = mode == Mode.FLATTEN ? SlotLedger.FLATTEN : !inScope ? SlotLedger.REMOVED : null;
-            Double signal = forced != null ? Double.valueOf(0) : signals.get(key);
-            if (signal == null) continue;                                    // could not be evaluated this cycle
-            LiveSlotEntity slot = slots.get(key);
-            SlotLedger.State before = slot == null ? SlotLedger.State.FLAT : stateOf(slot);
-            Params params = paramsFor(cfg, strategy, shortable.getOrDefault(symbol, false));
-            double price = prices.get(symbol);
-            Transition tr = SlotLedger.apply(before, signal, price, price, now, params, forced);
-            pending.add(new Pending(strategy, symbol, slot, before, signal, params, forced, tr));
-            virtual.merge(symbol, tr.qtyDelta(), Double::sum);
-        }
-
-        // ---- plan ----
-        OrderPlanner.Plan plan = OrderPlanner.plan(virtual, actual, prices, cfg.maxGrossUsd(), cfg.maxOrdersPerCycle());
-        Set<String> heldBack = new HashSet<>();
-        for (OrderPlanner.Skipped sk : plan.skipped()) {
-            heldBack.add(sk.symbol());
-            st.notes.add(sk.symbol() + " held back (" + sk.reason().toLowerCase().replace('_', ' ') + ")");
-            saveOrderRow(cycle, sk.symbol(), "-", 0, "SKIPPED", null, cfg.dryRun(), "Held back: " + sk.reason(), null, null);
-        }
-        for (SymbolPlan sp : plan.withOrders()) st.ordersPlanned += sp.orders().size();
-
-        if (cfg.dryRun()) {
-            for (SymbolPlan sp : plan.withOrders())
-                for (OrderPlanner.Order o : sp.orders())
-                    saveOrderRow(cycle, o.symbol(), o.side().toUpperCase(), o.qty(), "DRY_RUN", null, true,
-                            reasonOf(sp, pending), (double) sp.targetQty(), sp.positionBefore());
-            saveEquity(account, cycle, now);
-            return null;
-        }
-
-        // ---- execute (orders that reduce exposure first) ----
-        Map<String, Double> fills = new HashMap<>();          // symbol -> average fill price of a fully filled plan
-        Set<String> failed = new HashSet<>();
-        List<SymbolPlan> toRun = new ArrayList<>(plan.withOrders());
-        toRun.sort(Comparator.comparing((SymbolPlan p) -> !p.orders().get(0).reducesExposure()).thenComparing(SymbolPlan::symbol));
-        for (SymbolPlan sp : toRun) {
-            Double fill = executePlan(cfg, cycle, sp, reasonOf(sp, pending), st);
-            if (fill == null) failed.add(sp.symbol()); else fills.put(sp.symbol(), fill);
-        }
-
-        // ---- commit the virtual positions whose orders filled (or that needed none) ----
-        Map<String, List<LiveSlotEntity>> toSave = new LinkedHashMap<>();
-        Map<String, List<LiveTradeEntity>> closedBySymbol = new LinkedHashMap<>();
-        Set<String> committed = new HashSet<>();
-        for (String sym : tradable) {
-            if (heldBack.contains(sym) || failed.contains(sym)) continue;
-            committed.add(sym);
-        }
-        for (Pending p : pending) {
-            if (!committed.contains(p.symbol)) continue;
-            double price = prices.get(p.symbol);
-            double exec = fills.getOrDefault(p.symbol, price);
-            Transition tr = SlotLedger.apply(p.before, p.signal, price, exec, now, p.params, p.forced);
-            LiveSlotEntity slot = p.slot != null ? p.slot : newSlot(p.strategy, p.symbol);
-            applyState(slot, tr.next(), p.signal, price, now);
-            slots.put(LiveStore.key(p.strategy, p.symbol), slot);
-            toSave.computeIfAbsent(p.symbol, k -> new ArrayList<>()).add(slot);
-            for (ClosedTrade c : tr.closed())
-                closedBySymbol.computeIfAbsent(p.symbol, k -> new ArrayList<>()).add(tradeRow(p.strategy, p.symbol, c, cycle.getId()));
-            st.tradesClosed += tr.closed().size();
-        }
-        for (LiveSlotEntity s : slots.values()) {                        // keep open positions marked to market
-            Double price = prices.get(s.getSymbol());
-            if (s.getDirection() == 0 || price == null) continue;
-            List<LiveSlotEntity> list = toSave.computeIfAbsent(s.getSymbol(), k -> new ArrayList<>());
-            if (!list.contains(s)) { s.setLastPrice(price); s.setUpdatedAt(now); list.add(s); }
-        }
-        for (Map.Entry<String, List<LiveSlotEntity>> e : toSave.entrySet()) {
-            try {
-                store.commit(e.getValue(), closedBySymbol.getOrDefault(e.getKey(), List.of()));
-            } catch (RuntimeException ex) {
-                st.errors++;
-                st.notes.add("could not save " + e.getKey() + ": " + ex.getMessage());
-                log.error("Paper trading: could not commit {}", e.getKey(), ex);
-            }
-        }
-
-        saveStrategyPnl(slots, cycle, now);
-        saveEquity(st.ordersFilled > 0 ? safeAccount(account) : account, cycle, now);
-        store.pruneCurves(now.minus(Duration.ofDays(30)));
-        return null;
-    }
-
-    // ---- signals ---------------------------------------------------------------------------------
-
-    private Map<String, Double> evaluateSignals(LiveSettings cfg, Map<String, TradingStrategy> strats,
-                                                List<String> symbols, Instant now, Stats st) {
-        Map<String, Timeframe> frames = new HashMap<>();
-        Map<Base, Integer> lookback = new EnumMap<>(Base.class);
-        for (String name : strats.keySet()) {
-            Timeframe tf = SignalEvaluator.liveFrame(Timeframe.isAuto(cfg.timeframeMode())
-                    ? strategies.recommendedTimeframe(name) : Timeframe.from(cfg.timeframeMode()));
-            frames.put(name, tf);
-            lookback.merge(SignalEvaluator.baseFor(tf), SignalEvaluator.lookbackDays(tf, cfg.lookbackBars()), Math::max);
-        }
-        Map<String, Map<String, Double>> paramsByStrategy = new HashMap<>();
-        for (String name : strats.keySet()) paramsByStrategy.put(name, strategies.getParams(name));
-
-        Map<String, Double> out = new HashMap<>();
+        Map<String, AssetInfo> tradable = new HashMap<>();
         for (String symbol : symbols) {
-            Map<Base, BarSeries> bars = new EnumMap<>(Base.class);
-            for (Map.Entry<Base, Integer> b : lookback.entrySet()) {
-                try {
-                    bars.put(b.getKey(), data.bars(symbol, b.getKey(), b.getValue()));
-                } catch (RuntimeException e) {
-                    st.errors++;
-                    st.notes.add("bars " + symbol + ": " + describe(e));
-                    log.warn("Paper trading: no {} bars for {}: {}", b.getKey(), symbol, e.getMessage());
-                }
-            }
-            Map<String, CompletableFuture<Double>> futures = new LinkedHashMap<>();
-            for (TradingStrategy s : strats.values()) {
-                BarSeries base = bars.get(SignalEvaluator.baseFor(frames.get(s.name())));
-                if (base == null) continue;
-                futures.put(s.name(), CompletableFuture.supplyAsync(
-                        () -> SignalEvaluator.lastSignal(s, paramsByStrategy.get(s.name()), base, frames.get(s.name()), now), executor));
-            }
-            for (Map.Entry<String, CompletableFuture<Double>> f : futures.entrySet()) {
-                try {
-                    Double sig = f.getValue().join();
-                    if (sig != null) { out.put(LiveStore.key(f.getKey(), symbol), sig); st.signals++; }
-                } catch (CompletionException e) {
-                    st.errors++;
-                    log.warn("Paper trading: {} on {} failed: {}", f.getKey(), symbol, e.getCause() == null ? e : e.getCause().toString());
-                }
-            }
-        }
-        return out;
-    }
-
-    private Params paramsFor(LiveSettings cfg, String strategy, boolean shortable) {
-        double sl = 0, tp = 0;
-        if (cfg.useRiskDefaults() && strategies.isStrategy(strategy)) {
-            Double a = strategies.defaultStopLossPct(strategy), b = strategies.defaultTakeProfitPct(strategy);
-            sl = a == null ? 0 : a;
-            tp = b == null ? 0 : b;
-        }
-        return new Params(cfg.allocationUsd(), cfg.positionSize(), cfg.allowShort() && shortable, sl, tp);
-    }
-
-    // ---- orders ----------------------------------------------------------------------------------
-
-    /** @return the average fill price when every order of the plan filled, else null */
-    private Double executePlan(LiveSettings cfg, LiveCycleEntity cycle, SymbolPlan sp, String reason, Stats st) {
-        double filledQty = 0, filledValue = 0;
-        int leg = 0;
-        for (OrderPlanner.Order o : sp.orders()) {
-            LiveOrderEntity row = newOrderRow(cycle, o.symbol(), o.side().toUpperCase(), o.qty(), false, reason,
-                    (double) sp.targetQty(), sp.positionBefore());
-            row.setClientOrderId(ORDER_PREFIX + cycle.getId() + "-" + o.symbol() + "-" + leg++);
-            OrderInfo result = null;
+            if (!prices.containsKey(symbol)) { run.stats().error("no price for " + symbol); continue; }
             try {
-                result = submitAndWait(cfg, o, row);
-            } catch (RuntimeException e) {
-                row.setStatus(e instanceof AlpacaApiException ae && ae.status() >= 400 && ae.status() < 500 ? "REJECTED" : "FAILED");
-                row.setError(describe(e));
-                log.warn("Paper trading: {} {} x{} failed: {}", o.side(), o.symbol(), o.qty(), e.getMessage());
+                AssetInfo asset = asset(symbol, run.now());
+                if (asset.tradable()) tradable.put(symbol, asset);
+                else run.stats().error(symbol + " is not tradable");
+            } catch (AlpacaApiException e) {
+                run.stats().error("asset " + symbol + ": " + e.getMessage());
             }
-            if (result != null) {
-                row.setAlpacaOrderId(result.id());
-                row.setFilledQty(result.filledQty());
-                row.setFilledAvgPrice(result.filledAvgPrice());
-                row.setFilledAt(result.filledAt());
-                boolean full = result.isFilled() && result.filledQty() >= o.qty() - 1e-9;
-                row.setStatus(full ? "FILLED" : result.filledQty() > 0 ? "PARTIAL" : result.status().equals("rejected") ? "REJECTED" : "CANCELED");
-                if (!full && row.getError() == null) row.setError("Order ended " + result.status() + " with " + result.filledQty() + " of " + o.qty() + " filled");
-                if (result.filledQty() > 0 && result.filledAvgPrice() != null) {
-                    filledQty += result.filledQty();
-                    filledValue += result.filledQty() * result.filledAvgPrice();
-                }
-            }
-            store.saveOrder(row);
-            if (!"FILLED".equals(row.getStatus())) {
-                st.ordersFailed++;
-                st.notes.add(o.symbol() + " " + o.side() + " " + o.qty() + ": " + row.getStatus().toLowerCase()
-                        + (row.getError() != null ? " (" + row.getError() + ")" : ""));
-                return null;                                              // do not send the second leg of a move through zero
-            }
-            st.ordersFilled++;
         }
-        return filledQty > 0 ? filledValue / filledQty : null;
-    }
-
-    private OrderInfo submitAndWait(LiveSettings cfg, OrderPlanner.Order o, LiveOrderEntity row) {
-        row.setSubmittedAt(clock.instant());
-        OrderInfo order;
-        try {
-            order = gateway.submitMarketOrder(o.symbol(), o.qty(), o.side(), row.getClientOrderId());
-        } catch (AlpacaApiException e) {
-            if (e.status() != 0) throw e;                                   // an answer: rejected
-            // no answer: the order may or may not exist — look before deciding it failed
-            order = gateway.findByClientOrderId(row.getClientOrderId()).orElseThrow(() -> e);
-        }
-        Instant deadline = clock.instant().plusSeconds(cfg.fillTimeoutSeconds());
-        while (!order.isTerminal() && clock.instant().isBefore(deadline)) {
-            sleeper.sleep(500);
-            order = gateway.order(order.id());
-        }
-        if (!order.isTerminal()) {
-            gateway.cancelOrder(order.id());
-            sleeper.sleep(500);
-            order = gateway.order(order.id());
-            row.setError("Not filled within " + cfg.fillTimeoutSeconds() + " s; cancelled");
-        }
-        return order;
-    }
-
-    private void cancelLeftoverOrders() {
-        try {
-            for (OrderInfo o : gateway.openOrders())
-                if (o.clientOrderId() != null && o.clientOrderId().startsWith(ORDER_PREFIX)) {
-                    log.warn("Paper trading: cancelling leftover order {} ({} {} {})", o.id(), o.side(), o.symbol(), o.qty());
-                    gateway.cancelOrder(o.id());
-                }
-        } catch (RuntimeException e) {
-            log.warn("Paper trading: could not check for leftover orders: {}", e.getMessage());
-        }
+        return new Market(prices, tradable);
     }
 
     private AssetInfo asset(String symbol, Instant now) {
-        CachedAsset c = assets.get(symbol);
-        if (c != null && Duration.between(c.at(), now).compareTo(ASSET_TTL) < 0) return c.info();
-        AssetInfo a = gateway.asset(symbol);
-        assets.put(symbol, new CachedAsset(a, now));
-        return a;
+        CachedAsset cached = assets.get(symbol);
+        if (cached != null && Duration.between(cached.at(), now).compareTo(ASSET_TTL) < 0) return cached.info();
+        AssetInfo fresh = gateway.asset(symbol);
+        assets.put(symbol, new CachedAsset(fresh, now));
+        return fresh;
     }
 
-    // ---- records ---------------------------------------------------------------------------------
+    // ---- signals -------------------------------------------------------------------------------
 
-    private record Pending(String strategy, String symbol, LiveSlotEntity slot, SlotLedger.State before,
-                           double signal, Params params, String forced, Transition tr) {}
-
-    private static double signed(LiveSlotEntity s) { return s.getDirection() * s.getQty(); }
-
-    private static SlotLedger.State stateOf(LiveSlotEntity s) {
-        return new SlotLedger.State(s.getDirection(), s.getQty(), s.getEntryPrice() == null ? 0 : s.getEntryPrice(),
-                s.getEntryTime(), s.getBlockedDir(), s.getRealizedPnl());
-    }
-
-    private static LiveSlotEntity newSlot(String strategy, String symbol) {
-        LiveSlotEntity s = new LiveSlotEntity();
-        s.setStrategy(strategy);
-        s.setSymbol(symbol);
-        return s;
-    }
-
-    private static void applyState(LiveSlotEntity slot, SlotLedger.State st, double signal, double price, Instant now) {
-        slot.setDirection(st.direction());
-        slot.setQty(st.qty());
-        slot.setEntryPrice(st.direction() == 0 ? null : st.entryPrice());
-        slot.setEntryTime(st.direction() == 0 ? null : st.entryTime());
-        slot.setBlockedDir(st.blockedDir());
-        slot.setRealizedPnl(st.realizedPnl());
-        slot.setLastSignal(signal);
-        slot.setLastSignalAt(now);
-        slot.setLastPrice(price);
-        slot.setUpdatedAt(now);
-    }
-
-    private static LiveTradeEntity tradeRow(String strategy, String symbol, ClosedTrade c, Long cycleId) {
-        LiveTradeEntity t = new LiveTradeEntity();
-        t.setStrategy(strategy);
-        t.setSymbol(symbol);
-        t.setSide(c.side());
-        t.setQty(c.qty());
-        t.setEntryTime(c.entryTime());
-        t.setEntryPrice(c.entryPrice());
-        t.setExitTime(c.exitTime());
-        t.setExitPrice(c.exitPrice());
-        t.setPnlUsd(c.pnlUsd());
-        t.setReturnPct(c.returnPct());
-        t.setExitReason(c.reason());
-        t.setCycleId(cycleId);
-        return t;
-    }
-
-    private static String reasonOf(SymbolPlan sp, List<Pending> pending) {
-        long moving = pending.stream().filter(p -> p.symbol.equals(sp.symbol()) && p.tr.qtyDelta() != 0).count();
-        return moving == 0 ? "Bringing the account to the strategies' net position"
-                : moving + " strateg" + (moving == 1 ? "y" : "ies") + " changed position; net " + String.format("%.2f", sp.virtualQty()) + " shares";
-    }
-
-    private LiveOrderEntity newOrderRow(LiveCycleEntity cycle, String symbol, String side, double qty, boolean dryRun,
-                                        String reason, Double target, Double before) {
-        LiveOrderEntity o = new LiveOrderEntity();
-        o.setCycleId(cycle.getId());
-        o.setSymbol(symbol);
-        o.setSide(side);
-        o.setQty(qty);
-        o.setStatus("PENDING");
-        o.setDryRun(dryRun);
-        o.setReason(reason);
-        o.setTargetQty(target);
-        o.setPositionBefore(before);
-        return o;
-    }
-
-    private void saveOrderRow(LiveCycleEntity cycle, String symbol, String side, double qty, String status,
-                              String error, boolean dryRun, String reason, Double target, Double before) {
-        LiveOrderEntity o = newOrderRow(cycle, symbol, side, qty, dryRun, reason, target, before);
-        o.setStatus(status);
-        o.setError(error);
-        o.setSubmittedAt(clock.instant());
-        store.saveOrder(o);
-    }
-
-    private void saveStrategyPnl(Map<String, LiveSlotEntity> slots, LiveCycleEntity cycle, Instant now) {
-        Map<String, double[]> per = new TreeMap<>();                     // strategy -> realized, unrealized, open
-        for (LiveSlotEntity s : slots.values()) {
-            double[] a = per.computeIfAbsent(s.getStrategy(), k -> new double[3]);
-            a[0] += s.getRealizedPnl();
-            if (s.getDirection() != 0 && s.getLastPrice() != null && s.getEntryPrice() != null) {
-                a[1] += s.getDirection() * s.getQty() * (s.getLastPrice() - s.getEntryPrice());
-                a[2]++;
-            }
+    /** Each strategy's target position per symbol, keyed by {@link LiveStore#key}; one that could not be evaluated is left out. */
+    private Map<String, Double> evaluateSignals(Run run, Scope scope, Market market) {
+        LiveSettings cfg = run.cfg();
+        Map<String, Timeframe> frames = new HashMap<>();
+        Map<String, Map<String, Double>> params = new HashMap<>();
+        Map<Base, Integer> lookbackDays = new EnumMap<>(Base.class);
+        for (String name : scope.strategies().keySet()) {
+            Timeframe frame = SignalEvaluator.liveFrame(Timeframe.isAuto(cfg.timeframeMode())
+                    ? strategies.recommendedTimeframe(name) : Timeframe.from(cfg.timeframeMode()));
+            frames.put(name, frame);
+            params.put(name, strategies.getParams(name));
+            lookbackDays.merge(SignalEvaluator.baseFor(frame), SignalEvaluator.lookbackDays(frame, cfg.lookbackBars()), Math::max);
         }
-        List<LiveStrategyPnlEntity> rows = new ArrayList<>();
-        per.forEach((name, a) -> {
-            LiveStrategyPnlEntity r = new LiveStrategyPnlEntity();
-            r.setCycleId(cycle.getId());
-            r.setTs(now);
-            r.setStrategy(name);
-            r.setRealized(a[0]);
-            r.setUnrealized(a[1]);
-            r.setOpenSlots((int) a[2]);
-            rows.add(r);
+
+        Map<String, Double> signals = new HashMap<>();
+        for (String symbol : scope.symbols()) {
+            if (!market.isTradable(symbol)) continue;
+            Map<Base, BarSeries> bars = fetchBars(run.stats(), symbol, lookbackDays);
+
+            Map<String, CompletableFuture<Double>> running = new LinkedHashMap<>();   // every strategy of the symbol at once
+            for (TradingStrategy strategy : scope.strategies().values()) {
+                String name = strategy.name();
+                BarSeries base = bars.get(SignalEvaluator.baseFor(frames.get(name)));
+                if (base == null) continue;
+                running.put(name, CompletableFuture.supplyAsync(
+                        () -> SignalEvaluator.lastSignal(strategy, params.get(name), base, frames.get(name), run.now()), executor));
+            }
+            running.forEach((name, future) -> {
+                try {
+                    Double signal = future.join();
+                    if (signal == null) return;
+                    signals.put(LiveStore.key(name, symbol), signal);
+                    run.stats().signals++;
+                } catch (CompletionException e) {
+                    run.stats().errors++;
+                    log.warn("Paper trading: {} on {} failed: {}", name, symbol, e.getCause() == null ? e : e.getCause().toString());
+                }
+            });
+        }
+        return signals;
+    }
+
+    private Map<Base, BarSeries> fetchBars(CycleStats stats, String symbol, Map<Base, Integer> lookbackDays) {
+        Map<Base, BarSeries> bars = new EnumMap<>(Base.class);
+        lookbackDays.forEach((base, days) -> {
+            try {
+                bars.put(base, data.bars(symbol, base, days));
+            } catch (RuntimeException e) {
+                stats.error("bars " + symbol + ": " + CycleStats.describe(e));
+                log.warn("Paper trading: no {} bars for {}: {}", base, symbol, e.getMessage());
+            }
         });
+        return bars;
+    }
+
+    // ---- virtual positions ---------------------------------------------------------------------
+
+    /** Applies each strategy's signal to its slot on paper, for every slot that is in play and tradable. */
+    private List<Move> decideMoves(Run run, Scope scope, Market market, Map<String, Double> signals,
+                                   Map<String, LiveSlotEntity> slots) {
+        List<Move> moves = new ArrayList<>();
+        for (SlotId id : slotsToVisit(scope, market, slots)) {
+            String forcedExit = forcedExit(run.mode(), scope, id);
+            Double signal = forcedExit != null ? Double.valueOf(0) : signals.get(id.key());
+            if (signal == null) continue;                                    // could not be evaluated this cycle
+            Params params = paramsFor(run.cfg(), id.strategy(), market.isShortable(id.symbol()));
+            moves.add(Move.decide(id, slots.get(id.key()), signal, market.price(id.symbol()), params, forcedExit, run.now()));
+        }
+        return moves;
+    }
+
+    /** Every strategy on every tradable symbol in scope, and every open slot even if it has left the scope. */
+    private static Set<SlotId> slotsToVisit(Scope scope, Market market, Map<String, LiveSlotEntity> slots) {
+        Set<SlotId> ids = new LinkedHashSet<>();
+        for (TradingStrategy strategy : scope.strategies().values())
+            for (String symbol : scope.symbols())
+                if (market.isTradable(symbol)) ids.add(new SlotId(strategy.name(), symbol));
+        for (LiveSlotEntity s : slots.values())
+            if (LiveRows.isOpen(s) && market.isTradable(s.getSymbol())) ids.add(new SlotId(s.getStrategy(), s.getSymbol()));
+        return ids;
+    }
+
+    /** Why a slot must close whatever its strategy says: the job is flattening, or the slot is no longer in scope; else null. */
+    private static String forcedExit(Mode mode, Scope scope, SlotId id) {
+        if (mode == Mode.FLATTEN) return SlotLedger.FLATTEN;
+        boolean inScope = scope.strategies().containsKey(id.strategy()) && scope.symbols().contains(id.symbol());
+        return inScope ? null : SlotLedger.REMOVED;
+    }
+
+    private Params paramsFor(LiveSettings cfg, String strategy, boolean shortable) {
+        double stopLoss = 0, takeProfit = 0;
+        if (cfg.useRiskDefaults() && strategies.isStrategy(strategy)) {
+            Double sl = strategies.defaultStopLossPct(strategy), tp = strategies.defaultTakeProfitPct(strategy);
+            stopLoss = sl == null ? 0 : sl;
+            takeProfit = tp == null ? 0 : tp;
+        }
+        return new Params(cfg.allocationUsd(), cfg.positionSize(), cfg.allowShort() && shortable, stopLoss, takeProfit);
+    }
+
+    /** Per tradable symbol: the shares all strategies hold now, plus what this cycle's moves change. */
+    private static Map<String, Double> netVirtualQty(List<Move> moves, Map<String, LiveSlotEntity> slots, Market market) {
+        Map<String, Double> net = new HashMap<>();
+        for (String symbol : market.tradable().keySet()) net.put(symbol, 0.0);
+        for (LiveSlotEntity s : slots.values()) net.computeIfPresent(s.getSymbol(), (symbol, qty) -> qty + LiveRows.signedQty(s));
+        for (Move m : moves) net.merge(m.symbol(), m.planned().qtyDelta(), Double::sum);
+        return net;
+    }
+
+    // ---- orders --------------------------------------------------------------------------------
+
+    /** Records the plans the caps held back and returns their symbols, whose virtual positions must not move. */
+    private Set<String> recordHeldBack(Run run, Plan plan) {
+        Set<String> heldBack = new HashSet<>();
+        for (Skipped skipped : plan.skipped()) {
+            heldBack.add(skipped.symbol());
+            run.stats().note(skipped.symbol() + " held back (" + skipped.reason().toLowerCase().replace('_', ' ') + ")");
+            orders.recordHeldBack(run.cycle(), skipped, run.cfg().dryRun());
+        }
+        return heldBack;
+    }
+
+    /**
+     * Sends the plans, those that reduce exposure first, and returns the average fill price of each symbol whose plan filled.
+     * A symbol whose orders did not all fill is added to {@code unsettled}.
+     */
+    private Map<String, Double> sendOrders(Run run, Plan plan, List<Move> moves, Set<String> unsettled) {
+        List<SymbolPlan> sequence = new ArrayList<>(plan.withOrders());
+        sequence.sort(Comparator.comparing((SymbolPlan p) -> !p.orders().get(0).reducesExposure()).thenComparing(SymbolPlan::symbol));
+
+        Map<String, Double> fills = new HashMap<>();
+        for (SymbolPlan sp : sequence) {
+            OptionalDouble fill = orders.send(run.cfg(), run.cycle(), sp, reasonOf(sp, moves), run.stats());
+            if (fill.isPresent()) fills.put(sp.symbol(), fill.getAsDouble());
+            else unsettled.add(sp.symbol());
+        }
+        return fills;
+    }
+
+    private static String reasonOf(SymbolPlan plan, List<Move> moves) {
+        long moving = moves.stream().filter(m -> m.symbol().equals(plan.symbol()) && m.planned().qtyDelta() != 0).count();
+        return moving == 0 ? "Bringing the account to the strategies' net position"
+                : moving + " strateg" + (moving == 1 ? "y" : "ies") + " changed position; net " + String.format("%.2f", plan.virtualQty()) + " shares";
+    }
+
+    // ---- saving --------------------------------------------------------------------------------
+
+    /**
+     * Makes the moves of every symbol that is not {@code unsettled} real, at the fill price when its order filled, and saves each symbol's slots
+     * and closed trades together; open positions elsewhere are only marked to market.
+     */
+    private void settle(Run run, Map<String, LiveSlotEntity> slots, List<Move> moves, Market market,
+                        Map<String, Double> fills, Set<String> unsettled) {
+        Map<String, Commit> commits = new LinkedHashMap<>();
+        for (Move m : moves) {
+            if (unsettled.contains(m.symbol())) continue;
+            Transition settled = m.filledAt(fills.getOrDefault(m.symbol(), m.price()), run.now());
+            LiveSlotEntity slot = m.slot() != null ? m.slot() : LiveRows.newSlot(m.id().strategy(), m.symbol());
+            LiveRows.update(slot, settled.next(), m.signal(), m.price(), run.now());
+            slots.put(m.id().key(), slot);
+
+            Commit commit = commits.computeIfAbsent(m.symbol(), k -> new Commit());
+            commit.slots().add(slot);
+            for (ClosedTrade closed : settled.closed())
+                commit.trades().add(LiveRows.trade(m.id().strategy(), m.symbol(), closed, run.cycle().getId()));
+            run.stats().tradesClosed += settled.closed().size();
+        }
+        for (LiveSlotEntity s : slots.values()) {
+            Double price = market.prices().get(s.getSymbol());
+            if (!LiveRows.isOpen(s) || price == null) continue;
+            LiveRows.markToMarket(s, price, run.now());
+            commits.computeIfAbsent(s.getSymbol(), k -> new Commit()).slots().add(s);
+        }
+        commits.forEach((symbol, commit) -> {
+            try {
+                store.commit(new ArrayList<>(commit.slots()), commit.trades());
+            } catch (RuntimeException e) {
+                run.stats().error("could not save " + symbol + ": " + e.getMessage());
+                log.error("Paper trading: could not commit {}", symbol, e);
+            }
+        });
+    }
+
+    private void saveStrategyPnl(Run run, Map<String, LiveSlotEntity> slots) {
+        List<LiveStrategyPnlEntity> rows = LiveRows.strategyPnl(slots.values(), run.cycle().getId(), run.now());
         if (!rows.isEmpty()) store.saveStrategyPnl(rows);
     }
 
-    private AccountInfo safeAccount(AccountInfo fallback) {
+    private void saveEquity(Run run, AccountInfo account) {
+        store.saveEquity(LiveRows.equity(account, run.cycle().getId(), run.now()));
+    }
+
+    /** The account after this cycle's fills; the earlier reading if the broker cannot be asked. */
+    private AccountInfo refreshed(AccountInfo fallback) {
         try { return gateway.account(); } catch (RuntimeException e) { return fallback; }
-    }
-
-    private void saveEquity(AccountInfo a, LiveCycleEntity cycle, Instant now) {
-        LiveEquityEntity e = new LiveEquityEntity();
-        e.setTs(now);
-        e.setEquity(a.equity());
-        e.setCash(a.cash());
-        e.setBuyingPower(a.buyingPower());
-        e.setLongValue(a.longMarketValue());
-        e.setShortValue(a.shortMarketValue());
-        e.setCycleId(cycle.getId());
-        store.saveEquity(e);
-    }
-
-    private static String describe(Throwable e) {
-        Throwable t = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
-        String m = t.getMessage();
-        return m == null || m.isBlank() ? t.getClass().getSimpleName() : m;
     }
 }

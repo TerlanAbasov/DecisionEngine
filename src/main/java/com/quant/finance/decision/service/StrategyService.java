@@ -1,6 +1,6 @@
 package com.quant.finance.decision.service;
 
-import com.quant.finance.decision.domain.StrategyConfigEntity;
+import com.quant.finance.decision.entity.StrategyConfigEntity;
 import com.quant.finance.decision.dto.Dtos.StrategyControlsUpdate;
 import com.quant.finance.decision.dto.Dtos.StrategyDto;
 import com.quant.finance.decision.engine.Timeframe;

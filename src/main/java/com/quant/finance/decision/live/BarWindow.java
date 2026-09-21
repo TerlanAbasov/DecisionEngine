@@ -22,9 +22,7 @@ final class BarWindow {
     private final TreeMap<Instant, Bar> bars = new TreeMap<>();
     private Instant coveredFrom;   // the earliest instant we have already asked Alpaca for
 
-    /**
-     * @return the window after topping it up to {@code now}, trimmed to {@code lookback}
-     */
+    /** Tops the window up to {@code now}, trims it to {@code lookback} and returns it as a series. */
     BarSeries update(String symbol, Duration lookback, Instant now, Fetcher fetcher) {
         Instant windowStart = now.minus(lookback);
         if (coveredFrom == null) {

@@ -1,6 +1,6 @@
 package com.quant.finance.decision.repository;
 
-import com.quant.finance.decision.domain.LiveStrategyPnlEntity;
+import com.quant.finance.decision.entity.LiveStrategyPnlEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;

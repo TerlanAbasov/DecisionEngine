@@ -1,4 +1,4 @@
-package com.quant.finance.decision.job;
+package com.quant.finance.decision.domain;
 
 public enum JobStatus {
     RUNNING, COMPLETED, FAILED, CANCELLED;
