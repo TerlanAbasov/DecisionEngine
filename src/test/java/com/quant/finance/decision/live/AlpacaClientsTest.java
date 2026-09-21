@@ -1,5 +1,7 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.error.AlpacaApiException;
+import com.quant.finance.decision.client.AlpacaCredentials;
 import com.quant.finance.decision.live.AlpacaModels.*;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.sun.net.httpserver.HttpExchange;
@@ -28,6 +30,7 @@ class AlpacaClientsTest {
     private final Map<String, Function<Req, String[]>> routes = new HashMap<>();   // "GET /v2/account" -> [status, body]
     private String base;
     private final AlpacaCredentials creds = new AlpacaCredentials("PKTEST", "secret", "iex");
+    private final List<FeignTestSupport> contexts = new ArrayList<>();
 
     @BeforeEach
     void start() throws IOException {
@@ -38,7 +41,19 @@ class AlpacaClientsTest {
     }
 
     @AfterEach
-    void stop() { server.stop(0); }
+    void stop() {
+        contexts.forEach(FeignTestSupport::close);
+        server.stop(0);
+    }
+
+    /** The real Feign clients (with their interceptors and error decoder) pointed at {@code trading} / {@code data}. */
+    private FeignTestSupport feign(String trading, String data, String key, String secret) {
+        FeignTestSupport f = new FeignTestSupport(trading, data, key, secret);
+        contexts.add(f);
+        return f;
+    }
+
+    private FeignTestSupport feign() { return feign(base, base, "PKTEST", "secret"); }
 
     private void handle(HttpExchange ex) throws IOException {
         String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -57,7 +72,7 @@ class AlpacaClientsTest {
 
     private void route(String key, String status, String body) { routes.put(key, r -> new String[] {status, body}); }
 
-    private AlpacaTradingClient trading() { return new AlpacaTradingClient(creds, base); }
+    private AlpacaTradingClient trading() { return new AlpacaTradingClient(feign().client(), base); }
 
     // ---- trading ---------------------------------------------------------------------------------
 
@@ -182,13 +197,75 @@ class AlpacaClientsTest {
     @Test
     void neverTradesAgainstAnythingButThePaperEndpoint() {
         for (String live : List.of("https://api.alpaca.markets", "https://example.com", "http://api.alpaca.markets:443", "not a url")) {
-            AlpacaTradingClient c = new AlpacaTradingClient(creds, live);
+            AlpacaTradingClient c = new AlpacaTradingClient(feign().client(), live);
             assertFalse(c.isPaper(), live);
             assertThrows(IllegalStateException.class, () -> c.submitMarketOrder("MU", 1, "buy", "c"), live);
             assertThrows(IllegalStateException.class, c::account, live);
         }
-        assertTrue(new AlpacaTradingClient(creds, "https://paper-api.alpaca.markets").isPaper());
+        assertTrue(new AlpacaTradingClient(feign().client(), "https://paper-api.alpaca.markets").isPaper());
         assertTrue(requests.isEmpty(), "a refused call must not even leave the machine");
+    }
+
+    @Test
+    void theFeignClientItselfRefusesANonPaperTargetBeforeSendingAnything() {
+        // the same rule at the transport layer: even calling the client directly cannot reach a live-money host
+        FeignTestSupport live = feign("https://api.alpaca.markets", base, "PKTEST", "secret");
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> live.client().account());
+        assertTrue(e.getMessage().contains("not the paper-trading endpoint"), e.getMessage());
+        assertThrows(IllegalStateException.class, () -> live.client().submitOrder(Map.of("symbol", "MU")));
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    void marketDataGoesToTheUrlPassedWithTheCallNotToTheTradingTarget() {
+        // the client's fixed url is the (unreachable here) paper host; data calls carry their own base URL
+        route("GET /v2/stocks/snapshots", "200", "{\"MU\":{\"latestTrade\":{\"p\":1}}}");
+        FeignTestSupport f = feign("https://paper-api.alpaca.markets", base, "PKTEST", "secret");
+        assertEquals(1.0, new AlpacaLiveData(f.client(), creds, base).latestPrices(List.of("MU")).get("MU"));
+        assertEquals(1, requests.size());
+        assertEquals("PKTEST", requests.get(0).headers().get("apca-api-key-id"), "the keys are sent to the data host too");
+    }
+
+    @Test
+    void marketDataStillWorksWhenTheTradingTargetIsNotPaperButTradingDoesNot() {
+        route("GET /v2/stocks/snapshots", "200", "{\"MU\":{\"latestTrade\":{\"p\":2}}}");
+        FeignTestSupport f = feign("https://api.alpaca.markets", base, "PKTEST", "secret");
+        assertEquals(2.0, new AlpacaLiveData(f.client(), creds, base).latestPrices(List.of("MU")).get("MU"));
+        assertThrows(IllegalStateException.class, () -> f.client().account());
+        assertEquals(1, requests.size(), "only the data request went out");
+    }
+
+    @Test
+    void theAccountKeysAreNeverSentToAHostThatIsNotAlpacas() {
+        FeignTestSupport f = feign();
+        for (String evil : List.of("https://evil.example", "https://api.alpaca.markets", "https://paper-api.alpaca.markets")) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> f.client().snapshots(java.net.URI.create(evil), "MU", "iex"), evil);
+            assertTrue(e.getMessage().contains("not Alpaca's market-data host"), e.getMessage());
+        }
+        assertTrue(requests.isEmpty(), "nothing left the machine");
+    }
+
+    @Test
+    void aTradingRequestCannotBeAimedAtTheDataHostEither() {
+        // a POST / account read must use the paper host even though a data host is also a real Alpaca host
+        FeignTestSupport f = feign("https://data.alpaca.markets", base, "PKTEST", "secret");
+        assertThrows(IllegalStateException.class, () -> f.client().submitOrder(Map.of("symbol", "MU")));
+        assertThrows(IllegalStateException.class, () -> f.client().account());
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    void aServerThatCannotBeReachedIsReportedAsSuchAndReadsAreRetried() {
+        AlpacaTradingClient c = trading();
+        server.stop(0);
+        long t0 = System.currentTimeMillis();
+        AlpacaApiException e = assertThrows(AlpacaApiException.class, c::account);
+        assertEquals(0, e.status());
+        assertTrue(e.getMessage().startsWith("Could not reach Alpaca"), e.getMessage());
+        assertTrue(e.transientFailure());
+        assertTrue(System.currentTimeMillis() - t0 >= 1000, "three attempts with a pause between them");
+        assertThrows(AlpacaApiException.class, () -> c.submitMarketOrder("MU", 1, "buy", "c"));
     }
 
     @Test
@@ -200,9 +277,10 @@ class AlpacaClientsTest {
 
     @Test
     void missingCredentialsFailWithAClearMessage() {
-        AlpacaTradingClient c = new AlpacaTradingClient(new AlpacaCredentials("", "", "iex"), base);
+        AlpacaTradingClient c = new AlpacaTradingClient(feign(base, base, "", "").client(), base);
         IllegalStateException e = assertThrows(IllegalStateException.class, c::account);
         assertTrue(e.getMessage().contains("credentials"), e.getMessage());
+        assertTrue(requests.isEmpty());
     }
 
     // ---- market data -------------------------------------------------------------------------------
@@ -213,7 +291,7 @@ class AlpacaClientsTest {
         routes.put("GET /v2/stocks/MU/bars", r -> page[0]++ == 0
                 ? new String[] {"200", "{\"bars\":[{\"t\":\"2026-09-21T14:00:00Z\",\"o\":1,\"h\":2,\"l\":0.5,\"c\":1.5,\"v\":100}],\"next_page_token\":\"p2\"}"}
                 : new String[] {"200", "{\"bars\":[{\"t\":\"2026-09-21T14:01:00Z\",\"o\":1.5,\"h\":2,\"l\":1,\"c\":1.8,\"v\":50}],\"next_page_token\":null}"});
-        AlpacaLiveData d = new AlpacaLiveData(creds, base);
+        AlpacaLiveData d = new AlpacaLiveData(feign().client(), creds, base);
         BarSeries s = d.bars("MU", LiveDataSource.Base.MIN1, 3);
         assertEquals(2, s.size());
         assertEquals(1.8, s.close[1], 1e-9);
@@ -226,7 +304,7 @@ class AlpacaClientsTest {
     @Test
     void latestPricesReadTheTradeThenFallBackToTheBar() {
         route("GET /v2/stocks/snapshots", "200", "{\"MU\":{\"latestTrade\":{\"p\":91.5}},\"AAOI\":{\"minuteBar\":{\"c\":20.25}},\"XYZ\":{}}");
-        Map<String, Double> p = new AlpacaLiveData(creds, base).latestPrices(List.of("MU", "AAOI", "XYZ", "NOPE"));
+        Map<String, Double> p = new AlpacaLiveData(feign().client(), creds, base).latestPrices(List.of("MU", "AAOI", "XYZ", "NOPE"));
         assertEquals(91.5, p.get("MU"));
         assertEquals(20.25, p.get("AAOI"));
         assertFalse(p.containsKey("XYZ"));
@@ -234,6 +312,6 @@ class AlpacaClientsTest {
         assertTrue(requests.get(0).query().contains("symbols=MU,AAOI,XYZ,NOPE") || requests.get(0).query().contains("symbols=MU%2CAAOI"), requests.get(0).query());
 
         route("GET /v2/stocks/snapshots", "200", "{\"snapshots\":{\"MU\":{\"latestTrade\":{\"p\":10}}}}");
-        assertEquals(10.0, new AlpacaLiveData(creds, base).latestPrices(List.of("MU")).get("MU"), "the older response shape is understood too");
+        assertEquals(10.0, new AlpacaLiveData(feign().client(), creds, base).latestPrices(List.of("MU")).get("MU"), "the older response shape is understood too");
     }
 }

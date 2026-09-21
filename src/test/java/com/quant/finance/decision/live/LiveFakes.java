@@ -1,5 +1,6 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.error.AlpacaApiException;
 import com.quant.finance.decision.domain.*;
 import com.quant.finance.decision.live.AlpacaModels.*;
 import com.quant.finance.decision.strategy.BarSeries;

@@ -1,7 +1,7 @@
 package com.quant.finance.decision.controller;
 
 import com.quant.finance.decision.job.JobConflictException;
-import com.quant.finance.decision.live.AlpacaApiException;
+import com.quant.finance.decision.error.AlpacaApiException;
 import com.quant.finance.decision.live.LiveTradingScheduler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

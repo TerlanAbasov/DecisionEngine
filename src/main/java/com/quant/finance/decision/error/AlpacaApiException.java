@@ -1,4 +1,4 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.error;
 
 /** Alpaca answered with an error (or could not be reached: {@code status} 0). {@code message} is Alpaca's own text. */
 public class AlpacaApiException extends RuntimeException {

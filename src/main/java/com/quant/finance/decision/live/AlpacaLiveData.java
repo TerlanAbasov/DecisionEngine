@@ -1,11 +1,14 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.client.AlpacaCredentials;
+import com.quant.finance.decision.client.AlpacaClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.strategy.BarSeries;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -15,22 +18,23 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Alpaca market data for the paper-trading job: recent bars (kept in memory and topped up incrementally) and
- * latest prices. Bars are split-adjusted, unlike the raw cached history the backtests use, so a stock split
- * inside the lookback cannot distort the indicators.
+ * Alpaca market data for the paper-trading job: recent bars (in memory, topped up incrementally) and latest prices. Bars are split-adjusted,
+ * unlike the raw cached history the backtests use, so a split inside the lookback can't distort the indicators.
  */
 @Component
 @Slf4j
 public class AlpacaLiveData implements LiveDataSource {
 
-    private final AlpacaHttp http;
+    private final AlpacaClient client;
     private final AlpacaCredentials creds;
+    private final URI dataUrl;
     private final Map<String, BarWindow> windows = new ConcurrentHashMap<>();
 
-    public AlpacaLiveData(AlpacaCredentials creds,
-                          @Value("${decision.alpaca.data-base-url:https://data.alpaca.markets}") String baseUrl) {
+    public AlpacaLiveData(AlpacaClient client, AlpacaCredentials creds,
+                          @Value("${decision.alpaca.data-base-url:https://data.alpaca.markets}") String dataBaseUrl) {
+        this.client = client;
         this.creds = creds;
-        this.http = new AlpacaHttp(baseUrl, creds);
+        this.dataUrl = URI.create(dataBaseUrl.trim());
     }
 
     @Override
@@ -46,15 +50,9 @@ public class AlpacaLiveData implements LiveDataSource {
         Map<Instant, BarWindow.Bar> out = new LinkedHashMap<>();
         String pageToken = null;
         do {
-            Map<String, Object> q = new LinkedHashMap<>();
-            q.put("timeframe", base.alpacaTimeframe);
-            q.put("start", from.toString());
-            q.put("end", to.toString());
-            q.put("limit", 10_000);
-            q.put("adjustment", "split");
-            q.put("feed", creds.feed());
-            if (pageToken != null) q.put("page_token", pageToken);
-            JsonNode page = http.get("/v2/stocks/{symbol}/bars", q, symbol);
+            String token = pageToken;
+            JsonNode page = AlpacaCalls.read(() -> client.bars(dataUrl, symbol, base.alpacaTimeframe, from.toString(), to.toString(),
+                    10_000, "split", creds.feed(), token));
             for (JsonNode b : page.path("bars"))
                 out.put(Instant.parse(b.path("t").asText()),
                         new BarWindow.Bar(b.path("o").asDouble(), b.path("h").asDouble(), b.path("l").asDouble(),
@@ -69,8 +67,7 @@ public class AlpacaLiveData implements LiveDataSource {
     public Map<String, Double> latestPrices(Collection<String> symbols) {
         Map<String, Double> out = new HashMap<>();
         if (symbols.isEmpty()) return out;
-        JsonNode root = http.get("/v2/stocks/snapshots",
-                Map.of("symbols", String.join(",", symbols), "feed", creds.feed()));
+        JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl, String.join(",", symbols), creds.feed()));
         JsonNode snaps = root.has("snapshots") ? root.path("snapshots") : root;   // both response shapes exist
         for (String s : symbols) {
             JsonNode n = snaps.path(s);

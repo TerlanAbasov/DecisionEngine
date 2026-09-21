@@ -1,5 +1,6 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.error.AlpacaApiException;
 import com.quant.finance.decision.domain.*;
 import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.live.AlpacaModels.*;
@@ -23,14 +24,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 
 /**
- * One cycle of the paper-trading job. For every strategy and symbol it reads the strategy's current signal from
- * fresh bars, updates that strategy's <em>virtual</em> position, adds the virtual positions up per symbol, and sends
- * the difference from the account's real position to Alpaca as one market order per symbol. A strategy's virtual
- * position and P&amp;L change only when the order behind them filled, so the ledger and the account never disagree
- * for long; whatever a cycle could not do is picked up by the next one.
- *
- * <p>Safety: paper endpoint only (checked every cycle), a dry-run mode that changes nothing, caps on gross
- * exposure and orders per cycle, and orders that are cancelled if they do not fill in time.
+ * One cycle of the paper-trading job: each strategy's signal updates its <em>virtual</em> position, the positions are summed per symbol and the difference from the account is ordered.
+ * A virtual position changes only when its order filled. Safety: paper only, dry run, exposure and order caps, orders cancelled if unfilled in time.
  */
 @Slf4j
 public class LiveTradingEngine {

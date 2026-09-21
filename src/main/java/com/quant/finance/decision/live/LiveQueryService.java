@@ -1,5 +1,6 @@
 package com.quant.finance.decision.live;
 
+import com.quant.finance.decision.client.AlpacaCredentials;
 import com.quant.finance.decision.domain.*;
 import com.quant.finance.decision.live.AlpacaModels.*;
 import com.quant.finance.decision.live.LiveDtos.*;
