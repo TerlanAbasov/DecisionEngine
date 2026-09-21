@@ -11,9 +11,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Turns stored trades into {@link TradeDetailDto} rows and filters / sorts / pages them.
- * Pure functions over already-loaded data: a run has at most a few tens of thousands of trades,
- * so paging in memory is simpler than SQL and lets every sortable column be a derived one.
+ * Turns stored trades into {@link TradeDetailDto} rows and filters / sorts / pages them: pure functions over loaded data (at most tens of thousands of trades),
+ * so paging in memory is simpler than SQL and every sortable column can be derived.
  */
 final class TradeDetails {
     private TradeDetails() {}
@@ -32,9 +31,8 @@ final class TradeDetails {
     }
 
     /**
-     * Rows saved before the accounting columns existed only have entry/exit price, so their
-     * gross return is the price move, cost is one fill each way at the run's rates, and the
-     * committed size is the run's position size. Newer rows carry the engine's exact values.
+     * Rows saved before the accounting columns only have entry/exit price, so gross is the price move, cost one fill each way at the run's rates and size the run's position size;
+     * newer rows carry the engine's exact values.
      */
     static TradeDetailDto toDto(TradeEntity t, RunCosts rc) {
         int side = "LONG".equals(t.getSide()) ? 1 : -1;
@@ -83,11 +81,8 @@ final class TradeDetails {
     static boolean isSortable(String key) { return SORTS.containsKey(key); }
 
     /**
-     * @param symbol filter (case-insensitive), null/blank = all symbols
-     * @param side   LONG or SHORT (case-insensitive), null/blank = both
-     * @param sort   one of the sortable keys, null/blank = {@code entryDate}
-     * @param dir    "asc" or "desc", null/blank = "desc" (newest / largest first)
-     * @throws IllegalArgumentException for an unknown sort key, side or direction
+     * Filters (symbol, LONG/SHORT side; case-insensitive, blank = all), sorts by a sortable key (default {@code entryDate}, "desc") and pages;
+     * throws IllegalArgumentException for an unknown sort key, side or direction.
      */
     static TradePageDto page(List<TradeDetailDto> all, String symbol, String side,
                              String sort, String dir, int page, int size) {

@@ -5,13 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The virtual position of one strategy in one symbol and how it reacts to a new signal. Alpaca keeps a single
- * net position per symbol, so the job keeps each strategy's own position here (in shares, fractional) and sends
- * only the net to the broker. This is what lets a strategy's real-time return be measured separately.
- *
- * <p>Pure functions, no I/O. The rules mirror the backtester: a signal is a target position in [-1, 1]; a
- * stop-loss / take-profit closes the position and keeps it closed until the strategy stops asking for that same
- * direction; shorts can be switched off.
+ * One strategy's virtual position in one symbol and how it reacts to a new signal (Alpaca nets per symbol, so each strategy's own position and P&amp;L live here).
+ * Pure functions mirroring the backtester: signals in [-1, 1]; a stop-loss / take-profit closes and keeps it closed until the signal changes direction; shorts can be off.
  */
 public final class SlotLedger {
     private SlotLedger() {}
@@ -42,11 +37,8 @@ public final class SlotLedger {
     public record Transition(State next, List<ClosedTrade> closed, double qtyDelta, boolean traded) {}
 
     /**
-     * @param signal        the strategy's target position for the next bar, in [-1, 1] (NaN = flat)
-     * @param decisionPrice price the decision and share count are based on
-     * @param execPrice     price the entry / exit is recorded at (the broker's fill once known; equal to the
-     *                      decision price when planning)
-     * @param forcedReason  non-null forces the position flat with this exit reason (REMOVED, FLATTEN)
+     * Applies a signal in [-1, 1] (NaN = flat): sizes and decides at {@code decisionPrice}, records fills at {@code execPrice} (the broker's fill once known),
+     * and a non-null {@code forcedReason} (REMOVED, FLATTEN) forces the position flat with that exit reason.
      */
     public static Transition apply(State s, double signal, double decisionPrice, double execPrice, Instant now,
                                    Params p, String forcedReason) {

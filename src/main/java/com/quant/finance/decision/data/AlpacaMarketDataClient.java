@@ -15,13 +15,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Alpaca Market Data (https://data.alpaca.markets) bars. Needs an Alpaca account
- * (paper is fine): set decision.alpaca.api-key-id / api-secret-key (env
- * ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).
- *
- * <p>{@code decision.alpaca.timeframe} is passed straight through to Alpaca's bars API,
- * so it accepts any of Alpaca's timeframe strings: "1Day" (daily, default), "1Week" (weekly),
- * "1Hour" (hourly), or minute bars like "1Min" / "5Min" / "15Min" if you need those.
+ * Alpaca Market Data bars (needs an Alpaca key pair, paper is fine: decision.alpaca.api-key-id / api-secret-key).
+ * {@code decision.alpaca.timeframe} goes straight to Alpaca's bars API ("1Day" default, "1Week", "1Hour", "1Min" …).
  */
 @Component
 @Slf4j

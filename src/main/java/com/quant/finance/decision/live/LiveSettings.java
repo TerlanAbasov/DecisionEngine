@@ -8,21 +8,8 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 /**
- * The paper-trading job's settings, editable at runtime. {@code strategyNames} / {@code symbols} empty means
- * "every enabled strategy" / "the whole universe".
- *
- * @param enabled           the job runs on its schedule
- * @param dryRun            evaluate and plan but send no orders and change no positions
- * @param intervalSeconds   time between cycles
- * @param allocationUsd     dollars each strategy puts into each symbol at full signal
- * @param positionSize      multiplier on the allocation
- * @param timeframeMode     "AUTO" (each strategy's own recommended frame) or one frame for all
- * @param lookbackBars      bars of history a strategy is evaluated on
- * @param maxGrossUsd       ceiling on the account's gross exposure; orders that would exceed it are held back
- * @param maxOrdersPerCycle safety cap on orders per cycle
- * @param marketHoursOnly   only run while the market is open
- * @param fillTimeoutSeconds how long to wait for an order to fill before cancelling it
- * @param useRiskDefaults   apply each strategy's saved stop-loss / take-profit
+ * The paper-trading job's runtime settings; empty {@code strategyNames} / {@code symbols} mean every enabled strategy / the whole universe.
+ * {@code dryRun} sends no orders, {@code allocationUsd} is $ per strategy per symbol at full signal, {@code maxGrossUsd} holds back orders past that exposure.
  */
 public record LiveSettings(boolean enabled, boolean dryRun, int intervalSeconds, double allocationUsd,
                            double positionSize, boolean allowShort, String timeframeMode, int lookbackBars,
@@ -33,20 +20,15 @@ public record LiveSettings(boolean enabled, boolean dryRun, int intervalSeconds,
     private static final Pattern SYMBOL = Pattern.compile("[A-Z][A-Z0-9.\\-]{0,9}");
 
     /**
-     * Off, and a dry run when first switched on: nothing is sent to the broker until that is turned off too.
-     * $100 per strategy per symbol keeps the worst case (every strategy fully positioned in every symbol) of a
-     * full catalog on a handful of symbols within the default exposure cap.
+     * Off, and a dry run when first switched on (nothing is sent until that is turned off too); $100 per strategy per symbol keeps a full catalog
+     * on a handful of symbols within the default exposure cap in the worst case.
      */
     public static LiveSettings defaults() {
         return new LiveSettings(false, true, 300, 100, 1.0, true, "AUTO", 300, List.of(), List.of(),
                 50_000, 30, true, 30, true);
     }
 
-    /**
-     * @param knownStrategy tells whether a strategy name exists
-     * @return this with names normalised
-     * @throws IllegalArgumentException naming the first invalid setting
-     */
+    /** Returns these settings with names normalised, or throws IllegalArgumentException naming the first invalid setting. */
     public LiveSettings validated(Predicate<String> knownStrategy) {
         range("intervalSeconds", intervalSeconds, 30, 86_400);
         range("allocationUsd", allocationUsd, 1, 1_000_000);

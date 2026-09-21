@@ -44,9 +44,8 @@ public class MarketDataService {
     }
 
     /**
-     * Cache coverage for every symbol that has bars stored locally — first/last bar,
-     * bar count and whether the newest bar is within the freshness window. Used by the
-     * backtest form to let the user pick from symbols that actually have current data.
+     * Cache coverage per symbol with stored bars: first/last bar, bar count and whether the newest bar is within the freshness window.
+     * Lets the backtest form offer symbols that have current data.
      */
     @Transactional(readOnly = true)
     public List<SymbolCoverageDto> coverage() {

@@ -10,10 +10,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Fixed {@link ExecutorService} that fans out CPU-bound backtest work — one task per
- * strategy (run-all), per symbol (single run), per grid cell (optimiser) or per leg
- * (ensemble). Only the pure compute runs here; all persistence stays on the calling
- * transaction thread. Spring calls {@code shutdown()} on context close.
+ * Fixed pool for CPU-bound backtest work — one task per strategy, symbol, grid cell or ensemble leg.
+ * Only pure compute runs here; persistence stays on the calling transaction thread. Shut down on context close.
  */
 @Configuration
 public class ExecutorConfig {
@@ -22,9 +20,8 @@ public class ExecutorConfig {
     public static final String BACKTEST_JOB_EXECUTOR = "backtestJobExecutor";
 
     /**
-     * Runs one backtest job at a time (orchestration, transaction and persistence). The compute itself fans
-     * out onto {@link #BACKTEST_EXECUTOR}. Not a fixed-pool sibling: a second job thread would only fight the
-     * first for the same CPU and heap, and the job service admits a single active job anyway.
+     * Runs one backtest job at a time (orchestration, transaction, persistence); the compute fans out onto {@link #BACKTEST_EXECUTOR}.
+     * A second job thread would only fight the first for CPU and heap, and the job service admits a single active job anyway.
      */
     @Bean(name = BACKTEST_JOB_EXECUTOR, destroyMethod = "shutdownNow")
     public ExecutorService backtestJobExecutor() {

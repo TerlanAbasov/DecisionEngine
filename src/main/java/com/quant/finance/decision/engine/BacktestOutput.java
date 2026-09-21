@@ -14,9 +14,10 @@ public final class BacktestOutput {
     public final double[] drawdown;      // fraction, <= 0
     public final List<TradeResult> trades;
     public final Map<String, Double> metrics;
-    /** Each symbol's own total return %, computed the same way as the portfolio's
-     *  {@code metrics.totalReturnPct} but on that symbol's own return stream alone.
-     *  Empty when a per-symbol breakdown isn't meaningful (e.g. a pairs run). */
+    /**
+     * Each symbol's own total return %, computed like the portfolio's {@code metrics.totalReturnPct} on its own return stream alone;
+     * empty when a per-symbol breakdown isn't meaningful (e.g. a pairs run).
+     */
     public final Map<String, Double> symbolReturnsPct;
     /** Full standalone result per symbol (metrics + calendar-year returns); empty for pairs runs. */
     public final Map<String, SymbolResult> symbolResults;

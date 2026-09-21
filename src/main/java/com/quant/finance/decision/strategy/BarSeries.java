@@ -4,11 +4,8 @@ import java.time.Instant;
 import java.util.Arrays;
 
 /**
- * Framework-free OHLCV container. Column arrays (not row objects) so the
- * vectorised indicators and backtester stay fast and dependency-free.
- *
- * <p>{@code date} is each bar's open time (UTC) rather than a calendar date, since bars can be
- * daily, weekly, hourly, or minute-level depending on {@code decision.alpaca.timeframe}.
+ * Framework-free OHLCV container of column arrays (not row objects), so the vectorised indicators and backtester stay fast;
+ * {@code date} is each bar's open time (UTC), since bars can be daily, weekly, hourly or minute-level.
  */
 public final class BarSeries {
     public final String symbol;
@@ -31,10 +28,8 @@ public final class BarSeries {
     }
 
     /**
-     * Splits this series at {@code trainFraction} of its length: the leading part for fitting/
-     * selecting a parameter combo, the trailing part as an unseen holdout to score it honestly.
-     * Index-based (not calendar-based) — simple, and bars are regularly spaced so it's a close
-     * enough proxy for a time-based split.
+     * Splits at {@code trainFraction} of the length: the leading part for selecting a parameter combo, the trailing part an unseen holdout to score it honestly.
+     * Index-based, which is a close enough proxy for a time-based split since bars are regularly spaced.
      */
     public BarSeries[] trainTestSplit(double trainFraction) {
         int n = size();

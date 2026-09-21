@@ -1,9 +1,8 @@
 package com.quant.finance.decision.strategy.impl;
 
 /**
- * Market-neutral statistical arbitrage. Rolling hedge ratio on log prices, trade
- * the z-score of the spread back to the mean. Separate from the single-asset
- * catalog because it needs two aligned price series.
+ * Market-neutral statistical arbitrage: rolling hedge ratio on log prices, trading the spread's z-score back to the mean;
+ * separate from the single-asset catalog because it needs two aligned price series.
  */
 public final class PairsStrategy {
     public final int window;

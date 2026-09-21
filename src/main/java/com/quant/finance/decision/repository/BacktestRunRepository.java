@@ -35,9 +35,8 @@ public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, 
     int deleteByStrategyName(@Param("name") String name);
 
     /**
-     * Run history with optional filters; each filter is ignored when its argument is null.
-     * {@code minDrawdownPct} is the floor for the (negative) max-drawdown column, e.g. pass
-     * -25.0 to keep only runs whose drawdown is shallower than -25%. Sort/limit via {@code pageable}.
+     * Run history with optional filters, each ignored when null; {@code minDrawdownPct} floors the (negative) max-drawdown column,
+     * e.g. -25.0 keeps only runs shallower than -25%; sort/limit via {@code pageable}.
      */
     @Query("""
             select r from BacktestRunEntity r

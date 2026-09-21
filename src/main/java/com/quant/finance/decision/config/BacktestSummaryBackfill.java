@@ -18,18 +18,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Boot-time, idempotent repair of legacy backtest runs.
- *
- * <ol>
- *   <li>Fills the denormalised metric columns on {@code backtest_run} for runs created
- *       before {@code 20260906-backtest-run-summary}, from the stored metrics JSON.</li>
- *   <li>Repairs the multiplicative-compounding blow-up: old runs geometrically compounded
- *       the per-bar return stream, which over thousands of intraday bars pushed
- *       {@code totalReturnPct} into the billions. The per-bar returns are recovered from
- *       the stored equity curve, clamped, and re-integrated on a fixed notional
- *       (Σ net) — matching the current engine. Equity / drawdown / headline metrics are
- *       rewritten in place; when no equity curve is stored, Σ realised trade P&amp;L is used.</li>
- * </ol>
+ * Boot-time, idempotent repair of legacy backtest runs: fills the denormalised metric columns and rebuilds totals that old multiplicative
+ * compounding had blown up, re-integrating per-bar returns from the stored equity curve (or trade P&amp;L) on a fixed notional.
  */
 @Component
 @Order(2)

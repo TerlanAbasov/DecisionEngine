@@ -7,9 +7,8 @@ import com.quant.finance.decision.strategy.Indicators;
 import java.util.Map;
 
 /**
- * Ten additional, well-known systematic strategies layered on the existing indicator
- * toolbox — adaptive moving averages, Ichimoku, Heikin-Ashi, ConnorsRSI, QQE, the
- * Alligator, the TTM squeeze, fractal breakouts, a choppiness-gated trend and RVI.
+ * Ten additional well-known systematic strategies on the existing indicator toolbox: adaptive moving averages, Ichimoku, Heikin-Ashi, ConnorsRSI,
+ * QQE, the Alligator, the TTM squeeze, fractal breakouts, a choppiness-gated trend and RVI.
  */
 final class AdaptiveShared {
     private AdaptiveShared() {}

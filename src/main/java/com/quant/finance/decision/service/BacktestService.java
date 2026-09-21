@@ -187,9 +187,8 @@ public class BacktestService {
     }
 
     /**
-     * Load native bars once per symbol and resample each into every requested frame, holding
-     * at most one symbol's native series in memory at a time. A batch run at 1-min native is
-     * ~1.9M bars — resampling on the fly keeps the working set an order of magnitude smaller.
+     * Loads native bars once per symbol and resamples each into every requested frame, holding one symbol's native series at a time
+     * (1-min native is ~1.9M bars in a batch, so this keeps the working set an order of magnitude smaller).
      */
     private Map<Timeframe, List<BarSeries>> loadResampled(List<String> symbols, LocalDate start,
                                                           LocalDate end, Set<Timeframe> frames,
@@ -614,12 +613,8 @@ public class BacktestService {
     }
 
     /**
-     * Rank every strategy that has run history by the average of its {@code recentRuns} most
-     * recent runs' {@code by} metric ("totalReturnPct" or "sharpe"), keep the top {@code keep}
-     * (or top {@code keepPct}%), and for the rest: delete all runs / results / trades and
-     * either archive them (hidden from the UI, never run again — reversible), just disable
-     * them, or permanently delete their {@code strategy_config} row too ({@code mode="delete"}
-     * — irreversible, unlike archiving). Strategies with no run history are left untouched.
+     * Ranks strategies with run history by the average {@code by} metric of their {@code recentRuns} latest runs, keeps the top {@code keep} / {@code keepPct}%,
+     * and deletes the rest's runs/results/trades, then archives, disables or (mode="delete", irreversible) removes them; no-history strategies are untouched.
      */
     @Transactional
     public PruneResultDto pruneToTop(Integer keep, Integer keepPct, Integer recentRuns, String by, String mode) {

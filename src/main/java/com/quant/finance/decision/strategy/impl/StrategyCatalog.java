@@ -3,9 +3,10 @@ package com.quant.finance.decision.strategy.impl;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import java.util.List;
 
-/** The registry of all built-in single-asset strategies (55: 50 kept by backtest Sharpe
- *  ranking, 3 restored on request despite ranking low there, plus WaveTrend and
- *  Support/Resistance Bounce). Pairs is separate. */
+/**
+ * The registry of all built-in single-asset strategies (55: 50 kept by backtest Sharpe ranking, 3 restored on request despite low ranking,
+ * plus WaveTrend and Support/Resistance Bounce); Pairs is separate.
+ */
 public final class StrategyCatalog {
     private StrategyCatalog() {}
 

@@ -23,9 +23,8 @@ public final class Backtester {
     public Backtester(boolean tracePerSymbol) { this.tracePerSymbol = tracePerSymbol; }
 
     /**
-     * Cap on a single bar's price move fed into P&L. A liquid instrument doesn't move ±75%
-     * bar-to-bar; anything past this is a bad tick, a gap in the data, or an unadjusted
-     * split, and left unclamped it detonates the equity path.
+     * Cap on one bar's price move fed into P&amp;L: a liquid instrument doesn't move ±75% bar to bar, so more is a bad tick, a data gap or an
+     * unadjusted split, and unclamped it would detonate the equity path.
      */
     private static final double MAX_BAR_RETURN = 0.75;
 
@@ -96,9 +95,8 @@ public final class Backtester {
     }
 
     /**
-     * Once an open trade's unrealised return breaches -stopLossPct or +takeProfitPct it is
-     * flattened for the rest of that bar and stays flat until the strategy stops asking for
-     * that same direction (a fresh signal or a flip re-arms entry).
+     * A trade whose unrealised return breaches -stopLossPct or +takeProfitPct is flattened for the rest of that bar and stays flat
+     * until the strategy stops asking for that same direction (a fresh signal or a flip re-arms entry).
      */
     private double[] applyRiskExits(double[] raw, double[] close, BacktestConfig cfg) {
         if (cfg.stopLossPct <= 0 && cfg.takeProfitPct <= 0) return raw;
@@ -125,26 +123,8 @@ public final class Backtester {
     }
 
     /**
-     * Splits one symbol's executed position path into round trips that add up exactly to that
-     * symbol's equity accounting (the same {@code pos}, bar returns and cost model as
-     * {@link #computeSeries}), so {@code Σ trade.netReturn == Σ net}.
-     *
-     * <p>Position {@code pos[i]} earns bar {@code i}'s return, i.e. the move from
-     * {@code close[i-1]} to {@code close[i]} — the fill is the close of the bar <em>before</em>
-     * the first held bar. So a trade held over bars {@code ei..x-1} entered at {@code close[ei-1]}
-     * and exited at {@code close[x-1]}; the timestamps are the open of bar {@code ei} / {@code x}
-     * (= the close of the previous bar). Turnover cost is charged where it is in the equity
-     * accounting: on the bar the position changes, split between the trade that ends and the
-     * one that begins. A trade still open on the last bar is marked at that close with no exit
-     * cost yet, again as in the equity.
-     *
-     * <p>{@code netReturn} and friends are per-symbol standalone (weight 1). {@code returnPct} is
-     * the trade's contribution to a blend: every bar's gross P&amp;L and cost is scaled by that bar's
-     * weight {@code barWeight[i]} ({@code null} = 1, the standalone view), so it stays exact when the
-     * weight changes mid-trade (a symbol whose history starts or ends while the trade is open).
-     * The one unattributed sliver: with {@code warmupBars > 0}
-     * the exit cost of a position already held when warm-up ends belongs to a trade that started
-     * inside the (ignored) warm-up, so it isn't in any trade.
+     * Splits a symbol's position path into round trips summing to its equity accounting (Σ trade.netReturn == Σ net): entry at the close before the first held bar,
+     * exit at the last held bar's close, cost split between the ending and starting trade; {@code returnPct} is scaled per bar by {@code barWeight} (null = 1).
      */
     private List<TradeResult> extractTrades(double[] pos, double[] close, Instant[] date,
                                             String symbol, double costRate, int warmupBars, double[] barWeight) {
@@ -192,9 +172,8 @@ public final class Backtester {
     }
 
     /**
-     * Price-based round trips for the pairs strategy only (leg A, weight 0.5): a different
-     * accounting model from {@link #extractTrades} — trade return from entry/exit price with a
-     * flat round-trip cost. Kept as it was; pairs trades do not reconcile with the pairs equity.
+     * Price-based round trips for the pairs strategy only (leg A, weight 0.5): a different model from {@link #extractTrades}, with a flat
+     * round-trip cost; kept as it was, so pairs trades do not reconcile with the pairs equity.
      */
     private List<TradeResult> extractPairTrades(double[] pos, double[] close, Instant[] date,
                                                 String symbol, double costRate, int fromIdx, double weight) {
@@ -249,12 +228,8 @@ public final class Backtester {
     }
 
     /**
-     * @param executor when non-null and there is more than one symbol, each symbol's
-     *                 {@code computeSeries} (the CPU-heavy part) runs on the pool in parallel;
-     *                 the (cheap) portfolio blend and metrics stay single-threaded.
-     * @param symbolDetails compute each symbol's own metrics / yearly returns. Off for callers that
-     *                 only read the portfolio (parameter sweeps run this thousands of times and
-     *                 would discard them); the per-symbol maps are then empty.
+     * Runs the portfolio; a non-null {@code executor} computes each symbol's series in parallel (the blend and metrics stay single-threaded).
+     * {@code symbolDetails} off skips per-symbol metrics for sweeps that only read the portfolio (the per-symbol maps are then empty).
      */
     public BacktestOutput runPortfolio(List<BarSeries> data, TradingStrategy strat,
                                        Map<String, Double> params, BacktestConfig cfg, Executor executor,

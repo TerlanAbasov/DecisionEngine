@@ -13,9 +13,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Brute-force parameter sweep for a single strategy: run the portfolio backtest across a
- * 1-D or 2-D grid of one/two parameters and rank the cells by a chosen metric. Bars are
- * loaded once and reused for every cell.
+ * Brute-force parameter sweep for one strategy: runs the portfolio backtest over a 1-D or 2-D parameter grid and ranks the cells by a metric,
+ * with the bars loaded once and reused for every cell.
  */
 @Service
 @Slf4j
@@ -134,10 +133,8 @@ public class OptimizerService {
     }
 
     /**
-     * Runs {@link #optimizeRiskDefaults} for every enabled, non-archived strategy and persists
-     * each winner via {@link StrategyService#saveRiskDefaults}. Bars are loaded once per
-     * timeframe and shared across every strategy (3 loads total, not one set per strategy) —
-     * only the strategy and its params change per sweep, not the underlying data.
+     * Runs {@link #optimizeRiskDefaults} for every enabled, non-archived strategy and persists each winner via {@link StrategyService#saveRiskDefaults};
+     * bars are loaded once per timeframe and shared across all strategies (3 loads, not one set per strategy).
      */
     public RiskOptimizeBulkResultDto optimizeRiskDefaultsBulk(List<String> symbols, LocalDate start, LocalDate end,
                                                               Double capital, Double commissionBps,

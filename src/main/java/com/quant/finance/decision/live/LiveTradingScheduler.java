@@ -15,9 +15,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Runs the paper-trading cycle on its schedule. The schedule follows the saved settings: enabling starts it,
- * disabling stops it, changing the interval re-plans it. Only one cycle runs at a time; a scheduled cycle that
- * finds one still running is skipped, a manual one is refused.
+ * Runs the paper-trading cycle on the saved settings' schedule (enabling starts it, disabling stops it, a new interval re-plans it), one cycle at a time:
+ * a scheduled cycle that finds one running is skipped, a manual one is refused.
  */
 @Component
 @Slf4j
@@ -105,10 +104,8 @@ public class LiveTradingScheduler {
     }
 
     /**
-     * Switches the job off and, in the background, closes every position the job holds (in the account and in the
-     * ledger) with one cycle in flatten mode. Needs the market open when "market hours only" is set.
-     *
-     * @throws BusyException a cycle is already running
+     * Switches the job off and, in the background, closes every position it holds (account and ledger) with one flatten cycle.
+     * Needs the market open when "market hours only" is set; throws {@link BusyException} while a cycle runs.
      */
     public void flatten() {
         startBackground("flatten", () -> {

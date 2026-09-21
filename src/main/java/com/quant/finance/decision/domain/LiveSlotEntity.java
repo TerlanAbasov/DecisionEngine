@@ -7,7 +7,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-/** The virtual position of one strategy in one symbol. Alpaca nets positions per symbol, so this is where each strategy's own position and P&L live. */
+/** The virtual position of one strategy in one symbol. Alpaca nets positions per symbol, so this is where each strategy's own position and P&amp;L live. */
 @Entity
 @Table(name = "live_slot")
 @Getter

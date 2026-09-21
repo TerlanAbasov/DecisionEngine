@@ -3,16 +3,8 @@ package com.quant.finance.decision.strategy;
 import java.util.Map;
 
 /**
- * Wraps a catalog strategy with the user's per-strategy controls so the backtester,
- * scanner and signal engine all pick up the same behaviour without knowing about them:
- *
- * <ul>
- *   <li>{@code invert} — negate every target position (trade the strategy contrarian).</li>
- *   <li>{@code directionOverride} — clamp the output to long_only / short_only, or open it
- *       up to long_short, regardless of the strategy's native stance.</li>
- * </ul>
- *
- * Parameter overrides are applied upstream (merged into the params map), not here.
+ * Wraps a catalog strategy with the user's per-strategy controls so the backtester, scanner and signal engine share the behaviour: {@code invert} negates every
+ * target position, {@code directionOverride} clamps to long_only / short_only or opens up long_short. Parameter overrides are applied upstream.
  */
 public final class ConfiguredStrategy implements TradingStrategy {
 

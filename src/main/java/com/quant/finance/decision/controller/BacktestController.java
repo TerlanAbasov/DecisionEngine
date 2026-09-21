@@ -64,10 +64,8 @@ public class BacktestController {
     }
 
     /**
-     * A run's trade log, one page at a time. {@code symbol} / {@code side} (LONG|SHORT) filter;
-     * {@code sort} is one of entryDate (default), exitDate, symbol, side, bars, entryPx, exitPx,
-     * grossPct, netPct, contribPct, commission, netPnl; {@code dir} asc|desc (default desc).
-     * {@code size} is capped at 500. The summary covers every trade matching the filter.
+     * A run's trade log, one page at a time: filter by {@code symbol} / {@code side} (LONG|SHORT), {@code sort} by a trade column (default entryDate),
+     * {@code dir} asc|desc (default desc); {@code size} is capped at 500 and the summary covers every trade matching the filter.
      */
     @GetMapping("/{id}/trades")
     public TradePageDto trades(@PathVariable Long id,
@@ -105,13 +103,8 @@ public class BacktestController {
     }
 
     /**
-     * Prune the strategy set to the most profitable subset. Ranks each strategy that has run
-     * history by the average of its {@code recentRuns} most recent runs' {@code by} metric
-     * ("totalReturnPct" (default) or "sharpe"), keeps {@code keep} strategies or the top
-     * {@code keepPct}% (default 50), deletes the rest's runs/results/trades and applies
-     * {@code mode} to the strategy itself: "archive" (default, hidden from the UI, reversible),
-     * "disable" (stays visible, just skipped by runs), or "delete" (permanently removes its
-     * {@code strategy_config} row too — irreversible). Strategies with no run history are untouched.
+     * Keeps the top {@code keep} / {@code keepPct}% of strategies ranked by their recent runs' average {@code by} metric (totalReturnPct or sharpe)
+     * and deletes the rest's runs, applying {@code mode} to them: archive (default, reversible), disable, or delete (irreversible).
      */
     @PostMapping("/prune")
     public PruneResultDto prune(@RequestParam(required = false) Integer keep,

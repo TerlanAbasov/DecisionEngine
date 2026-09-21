@@ -3,16 +3,8 @@ package com.quant.finance.decision.engine;
 import java.time.Instant;
 
 /**
- * One round trip in one symbol.
- *
- * <p>All return fields are fractions of the run's starting capital, in the per-symbol
- * <em>standalone</em> view (the symbol traded alone with the full capital), except
- * {@link #returnPct}, which is the trade's contribution to the blended portfolio
- * (each bar's P&L scaled by that bar's blend weight). For a single-symbol run the two are the same.
- *
- * <p>Prices are the closes at which the equity accounting actually opens and closes the
- * position, so the trade log reconciles with the equity curve: the {@link #netReturn}s of a
- * symbol's trades sum to that symbol's total return.
+ * One round trip in one symbol; return fields are fractions of starting capital in the per-symbol standalone view, except {@link #returnPct}
+ * (contribution to the blended portfolio). Prices are the closes the equity accounting uses, so a symbol's {@link #netReturn}s sum to its total return.
  */
 public final class TradeResult {
     public final String symbol;

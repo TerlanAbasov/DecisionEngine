@@ -25,14 +25,8 @@ import java.util.function.Function;
 import java.util.Map;
 
 /**
- * Runs backtests in the background so the UI can leave the page and come back to a run that is
- * still going (or has finished). One job runs at a time: backtests are CPU- and heap-heavy, and a
- * second start while one is active is refused with the active job so the caller can attach to it.
- *
- * <p>Live jobs are served from memory (their progress is updated from compute threads); every job is
- * also stored in {@code backtest_job} (lifecycle at start, snapshot + result at the end) so a finished
- * job stays readable after it leaves memory or the backend restarts. A job a restart left RUNNING is
- * marked FAILED on startup. Assumes a single backend instance.
+ * Runs backtests in the background so the UI can leave and come back, one job at a time (a second start is refused with the active job);
+ * live jobs are served from memory, all are stored in {@code backtest_job}, and one a restart left RUNNING is marked FAILED on startup (single instance).
  */
 @Service
 @Slf4j
@@ -77,10 +71,8 @@ public class BacktestJobService {
     }
 
     /**
-     * Starts {@code work} in the background and returns immediately.
-     *
-     * @param request what was asked for; stored with the job for reference only
-     * @throws JobConflictException another backtest is still running
+     * Starts {@code work} in the background and returns at once ({@code request} is stored for reference only).
+     * Throws {@link JobConflictException} while another backtest is still running.
      */
     public JobDto submit(JobKind kind, String title, Object request, Function<JobProgress, Object> work) {
         Job job = new Job(kind, title);

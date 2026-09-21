@@ -29,11 +29,8 @@ public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> 
     boolean existsBySymbol(String symbol);
 
     /**
-     * Bulk delete, not the entity-by-entity derived kind: Hibernate flushes a unit of work's
-     * inserts before its deletes regardless of call order, so a plain derived
-     * {@code deleteBySymbol} deferred to the same flush as a following {@code saveAll} of fresh
-     * bars collides with the still-present old rows on the first overlapping timestamp. A bulk
-     * {@code @Modifying} query executes immediately instead of waiting for flush.
+     * Bulk delete, not the derived kind: Hibernate flushes inserts before deletes, so a derived {@code deleteBySymbol} followed by {@code saveAll} of fresh bars
+     * would collide with the old rows on the first overlapping timestamp; a bulk {@code @Modifying} query runs immediately instead.
      */
     @Modifying
     @Query("delete from PriceBarEntity b where b.symbol = :symbol")

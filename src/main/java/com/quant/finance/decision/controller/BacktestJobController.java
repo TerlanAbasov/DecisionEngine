@@ -12,9 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Backtests as background jobs: the POSTs return 202 with the job at once, the UI polls
- * {@code GET /{id}} for progress and, when COMPLETED, the result (same payload as the synchronous
- * endpoints return). Only one job runs at a time — a second start gets 409 with the active job.
+ * Backtests as background jobs: POSTs return 202 with the job, the UI polls {@code GET /{id}} and gets the result once COMPLETED.
+ * Only one job runs at a time — a second start gets 409 with the active job.
  */
 @RestController
 @RequestMapping("/api/backtests/jobs")

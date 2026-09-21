@@ -1,14 +1,8 @@
 package com.quant.finance.decision.engine;
 
 /**
- * Resampling target for a backtest. Bars are stored at whatever native granularity
- * {@code decision.alpaca.timeframe} fetched; a backtest can aggregate them UP to a
- * coarser {@code Timeframe} (never finer — you cannot invent sub-bars, so choosing a
- * frame finer than the stored data just runs on the stored bars).
- *
- * <p>{@link #NATIVE} runs on the stored bars untouched. Sub-day frames all divide
- * evenly into 24h, so their buckets align to UTC midnight; {@code W1}/{@code MN}/
- * {@code Q1}/{@code Y1} are calendar-bucketed.
+ * Resampling target for a backtest: stored bars can be aggregated UP to a coarser frame (never finer); {@link #NATIVE} keeps them untouched.
+ * Sub-day frames align to UTC midnight buckets; {@code W1}/{@code MN}/{@code Q1}/{@code Y1} are calendar-bucketed.
  */
 public enum Timeframe {
     NATIVE("Native", 0),

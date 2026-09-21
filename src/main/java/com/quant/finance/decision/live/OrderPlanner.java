@@ -7,10 +7,8 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Turns what the strategies together want (net virtual shares per symbol) into the orders to send: the whole-share
- * position to hold minus what the account holds. Orders that reduce exposure come first, and the gross-exposure and
- * per-cycle order caps only ever hold back orders that <em>add</em> exposure or that come after the limit.
- * Pure functions, no I/O.
+ * Turns the strategies' net virtual shares per symbol into orders: the whole-share position to hold minus what the account holds, reducing orders first;
+ * the exposure and order-count caps only hold back orders that add exposure or come after the limit. Pure functions.
  */
 public final class OrderPlanner {
     private OrderPlanner() {}
@@ -39,9 +37,8 @@ public final class OrderPlanner {
     }
 
     /**
-     * @param virtualQty net virtual shares per symbol (the sum over every strategy's slot)
-     * @param actualQty  the account's signed position per symbol (missing = flat)
-     * @param prices     latest price per symbol; a symbol without one is not planned
+     * Plans orders from net virtual shares per symbol (the sum over every slot), the account's signed positions and latest prices;
+     * a symbol without a price is not planned.
      */
     public static Plan plan(Map<String, Double> virtualQty, Map<String, Double> actualQty, Map<String, Double> prices,
                             double maxGrossUsd, int maxOrders) {

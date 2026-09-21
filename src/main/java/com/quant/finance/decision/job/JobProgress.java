@@ -12,14 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Live progress of one backtest job. The job thread and the compute pool's worker threads write to
- * it while HTTP threads read {@link #snapshot()}, so every counter is atomic / volatile and the
- * symbol and strategy lists are published copy-on-write. Progress is informational: a reader can see
- * counters that are a moment apart, but never a value outside its range.
- *
- * <p>A job has four steps that can overlap (a batch run persists finished strategies while others are
- * still computing), each with its own counter. The overall percentage is a weighted mean of the steps.
- * Callers that do not track progress (the synchronous endpoints) simply pass a throw-away instance.
+ * Live progress of one backtest job, written by the job and compute threads and read by HTTP threads (atomic / volatile counters, copy-on-write lists);
+ * four steps that can overlap, each with its own counter, weighted into an overall percentage. Callers that don't track progress pass a throw-away instance.
  */
 public final class JobProgress {
 

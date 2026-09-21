@@ -16,10 +16,8 @@ public final class PerformanceMetrics {
     private record TimeBasis(double years, double periodsPerYear) {}
 
     /**
-     * Annualisation basis. Metrics used to assume every bar was one trading day (252/yr);
-     * for hourly / minute bars that made CAGR, Sharpe, vol, alpha and turnover wrong by
-     * orders of magnitude. Derive it from the timestamps instead — falling back to 252/yr
-     * only when there aren't enough dated bars to measure.
+     * Annualisation basis derived from the bar timestamps (assuming one bar per trading day, 252/yr, was wrong by orders of magnitude for hourly / minute bars),
+     * falling back to 252/yr only when there are too few dated bars to measure.
      */
     private static TimeBasis timeBasis(Instant[] dates, int n) {
         if (dates != null && dates.length >= 2 && n >= 2) {
@@ -34,12 +32,8 @@ public final class PerformanceMetrics {
     }
 
     /**
-     * Equity path on a FIXED notional: {@code capital * (1 + Σ net)}.
-     *
-     * <p>The engine's position is a fixed fraction of capital (never scaled up with equity),
-     * so returns are additive on the starting capital — multiplicative compounding of the
-     * per-bar stream would imply position sizing the backtest never did and, over thousands
-     * of intraday bars, explodes the endpoint far past any realised trade P&L.
+     * Equity path on a FIXED notional, {@code capital * (1 + Σ net)}: positions are a fixed fraction of capital, so returns are additive — compounding the per-bar
+     * stream would imply sizing the backtest never did and, over thousands of intraday bars, explode the endpoint past any realised trade P&amp;L.
      */
     public static double[] equityCurve(double[] net, double capital) {
         double[] eq = new double[net.length];
@@ -53,9 +47,8 @@ public final class PerformanceMetrics {
     }
 
     /**
-     * Return in each calendar year (UTC), in percent, oldest first: the sum of that year's
-     * per-bar net returns (returns are additive on the starting capital, see {@link #equityCurve}),
-     * so the years add up to the total return. The first and last year are usually partial.
+     * Return in each calendar year (UTC), in percent, oldest first: the sum of that year's per-bar net returns (additive, see {@link #equityCurve}),
+     * so the years add up to the total return; the first and last year are usually partial.
      */
     public static Map<String, Double> yearlyReturnsPct(double[] net, Instant[] dates) {
         Map<Integer, Double> byYear = new java.util.TreeMap<>();

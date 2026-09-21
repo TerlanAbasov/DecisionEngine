@@ -18,10 +18,8 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Blends several strategies into one daily-rebalanced portfolio: each leg is backtested
- * on the same universe, its equity curve turned into a daily-return stream, and the
- * streams combined by weight ({@code config} / {@code equal} / {@code sharpe}). The
- * result is a single equity curve plus each leg's standalone metrics.
+ * Blends several strategies into one daily-rebalanced portfolio: each leg is backtested on the same universe, its equity curve becomes a daily-return stream,
+ * and the streams are combined by weight ({@code config} / {@code equal} / {@code sharpe}) into one curve plus each leg's standalone metrics.
  */
 @Service
 @Slf4j

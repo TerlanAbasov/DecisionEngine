@@ -7,7 +7,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-/** A strategy's virtual P&L at the end of a cycle, for its curve. */
+/** A strategy's virtual P&amp;L at the end of a cycle, for its curve. */
 @Entity
 @Table(name = "live_strategy_pnl")
 @Getter

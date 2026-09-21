@@ -10,9 +10,8 @@ public final class Dtos {
     private Dtos() {}
 
     /**
-     * {@code direction} is the effective stance (after any override); {@code nativeDirection} is
-     * the strategy's own. {@code params} are the effective params (overrides merged onto defaults),
-     * {@code defaultParams} the catalog defaults, {@code overridden} the keys the user changed.
+     * {@code direction} is the effective stance (after any override), {@code nativeDirection} the strategy's own; {@code params} are the effective params
+     * (overrides on defaults), {@code defaultParams} the catalog defaults, {@code overridden} the keys the user changed.
      */
     public record StrategyDto(String name, String category, String direction, String nativeDirection,
                               String description, boolean enabled, boolean archived, double weight, boolean invert,
@@ -32,9 +31,8 @@ public final class Dtos {
     public record OptimizeCellDto(Map<String, Double> params, Map<String, Double> metrics, double score) {}
 
     /**
-     * Grid-search request. Sweeps {@code param1} from/to/step (and optionally {@code param2}),
-     * scoring each combination by {@code metric} (e.g. "sharpe", "calmar", "totalReturnPct").
-     * Reuses the backtest window / cost / timeframe knobs.
+     * Grid-search request: sweeps {@code param1} from/to/step (and optionally {@code param2}), scoring each combination by {@code metric}
+     * (e.g. "sharpe", "calmar", "totalReturnPct"), reusing the backtest window / cost / timeframe knobs.
      */
     public record OptimizeRequest(List<String> symbols, LocalDate start, LocalDate end,
                                   Double capital, Double commissionBps, Double slippageBps,
@@ -60,11 +58,8 @@ public final class Dtos {
                               Map<String, Double> metrics, double score) {}
 
     /**
-     * Best (timeframe, stopLossPct, takeProfitPct) combo found for a strategy, selected on the
-     * training slice only. {@code outOfSample} re-runs that exact combo on the held-out test
-     * slice it never saw during selection — the honest number; {@code best}'s score is in-sample
-     * and will typically look better than {@code outOfSample} (that gap is the overfitting, not
-     * a bug). {@code trainFraction} is how much of the window was used for selection (e.g. 0.7).
+     * Best (timeframe, stopLossPct, takeProfitPct) combo, selected on the training slice only ({@code trainFraction}, e.g. 0.7); {@code outOfSample} re-runs it
+     * on the held-out slice — the honest number, since {@code best}'s score is in-sample and will look better (that gap is overfitting, not a bug).
      */
     public record RiskOptimizeResultDto(String strategy, String metric, RiskCellDto best,
                                         RiskCellDto outOfSample, double trainFraction, int cellsEvaluated) {}
@@ -77,9 +72,8 @@ public final class Dtos {
                                             List<RiskOptimizeBulkEntryDto> results) {}
 
     /**
-     * start/end are calendar dates (the backtest window the user picked), independent of bar interval.
-     * {@code timeframe} resamples the stored bars UP to a coarser frame (NATIVE/H1/H4/D1/W1/MN);
-     * the rest are optional risk/execution knobs — null means "engine default".
+     * start/end are the calendar dates of the backtest window, independent of bar interval; {@code timeframe} resamples the stored bars UP to a coarser frame.
+     * The remaining risk/execution knobs are optional: null means "engine default".
      */
     public record BacktestRequest(String strategyName, List<String> symbols,
                                   LocalDate start, LocalDate end, Double capital,
@@ -99,9 +93,8 @@ public final class Dtos {
                                Double positionSize, Double stopLossPct, Double takeProfitPct) {}
 
     /**
-     * Blend several strategies into one daily-rebalanced portfolio.
-     * {@code strategyNames} null/empty => all enabled. {@code weighting}: "config" (each
-     * strategy's stored weight), "equal", or "sharpe" (weight ∝ max(0, standalone Sharpe)).
+     * Blends several strategies into one daily-rebalanced portfolio; {@code strategyNames} null/empty means all enabled.
+     * {@code weighting} is "config" (stored weights), "equal", or "sharpe" (weight ∝ max(0, standalone Sharpe)).
      */
     public record EnsembleRequest(List<String> strategyNames, List<String> symbols,
                                   LocalDate start, LocalDate end, Double capital,
@@ -124,10 +117,8 @@ public final class Dtos {
                                   Map<String, Double> yearlyReturnsPct) {}
 
     /**
-     * The run itself: headline metrics, curves, and the per-symbol breakdown. The trade log is
-     * not embedded (a run can have tens of thousands of trades) — {@code tradeCount} says how
-     * many there are and {@code GET /api/backtests/{id}/trades} pages through them.
-     * {@code symbolResults} is empty for runs saved before per-symbol results existed.
+     * The run: headline metrics, curves and the per-symbol breakdown; {@code symbolResults} is empty for runs saved before it existed.
+     * The trade log is not embedded (a run can have tens of thousands) — {@code tradeCount} counts it and {@code GET /api/backtests/{id}/trades} pages it.
      */
     public record BacktestResultDto(Long runId, String strategy, List<String> symbols,
                                     Instant start, Instant end, String timeframe, int bars,
@@ -140,12 +131,8 @@ public final class Dtos {
                                     long tradeCount) {}
 
     /**
-     * One trade with its accounting spelled out. Percentages are percent of the run's starting
-     * capital and money is in the run's currency, both in the per-symbol standalone view
-     * ({@code notional} = capital x exposure, i.e. the symbol traded alone with the full capital);
-     * {@code contribPct} is the trade's share of the blended portfolio's total return instead.
-     * {@code grossPct - commissionPct - slippagePct == netPct}, and likewise for the money columns.
-     * {@code open}: still held on the last bar, so marked to market with no exit cost yet.
+     * One trade with its accounting spelled out, standalone per symbol: percentages of starting capital, {@code notional} = capital × exposure.
+     * gross − commission − slippage = net; {@code contribPct} is its share of the portfolio return; {@code open} = still held, marked to market.
      */
     public record TradeDetailDto(long id, String symbol, String side, Instant entryDate, Instant exitDate,
                                  double entryPx, double exitPx, int bars, boolean open,
@@ -166,9 +153,8 @@ public final class Dtos {
     public record TimeframeDto(String id, String label, boolean nativeFrame) {}
 
     /**
-     * Cache coverage for one symbol in the local {@code price_bar} store.
-     * {@code fresh} = the newest cached bar is within the configured freshness
-     * window ({@code decision.data.fresh-days}).
+     * Cache coverage for one symbol in the local {@code price_bar} store; {@code fresh} = the newest cached bar is within
+     * the freshness window ({@code decision.data.fresh-days}).
      */
     public record SymbolCoverageDto(String symbol, Instant firstBar, Instant lastBar,
                                     long bars, boolean fresh, String timeframe) {}
@@ -208,9 +194,8 @@ public final class Dtos {
     public record JobItemDto(String name, String state, int done, int total) {}
 
     /**
-     * A backtest running (or finished) in the background. {@code percent} is the weighted progress
-     * over all steps. {@code result} is only present once COMPLETED: a BacktestResultDto (RUN / PAIRS),
-     * a list of LeaderboardEntryDto (RUN_ALL) or an EnsembleResultDto (ENSEMBLE).
+     * A backtest running (or finished) in the background; {@code percent} is the weighted progress over all steps.
+     * {@code result} appears once COMPLETED: a BacktestResultDto (RUN / PAIRS), a list of LeaderboardEntryDto (RUN_ALL) or an EnsembleResultDto (ENSEMBLE).
      */
     public record JobDto(String id, String kind, String status, String title,
                          Instant createdAt, Instant startedAt, Instant finishedAt, long elapsedMs,

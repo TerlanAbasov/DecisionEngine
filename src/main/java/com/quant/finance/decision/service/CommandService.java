@@ -11,13 +11,8 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 /**
- * Sends DecisionEngine's LONG/SHORT signals to ExecutionEngine's {@code TradeController}
- * ({@code POST /api/v1/trades/command}) — the only ExecutionEngine endpoint this integration
- * uses. FLAT signals are never sent since there's no per-symbol close command
- * ({@code CLOSE_ALL} closes everything instead).
- * <p>
- * {@link com.quant.finance.decision.client.ExecutionEngineClient} makes the actual HTTP call;
- * this class handles payload assembly, config, and the "is this configured" guard.
+ * Sends LONG/SHORT signals to ExecutionEngine's {@code POST /api/v1/trades/command} (never FLAT: there is no per-symbol close command);
+ * {@link com.quant.finance.decision.client.ExecutionEngineClient} makes the HTTP call, this class assembles the payload and guards the config.
  */
 @Service
 @RequiredArgsConstructor

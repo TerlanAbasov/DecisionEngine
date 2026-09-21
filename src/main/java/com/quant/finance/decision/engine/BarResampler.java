@@ -11,12 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Aggregates an OHLCV {@link BarSeries} up to a coarser {@link Timeframe}.
- *
- * <p>Downsample only: open = first bar's open, high = max, low = min, close = last
- * bar's close, volume = summed. The bucket is stamped with its start instant. If the
- * requested frame is not actually coarser than the data (it would produce as many
- * buckets as input bars), the original series is returned unchanged.
+ * Aggregates a {@link BarSeries} up to a coarser {@link Timeframe}: first open, max high, min low, last close, summed volume, stamped with the bucket start.
+ * A frame that isn't actually coarser than the data (as many buckets as bars) returns the original series.
  */
 public final class BarResampler {
     private BarResampler() {}

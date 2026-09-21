@@ -11,10 +11,8 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Reproducible, realistic OHLCV for offline development when no IB feed is present.
- * Near-random-walk with modest drift and a whisper of momentum, so backtest metrics
- * land in believable ranges instead of the fantasy numbers you get from data with a
- * baked-in cycle.
+ * Reproducible, realistic OHLCV for offline development when no IB feed is present: a near-random-walk with modest drift and a whisper of momentum,
+ * so backtest metrics land in believable ranges instead of the fantasy numbers of data with a baked-in cycle.
  */
 public final class SyntheticData {
     private SyntheticData() {}

@@ -560,11 +560,8 @@ public final class Indicators {
     }
 
     /**
-     * LazyBear's WaveTrend oscillator: {@code channelLen} smooths the (H+L+C)/3 typical price
-     * and its mean absolute deviation into a CCI-like ratio, {@code avgLen} smooths that ratio
-     * into WT1, and WT2 is a 4-bar SMA of WT1 — the pair is read like a MACD/signal-line cross,
-     * gated by overbought/oversold zones (commonly +-60).
-     * @return {@code {wt1, wt2}}
+     * LazyBear's WaveTrend oscillator: {@code channelLen} smooths the (H+L+C)/3 price and its mean deviation into a CCI-like ratio, {@code avgLen} smooths that into WT1,
+     * and WT2 is a 4-bar SMA of WT1 (read like a MACD/signal-line cross, gated by ±60 zones); returns {@code {wt1, wt2}}.
      */
     public static double[][] waveTrend(BarSeries b, int channelLen, int avgLen) {
         int len = b.size();
@@ -582,9 +579,8 @@ public final class Indicators {
     }
 
     /**
-     * Applies a smoother to {@code s} starting at its first non-NaN value. {@link #ema} and
-     * {@link #sma} are seeded from the first {@code n} inputs, so a NaN warm-up prefix (from an
-     * earlier smoothing stage) would otherwise poison every value after it.
+     * Applies a smoother from the first non-NaN value on: {@link #ema} and {@link #sma} seed from the first {@code n} inputs,
+     * so a NaN warm-up prefix from an earlier smoothing stage would otherwise poison every value after it.
      */
     private static double[] fromFirstValid(double[] s, java.util.function.UnaryOperator<double[]> smoother) {
         int first = 0;

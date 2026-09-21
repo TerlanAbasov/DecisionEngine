@@ -10,9 +10,8 @@ public interface MarketDataClient {
     List<PriceBarEntity> fetchHistory(String symbol);
 
     /**
-     * Bars from {@code since} to now — a cheap incremental fetch for periodic polling, so a
-     * poll doesn't re-download the full history every tick. Implementations that can't bound
-     * the request may fall back to {@link #fetchHistory(String)}.
+     * Bars from {@code since} to now, a cheap incremental fetch for periodic polling.
+     * Implementations that can't bound the request may fall back to {@link #fetchHistory(String)}.
      */
     default List<PriceBarEntity> fetchHistory(String symbol, Instant since) {
         return fetchHistory(symbol);
