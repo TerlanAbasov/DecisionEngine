@@ -14,7 +14,7 @@ import java.util.Map;
 
 /**
  * Paper (demo-account) trading: configure the periodic job, run or stop it, and monitor what it did. Unrelated to
- * the execution-engine forwarding: this trades the Alpaca paper account directly.
+ * the ExecutionEngine auto trading (package autotrade): this trades the Alpaca paper account directly.
  */
 @RestController
 @RequestMapping("/api/live")

@@ -147,27 +147,34 @@ checking for exceptions, NaN leaks, and out-of-range signals.
 
 ---
 
-## ExecutionEngine integration
+## ExecutionEngine integration (auto trading)
 
-`ExecutionEngineClient` forwards a decided LONG/SHORT signal to your Java IB
-`ExecutionEngine`'s TradingView-webhook-shaped alert intake
-(`POST /api/v1/alerts/tv-hook`), which feeds its existing alert -> order pipeline
-(`AlertScheduler` -> `StrategyService` -> `TradeService` -> a live IB order). FLAT
-signals are never forwarded — that webhook only models entries, not closes.
+Package `com.quant.finance.decision.autotrade`. A job watches every enabled strategy on every Universe
+symbol **in the strategy's own timeframe** and, when one turns LONG or SHORT on a bar that has just
+completed, sends ExecutionEngine's `TradeController` (`POST /api/v1/trades/command`) a `BUY` / `SELL`
+for the configured quantity. It is **off by default** and switched on and off from the *Auto Trading* tab
+(or `POST /api/autotrade/enable` / `disable`).
 
-- `EXECUTION_ENGINE_URL` (`quantplat.execution-engine.base-url`) — ExecutionEngine's base
-  URL (e.g. `http://localhost:8081`). Blank (default) disables forwarding entirely;
-  `GET /api/execution/status` reports whether it's configured.
-- `quantplat.execution-engine.auto-forward` (default `false`) — when `true`, every newly-flipped
-  LONG/SHORT signal from `ScannerService.scan()` (manual `/api/scan` calls and the poller's
-  scheduled scans alike) is pushed automatically. One symbol failing to forward doesn't stop
-  the rest.
-- `POST /api/execution/send` — push one specific signal on demand, regardless of the
-  auto-forward setting. Body is a `SignalDto` (the same shape `/api/scan` and `/api/signals`
-  already return).
-- `quantplat.execution-engine.exchange` / `quote-currency` / `asset-class` — defaults
-  (`SMART` / `USD` / `STK`) filled into the alert payload; DecisionEngine doesn't track
-  these per-symbol today.
+- `EXECUTION_ENGINE_URL` (`decision.execution-engine.url`) — ExecutionEngine's base URL (e.g.
+  `http://localhost:8081`). Blank disables everything: the job cannot be switched on and nothing is sent.
+- `decision.autotrade.tick-seconds` (default `30`) — how often the job looks for new bars. What it fetches on a
+  tick is decided per symbol and timeframe: a 15-minute strategy is looked at once its next bar is complete,
+  a daily one about once a day.
+- Settings (saved in the database, edited in the UI): quantity in shares, order type (`MKT` or `LMT` at the signal
+  bar's close), time in force, an optional strategy and symbol list (empty = all enabled strategies / the whole
+  Universe) and a cap on commands per run.
+
+How it stays safe:
+
+- Only **new** signals count: a strategy whose position did not change sends nothing, and a strategy going FLAT
+  sends nothing (ExecutionEngine has no per-symbol close command). Bars that completed before the job was switched
+  on, and signals more than two bars old, are ignored.
+- Every command is written to `auto_trade_command` **before** it is sent, unique per (strategy, symbol, timeframe, bar),
+  so a bar can never trigger the same command twice, not even across a restart. A command is never retried.
+- ExecutionEngine reports failures in the text of an HTTP 200 reply, so the reply is judged, not just the status. Each
+  command ends `SENT`, `REJECTED` (it refused), `FAILED` (no answer: it may or may not have arrived) or `SKIPPED` (over the
+  per-run limit). The Auto Trading tab lists them with ExecutionEngine's answer.
+- `POST /api/autotrade/forward` sends one scanned signal by hand (the Scanner's *Forward* button).
 
 ---
 

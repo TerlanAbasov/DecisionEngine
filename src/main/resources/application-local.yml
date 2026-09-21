@@ -40,10 +40,8 @@ decision:
     feed: iex                    # iex (free) | sip (paid subscription)
     timeframe: 1Min               # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
   execution-engine:
-    feign-url: ${EXECUTION_ENGINE_URL:http://execution-engine.invalid}
-    auto-forward: false                  # true = every new LONG/SHORT signal is pushed automatically
-    strategies:                          # comma-separated allow-list; blank = every enabled strategy
-    order-type: MKT                      # MKT | LMT | STP | ... (com.ib.client.OrderType names)
-    tif: DAY                             # DAY | GTC | IOC | ... (com.ib.client.Types.TimeInForce names)
-    quantity:                            # blank = omit from the payload (ExecutionEngine has no sizing on this path yet)
+    # ExecutionEngine's TradeController (POST /api/v1/trades/command). Blank = not configured: nothing is sent and auto-trading cannot be switched on.
+    url: ${EXECUTION_ENGINE_URL:http://localhost:8081}
+  autotrade:
+    tick-seconds: 30                    # how often the auto-trading job looks for new bars (which symbols it fetches depends on each strategy's timeframe)
   cors-allowed-origins: http://localhost:5173   # EngineUI's Vite dev server

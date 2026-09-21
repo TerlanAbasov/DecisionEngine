@@ -13,7 +13,6 @@ import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,13 +28,6 @@ public class ScannerService {
     private final StrategyService strategies;
     private final UniverseService universe;
     private final SignalRepository signalRepo;
-    private final CommandService executionEngine;
-
-    @Value("${decision.execution-engine.auto-forward:false}")
-    private boolean autoForward;
-
-    @Value("${decision.execution-engine.strategies:}")
-    private String forwardStrategiesCsv;
 
     @Transactional
     public List<SignalDto> scan(List<String> symbols, boolean includeFlat) {
@@ -106,28 +98,7 @@ public class ScannerService {
         out.sort(Comparator.comparing(SignalDto::isNew).reversed()
                 .thenComparing(SignalDto::strategy).thenComparing(SignalDto::symbol));
 
-        if (autoForward && executionEngine.isConfigured()) forwardNewSignals(out);
         return out;
-    }
-
-    /** Best-effort forward of newly-flipped, non-FLAT signals to ExecutionEngine's
-     *  TradeController; one failure doesn't stop the rest. */
-    private void forwardNewSignals(List<SignalDto> signals) {
-        Set<String> allow = forwardStrategiesCsv == null || forwardStrategiesCsv.isBlank()
-                ? null
-                : Arrays.stream(forwardStrategiesCsv.split(","))
-                        .map(String::trim).filter(s -> !s.isEmpty()).collect(java.util.stream.Collectors.toSet());
-
-        for (SignalDto signalDto : signals) {
-            if (!signalDto.isNew() || "FLAT".equals(signalDto.signal())) continue;
-            if (allow != null && !allow.contains(signalDto.strategy())) continue;
-            try {
-                executionEngine.sendTradeCommand(signalDto);
-            } catch (Exception e) {
-                log.warn("Auto-forward to ExecutionEngine failed for {} {}: {}",
-                        signalDto.strategy(), signalDto.symbol(), e.getMessage());
-            }
-        }
     }
 
     public List<SignalDto> latest() {

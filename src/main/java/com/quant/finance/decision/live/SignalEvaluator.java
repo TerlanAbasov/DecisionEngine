@@ -14,7 +14,7 @@ import java.util.Map;
  * Reads what a strategy wants right now: the strategy runs on the completed bars only, and its last value is the
  * target position for the bar that is forming — the same one-bar delay the backtests use. Pure functions.
  */
-final class SignalEvaluator {
+public final class SignalEvaluator {
     private SignalEvaluator() {}
 
     /** Fewer completed bars than this and a strategy's indicators have not warmed up: it is not evaluated. */
@@ -22,13 +22,13 @@ final class SignalEvaluator {
     private static final int SESSION_SECONDS = 6 * 3600 + 1800;   // 6.5 h of trading a day
 
     /** A batch never runs on raw 1-minute bars in the backtests, and neither does the job. */
-    static Timeframe liveFrame(Timeframe tf) { return tf == null || tf.isNative() ? Timeframe.M15 : tf; }
+    public static Timeframe liveFrame(Timeframe tf) { return tf == null || tf.isNative() ? Timeframe.M15 : tf; }
 
     /** Intraday frames are built from 1-minute bars, day and longer from daily bars. */
-    static Base baseFor(Timeframe tf) { return tf.seconds > 0 && tf.seconds < 86_400 ? Base.MIN1 : Base.DAY1; }
+    public static Base baseFor(Timeframe tf) { return tf.seconds > 0 && tf.seconds < 86_400 ? Base.MIN1 : Base.DAY1; }
 
     /** Calendar days of history to request so that about {@code lookbackBars} bars of {@code tf} come back. */
-    static int lookbackDays(Timeframe tf, int lookbackBars) {
+    public static int lookbackDays(Timeframe tf, int lookbackBars) {
         if (baseFor(tf) == Base.MIN1) {
             double sessions = (double) lookbackBars * tf.seconds / SESSION_SECONDS;
             return (int) Math.min(120, Math.ceil(sessions * 1.5) + 4);          // weekends and holidays
@@ -55,9 +55,19 @@ final class SignalEvaluator {
                 Arrays.copyOf(bars.volume, m));
     }
 
+    /** What a strategy wants after the last completed bar ({@code barOpen}, closing at {@code close}) and after the one before it. */
+    public record Reading(Instant barOpen, double close, double signal, double previousSignal) {}
+
     /** The strategy's target position (clamped to [-1, 1]) after the last completed bar, or null when there is not enough history to evaluate it. */
     static Double lastSignal(TradingStrategy strategy, Map<String, Double> params, BarSeries base, Timeframe tf,
                              Instant now) {
+        Reading reading = read(strategy, params, base, tf, now);
+        return reading == null ? null : reading.signal();
+    }
+
+    /** Like {@link #lastSignal} but also says which bar it is and what the bar before wanted, so a change of mind can be told from a standing position. */
+    public static Reading read(TradingStrategy strategy, Map<String, Double> params, BarSeries base, Timeframe tf,
+                               Instant now) {
         BarSeries resampled = BarResampler.resample(base, tf);
         BarSeries done = completedOnly(resampled, tf, now);
         if (done.size() < MIN_BARS) return null;
@@ -65,8 +75,12 @@ final class SignalEvaluator {
         if (sig == null || sig.length != done.size())
             throw new IllegalStateException(strategy.name() + " returned " + (sig == null ? "no" : sig.length)
                     + " signals for " + done.size() + " bars");
-        double last = sig[sig.length - 1];
-        if (Double.isNaN(last) || Double.isInfinite(last)) return 0.0;
-        return Math.max(-1.0, Math.min(1.0, last));
+        int last = done.size() - 1;
+        return new Reading(done.date[last], done.close[last], clamp(sig[last]), clamp(sig[last - 1]));
+    }
+
+    /** A signal within [-1, 1]; one that is not a number counts as flat. */
+    private static double clamp(double signal) {
+        return Double.isNaN(signal) || Double.isInfinite(signal) ? 0.0 : Math.max(-1.0, Math.min(1.0, signal));
     }
 }

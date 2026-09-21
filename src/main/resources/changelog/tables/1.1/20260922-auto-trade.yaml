@@ -1,0 +1,127 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260922-auto-trade
+            author: Tarlan Abasov
+            comment: >
+                Auto-trading: the job that sends strategy signals to ExecutionEngine as BUY/SELL commands. auto_trade_config is the single
+                editable settings row (including the on/off switch); auto_trade_command is the record of every command, unique per
+                (strategy, symbol, timeframe, bar_open) so a bar can never trigger the same command twice. Everything is new, nothing existing changes.
+            changes:
+                -   createTable:
+                        tableName: auto_trade_config
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: enabled
+                                    type: BOOLEAN
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: enabled_since
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: quantity
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: order_type
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: tif
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: strategy_names
+                                    type: TEXT
+                            -   column:
+                                    name: symbols
+                                    type: TEXT
+                            -   column:
+                                    name: max_commands_per_run
+                                    type: INTEGER
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: updated_at
+                                    type: TIMESTAMP
+                -   createTable:
+                        tableName: auto_trade_command
+                        columns:
+                            -   column:
+                                    name: id
+                                    type: BIGINT
+                                    autoIncrement: true
+                                    constraints:
+                                        primaryKey: true
+                                        nullable: false
+                            -   column:
+                                    name: created_at
+                                    type: TIMESTAMP
+                            -   column:
+                                    name: strategy
+                                    type: VARCHAR(255)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: symbol
+                                    type: VARCHAR(16)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: timeframe
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: bar_open
+                                    type: TIMESTAMP
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: side
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: quantity
+                                    type: DOUBLE PRECISION
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: order_type
+                                    type: VARCHAR(8)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: limit_price
+                                    type: DOUBLE PRECISION
+                            -   column:
+                                    name: status
+                                    type: VARCHAR(12)
+                                    constraints:
+                                        nullable: false
+                            -   column:
+                                    name: response
+                                    type: VARCHAR(500)
+                -   createIndex:
+                        tableName: auto_trade_command
+                        indexName: uk_auto_trade_command_bar
+                        unique: true
+                        columns:
+                            -   column:
+                                    name: strategy
+                            -   column:
+                                    name: symbol
+                            -   column:
+                                    name: timeframe
+                            -   column:
+                                    name: bar_open

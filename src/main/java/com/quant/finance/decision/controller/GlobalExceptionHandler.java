@@ -1,5 +1,6 @@
 package com.quant.finance.decision.controller;
 
+import com.quant.finance.decision.autotrade.ExecutionEngineException;
 import com.quant.finance.decision.error.JobConflictException;
 import com.quant.finance.decision.error.AlpacaApiException;
 import com.quant.finance.decision.live.LiveTradingScheduler;
@@ -40,6 +41,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AlpacaApiException.class)
     public ResponseEntity<Map<String, String>> alpaca(AlpacaApiException e) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "Alpaca: " + e.getMessage()));
+    }
+
+    /** ExecutionEngine refused a command or could not be reached. */
+    @ExceptionHandler(ExecutionEngineException.class)
+    public ResponseEntity<Map<String, String>> executionEngine(ExecutionEngineException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "ExecutionEngine: " + e.getMessage()));
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)
