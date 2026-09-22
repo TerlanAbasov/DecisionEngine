@@ -3,7 +3,7 @@ package com.quant.finance.decision.client;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** The Alpaca key pair shared by the market-data and paper-trading clients. */
+/** The Alpaca key pair used to read market data (for backtesting and auto trading's signal detection). */
 @Component
 public class AlpacaCredentials {
     private final String keyId;

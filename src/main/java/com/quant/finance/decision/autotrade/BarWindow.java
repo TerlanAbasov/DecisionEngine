@@ -1,4 +1,4 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.strategy.BarSeries;
 

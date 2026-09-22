@@ -204,8 +204,11 @@ How it stays safe:
 | `GET /api/backtests?strategy=` | history of runs |
 | `POST /api/scan` | current signals across enabled strategies |
 | `GET /api/signals` | most recent persisted signals |
-| `GET /api/execution/status` | whether ExecutionEngine forwarding is configured |
-| `POST /api/execution/send` | forward one signal to ExecutionEngine now |
+| `GET /api/autotrade/status` | auto trading's on/off state, settings and last run |
+| `POST /api/autotrade/enable` / `disable` | switch auto trading on / off |
+| `PUT /api/autotrade/settings` | save auto trading's quantity / order settings |
+| `GET /api/autotrade/commands` | the log of commands sent to ExecutionEngine |
+| `POST /api/autotrade/forward` | forward one scanned signal to ExecutionEngine now |
 
 ---
 
@@ -219,7 +222,7 @@ backend/   Spring Boot app
     domain/          JPA entities (7 tables)
     repository/      Spring Data repositories
     data/            MarketDataClient (Alpaca), MarketDataService, MarketDataPoller
-    execution/       ExecutionEngineClient — forwards signals to ExecutionEngine's alert intake
+    autotrade/        watches strategy signals and forwards BUY/SELL to ExecutionEngine (IBKR)
     service/         strategy / backtest / scanner / universe services
     web/             REST controllers
     config/          CORS + startup seeder

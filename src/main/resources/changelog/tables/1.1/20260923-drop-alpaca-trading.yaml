@@ -1,0 +1,16 @@
+databaseChangeLog:
+    -   changeSet:
+            id: 20260923-drop-alpaca-trading
+            author: Tarlan Abasov
+            comment: >
+                Drops the Alpaca paper-trading job (20260921-paper-trading): the job placed real orders in Alpaca's paper
+                account, which is no longer part of this app. Auto trading (ExecutionEngine/IBKR) is unaffected — it keeps
+                using Alpaca for market data only, never for orders. No FK constraints link these tables to anything else.
+            changes:
+                -   dropTable: { tableName: live_slot }
+                -   dropTable: { tableName: live_trade }
+                -   dropTable: { tableName: live_order }
+                -   dropTable: { tableName: live_cycle }
+                -   dropTable: { tableName: live_equity }
+                -   dropTable: { tableName: live_strategy_pnl }
+                -   dropTable: { tableName: live_config }

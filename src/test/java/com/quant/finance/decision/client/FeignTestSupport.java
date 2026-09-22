@@ -1,7 +1,5 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.client;
 
-import com.quant.finance.decision.client.AlpacaClient;
-import com.quant.finance.decision.client.AlpacaCredentials;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
@@ -30,9 +28,8 @@ final class FeignTestSupport implements AutoCloseable {
 
     private final AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
 
-    FeignTestSupport(String tradingBase, String dataBase, String keyId, String secret) {
+    FeignTestSupport(String dataBase, String keyId, String secret) {
         ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", Map.of(
-                "decision.alpaca.trading-base-url", tradingBase,
                 "decision.alpaca.data-base-url", dataBase,
                 "decision.alpaca.api-key-id", keyId,
                 "decision.alpaca.api-secret-key", secret)));
@@ -41,8 +38,6 @@ final class FeignTestSupport implements AutoCloseable {
     }
 
     AlpacaClient client() { return ctx.getBean(AlpacaClient.class); }
-
-    AlpacaCredentials credentials() { return ctx.getBean(AlpacaCredentials.class); }
 
     @Override
     public void close() { ctx.close(); }

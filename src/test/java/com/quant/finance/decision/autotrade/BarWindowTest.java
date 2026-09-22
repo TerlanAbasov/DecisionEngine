@@ -1,6 +1,6 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
-import com.quant.finance.decision.live.BarWindow.Bar;
+import com.quant.finance.decision.autotrade.BarWindow.Bar;
 import com.quant.finance.decision.strategy.BarSeries;
 import org.junit.jupiter.api.Test;
 

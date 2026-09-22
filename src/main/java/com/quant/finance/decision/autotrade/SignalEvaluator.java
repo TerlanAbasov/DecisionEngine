@@ -1,8 +1,8 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.engine.BarResampler;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.LiveDataSource.Base;
+import com.quant.finance.decision.autotrade.LiveDataSource.Base;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 
@@ -21,7 +21,7 @@ public final class SignalEvaluator {
     static final int MIN_BARS = 30;
     private static final int SESSION_SECONDS = 6 * 3600 + 1800;   // 6.5 h of trading a day
 
-    /** A batch never runs on raw 1-minute bars in the backtests, and neither does the job. */
+    /** A batch never runs on raw 1-minute bars in the backtests, and neither does auto trading. */
     public static Timeframe liveFrame(Timeframe tf) { return tf == null || tf.isNative() ? Timeframe.M15 : tf; }
 
     /** Intraday frames are built from 1-minute bars, day and longer from daily bars. */

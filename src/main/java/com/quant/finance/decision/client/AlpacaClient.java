@@ -9,54 +9,20 @@ import feign.Retryer;
 import feign.codec.ErrorDecoder;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.context.annotation.Bean;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.net.URI;
-import java.util.Map;
 
 /**
- * Alpaca's API: paper-account trading (the fixed url) and market data (another host, so those calls take a base {@link URI}).
- * Returns JSON (Alpaca sends numbers as strings); errors are {@link AlpacaApiException}; {@link AlpacaFeign#hostGuardInterceptor()} pins each call's host.
+ * Alpaca's market-data API (bars and latest prices): the base URL is passed per call, so a symbol's data and a strategy's decisions always
+ * come from Alpaca's real data host. Returns JSON (Alpaca sends numbers as strings); errors are {@link AlpacaApiException}.
  */
-@FeignClient(name = "alpaca-trading-client",
-    url = "${decision.alpaca.trading-base-url:https://paper-api.alpaca.markets}",
+@FeignClient(name = "alpaca-data-client",
+    url = "${decision.alpaca.data-base-url:https://data.alpaca.markets}",
     configuration = AlpacaClient.FeignConfiguration.class)
 public interface AlpacaClient {
-
-    @GetMapping("/v2/account")
-    JsonNode account();
-
-    @GetMapping("/v2/clock")
-    JsonNode clock();
-
-    @GetMapping("/v2/positions")
-    JsonNode positions();
-
-    @GetMapping("/v2/assets/{symbol}")
-    JsonNode asset(@PathVariable("symbol") String symbol);
-
-    /** Body: symbol, qty, side, type, time_in_force, client_order_id. */
-    @PostMapping("/v2/orders")
-    JsonNode submitOrder(@RequestBody Map<String, Object> order);
-
-    @GetMapping("/v2/orders:by_client_order_id")
-    JsonNode orderByClientId(@RequestParam("client_order_id") String clientOrderId);
-
-    @GetMapping("/v2/orders/{id}")
-    JsonNode order(@PathVariable("id") String id);
-
-    @DeleteMapping("/v2/orders/{id}")
-    void cancelOrder(@PathVariable("id") String id);
-
-    @GetMapping("/v2/orders")
-    JsonNode orders(@RequestParam("status") String status, @RequestParam("limit") int limit);
-
-    // ---- market data (base URL passed per call) ----------------------------------------------------
 
     /** One page of bars; pass the previous page's {@code next_page_token} as {@code pageToken} (null for the first). */
     @GetMapping("/v2/stocks/{symbol}/bars")
@@ -101,7 +67,7 @@ public interface AlpacaClient {
             return AlpacaFeign.options();
         }
 
-        /** Never retry inside Feign: a retried order could be sent twice. Reads are retried by the caller. */
+        /** Never retry inside Feign, to keep one call one request; {@link AlpacaCalls#read} is what retries a read. */
         @Bean
         Retryer feignRetryer() {
             return Retryer.NEVER_RETRY;

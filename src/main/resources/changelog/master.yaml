@@ -49,3 +49,5 @@ databaseChangeLog:
             file: changelog/tables/1.1/20260921-paper-trading.yaml
     -   include:
             file: changelog/tables/1.1/20260922-auto-trade.yaml
+    -   include:
+            file: changelog/tables/1.1/20260923-drop-alpaca-trading.yaml

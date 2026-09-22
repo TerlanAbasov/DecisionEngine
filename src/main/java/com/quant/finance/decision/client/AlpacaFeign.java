@@ -15,32 +15,20 @@ import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/** What the Alpaca Feign clients have in common: authentication, the paper-only guard, error decoding and timeouts. */
+/** What the Alpaca Feign client needs: authentication, the data-host guard, error decoding and timeouts. */
 public final class AlpacaFeign {
     private AlpacaFeign() {}
 
-    /** Alpaca's paper-trading host — the only real host trading requests may go to. */
-    public static final String PAPER_HOST = "paper-api.alpaca.markets";
-    /** Alpaca's market-data host — the only real host market-data requests may go to. */
+    /** Alpaca's market-data host — the only real host a market-data request may go to. */
     public static final String DATA_HOST = "data.alpaca.markets";
     private static final Set<String> LOCAL_HOSTS = Set.of("localhost", "127.0.0.1");
-    private static final String MARKET_DATA_PATH = "/v2/stocks/";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** True when {@code url} points at the paper endpoint (or localhost, which the tests use). */
-    public static boolean isPaperUrl(String url) {
-        return hostIs(url, PAPER_HOST);
-    }
-
-    /** True when {@code url} points at Alpaca's market-data host (or localhost). */
+    /** True when {@code url} points at Alpaca's market-data host (or localhost, which the tests use). */
     public static boolean isDataUrl(String url) {
-        return hostIs(url, DATA_HOST);
-    }
-
-    private static boolean hostIs(String url, String realHost) {
         try {
             String host = URI.create(url == null ? "" : url.trim()).getHost();
-            return host != null && (host.equalsIgnoreCase(realHost) || LOCAL_HOSTS.contains(host.toLowerCase()));
+            return host != null && (host.equalsIgnoreCase(DATA_HOST) || LOCAL_HOSTS.contains(host.toLowerCase()));
         } catch (IllegalArgumentException e) {
             return false;
         }
@@ -57,31 +45,16 @@ public final class AlpacaFeign {
         };
     }
 
-    /**
-     * Refuses a request headed for the wrong host before it leaves the machine: market-data reads (GET /v2/stocks/…) only to the data host,
-     * everything else only to the paper endpoint, so the keys and orders can only reach Alpaca's paper account.
-     */
+    /** Refuses a request headed anywhere but Alpaca's market-data host, before it leaves the machine. */
     public static RequestInterceptor hostGuardInterceptor() {
         return template -> {
             String path = template.path() == null ? "" : template.path();
             boolean overridden = path.startsWith("http://") || path.startsWith("https://");   // a per-call base URL
             String base = overridden ? path : template.feignTarget() == null ? "" : template.feignTarget().url();
-            String resource = overridden ? pathOf(path) : path;
-            boolean marketData = "GET".equalsIgnoreCase(template.method()) && resource.startsWith(MARKET_DATA_PATH);
-            if (marketData) {
-                if (!isDataUrl(base))
-                    throw new IllegalStateException("Refusing to send a market-data request to '" + hostOf(base)
-                            + "': it is not Alpaca's market-data host (https://" + DATA_HOST + ").");
-            } else if (!isPaperUrl(base)) {
-                throw new IllegalStateException("Refusing to trade: decision.alpaca.trading-base-url is '" + hostOf(base)
-                        + "', which is not the paper-trading endpoint (https://" + PAPER_HOST + "). "
-                        + "This job only ever trades a paper (demo) account.");
-            }
+            if (!isDataUrl(base))
+                throw new IllegalStateException("Refusing to send a market-data request to '" + hostOf(base)
+                        + "': it is not Alpaca's market-data host (https://" + DATA_HOST + ").");
         };
-    }
-
-    private static String pathOf(String url) {
-        try { return URI.create(url).getPath() == null ? "" : URI.create(url).getPath(); } catch (IllegalArgumentException e) { return ""; }
     }
 
     private static String hostOf(String url) {

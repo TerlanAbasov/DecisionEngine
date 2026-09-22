@@ -1,7 +1,9 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
-import com.quant.finance.decision.client.AlpacaCredentials;
+import com.quant.finance.decision.client.AlpacaCalls;
 import com.quant.finance.decision.client.AlpacaClient;
+import com.quant.finance.decision.client.AlpacaCredentials;
+import com.quant.finance.decision.client.AlpacaJson;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.strategy.BarSeries;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Alpaca market data for the paper-trading job: recent bars (in memory, topped up incrementally) and latest prices. Bars are split-adjusted,
+ * Alpaca market data for auto trading's signal detection: recent bars (in memory, topped up incrementally) and latest prices. Bars are split-adjusted,
  * unlike the raw cached history the backtests use, so a split inside the lookback can't distort the indicators.
  */
 @Component

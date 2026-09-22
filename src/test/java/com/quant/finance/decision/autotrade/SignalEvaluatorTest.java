@@ -1,7 +1,7 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.LiveDataSource.Base;
+import com.quant.finance.decision.autotrade.LiveDataSource.Base;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import org.junit.jupiter.api.Test;

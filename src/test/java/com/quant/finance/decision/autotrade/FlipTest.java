@@ -2,7 +2,7 @@ package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.autotrade.TradeCommand.Side;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.SignalEvaluator.Reading;
+import com.quant.finance.decision.autotrade.SignalEvaluator.Reading;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

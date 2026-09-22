@@ -1,11 +1,11 @@
-package com.quant.finance.decision.live;
+package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.strategy.BarSeries;
 
 import java.util.Collection;
 import java.util.Map;
 
-/** Fresh market data for the paper-trading job. Implemented over Alpaca; faked in tests. */
+/** Fresh market data for auto trading's signal detection. Implemented over Alpaca; faked in tests. */
 public interface LiveDataSource {
 
     /** Granularity the bars are fetched at; coarser frames are built from these with the backtest's resampler. */

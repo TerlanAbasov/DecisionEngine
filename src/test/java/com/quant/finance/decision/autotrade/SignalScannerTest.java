@@ -5,7 +5,7 @@ import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.autotrade.SignalScanner.Result;
 import com.quant.finance.decision.autotrade.TradeCommand.Side;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.LiveDataSource;
+import com.quant.finance.decision.autotrade.LiveDataSource;
 import com.quant.finance.decision.service.StrategyService;
 import com.quant.finance.decision.service.UniverseService;
 import com.quant.finance.decision.strategy.BarSeries;

@@ -3,7 +3,6 @@ package com.quant.finance.decision.controller;
 import com.quant.finance.decision.autotrade.ExecutionEngineException;
 import com.quant.finance.decision.error.JobConflictException;
 import com.quant.finance.decision.error.AlpacaApiException;
-import com.quant.finance.decision.live.LiveTradingScheduler;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,12 +28,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(JobConflictException.class)
     public ResponseEntity<Map<String, Object>> conflict(JobConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage(), "activeJob", e.active()));
-    }
-
-    /** A manual paper-trading action while a cycle is running. */
-    @ExceptionHandler(LiveTradingScheduler.BusyException.class)
-    public ResponseEntity<Map<String, String>> busy(LiveTradingScheduler.BusyException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 
     /** Alpaca refused or could not be reached. */

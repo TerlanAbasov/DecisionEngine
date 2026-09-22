@@ -2,10 +2,7 @@ package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.config.ExecutorConfig;
 import com.quant.finance.decision.engine.Timeframe;
-import com.quant.finance.decision.live.LiveDataSource;
-import com.quant.finance.decision.live.LiveDataSource.Base;
-import com.quant.finance.decision.live.SignalEvaluator;
-import com.quant.finance.decision.live.SignalEvaluator.Reading;
+import com.quant.finance.decision.autotrade.LiveDataSource.Base;
 import com.quant.finance.decision.service.StrategyService;
 import com.quant.finance.decision.service.UniverseService;
 import com.quant.finance.decision.strategy.BarSeries;
@@ -110,7 +107,7 @@ class SignalScanner {
             Instant lastBar = null;
             for (TradingStrategy strategy : byFrame.get(frame)) {
                 try {
-                    Reading reading = SignalEvaluator.read(strategy, params.get(strategy.name()), base, frame, now);
+                    SignalEvaluator.Reading reading = SignalEvaluator.read(strategy, params.get(strategy.name()), base, frame, now);
                     if (reading == null) continue;                       // not enough history yet
                     lastBar = reading.barOpen();
                     Flip.detect(strategy.name(), symbol, frame, reading, enabledSince, now).ifPresent(flips::add);

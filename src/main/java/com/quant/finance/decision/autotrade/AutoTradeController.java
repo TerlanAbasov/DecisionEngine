@@ -1,9 +1,9 @@
 package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.autotrade.AutoTradeDtos.CommandDto;
+import com.quant.finance.decision.autotrade.AutoTradeDtos.PageDto;
 import com.quant.finance.decision.autotrade.AutoTradeDtos.StatusDto;
 import com.quant.finance.decision.dto.Dtos.SignalDto;
-import com.quant.finance.decision.live.LiveDtos.PageDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
