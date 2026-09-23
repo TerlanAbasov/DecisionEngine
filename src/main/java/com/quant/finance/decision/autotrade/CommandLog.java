@@ -20,8 +20,16 @@ class CommandLog {
     private final AutoTradeCommandRepository repo;
     private final Clock clock;
 
-    /** Writes the command for {@code flip}; empty when that bar already has one (the unique key), which means it must not be sent again. */
+    /**
+     * Writes the command for {@code flip}; empty when that bar already has one, which means it must not be sent again. This is the ordinary
+     * path after a restart (every open bar looks due again) and happens routinely, so it is checked for up front — hitting the unique key
+     * instead would still be caught, but not before Hibernate logged the constraint violation as a warning and an error of its own.
+     */
     Optional<AutoTradeCommandEntity> record(Flip flip, AutoTradeSettings settings, CommandStatus status, String response) {
+        if (repo.existsByStrategyAndSymbolAndTimeframeAndBarOpen(flip.strategy(), flip.symbol(), flip.timeframe().name(), flip.barOpen())) {
+            log.debug("{} {} {} bar {} already has a command", flip.strategy(), flip.symbol(), flip.timeframe(), flip.barOpen());
+            return Optional.empty();
+        }
         AutoTradeCommandEntity row = new AutoTradeCommandEntity();
         row.setCreatedAt(clock.instant());
         row.setStrategy(flip.strategy());
@@ -37,7 +45,9 @@ class CommandLog {
         try {
             return Optional.of(repo.saveAndFlush(row));
         } catch (DataIntegrityViolationException e) {
-            log.debug("{} {} {} bar {} already has a command", flip.strategy(), flip.symbol(), flip.timeframe(), flip.barOpen());
+            // the exists() check above just missed a command written between it and this insert — vanishingly rare (ticks never overlap),
+            // but the unique key is the actual guarantee; this is only its backstop.
+            log.debug("{} {} {} bar {} got a command just before this one did", flip.strategy(), flip.symbol(), flip.timeframe(), flip.barOpen());
             return Optional.empty();
         }
     }

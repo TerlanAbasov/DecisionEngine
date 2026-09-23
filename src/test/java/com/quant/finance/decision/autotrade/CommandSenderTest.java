@@ -37,7 +37,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class CommandSenderTest {
 
     @Configuration
-    @EnableFeignClients(clients = {ExecutionEngineApi.class})
+    @EnableFeignClients(clients = {ExecutionEngineClient.class})
     @ImportAutoConfiguration({HttpMessageConvertersAutoConfiguration.class, JacksonAutoConfiguration.class, FeignAutoConfiguration.class})
     static class Config {}
 
@@ -79,7 +79,7 @@ class CommandSenderTest {
         ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", Map.of("decision.execution-engine.url", url)));
         ctx.register(Config.class);
         ctx.refresh();
-        return new CommandSender(ctx.getBean(ExecutionEngineApi.class), url);
+        return new CommandSender(ctx.getBean(ExecutionEngineClient.class), url);
     }
 
     private CommandSender sender() { return senderFor("http://localhost:" + server.getAddress().getPort()); }
@@ -161,7 +161,7 @@ class CommandSenderTest {
 
     @Test
     void withoutAUrlNothingIsSent() {
-        ExecutionEngineApi api = mock(ExecutionEngineApi.class);
+        ExecutionEngineClient api = mock(ExecutionEngineClient.class);
         CommandSender blank = new CommandSender(api, "  ");
         assertFalse(blank.isConfigured());
         assertEquals(CommandStatus.FAILED, blank.send(TradeCommand.of(FLIP, SETTINGS)).status());
@@ -180,7 +180,7 @@ class CommandSenderTest {
 
     @Test
     void anUnusableUrlCountsAsNotConfiguredInsteadOfCrashingTheApp() {
-        ExecutionEngineApi api = mock(ExecutionEngineApi.class);
+        ExecutionEngineClient api = mock(ExecutionEngineClient.class);
         for (String bad : new String[]{"not a url", "localhost:8081", "ftp://host/x", "http://", "http://bad host"})
             assertFalse(new CommandSender(api, bad).isConfigured(), bad);
         assertTrue(new CommandSender(api, " https://engine.example.com:8081 ").isConfigured());

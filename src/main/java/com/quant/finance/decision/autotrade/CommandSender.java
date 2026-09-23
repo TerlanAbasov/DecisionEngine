@@ -16,10 +16,10 @@ public class CommandSender {
     /** How a send ended: {@code status} is SENT, REJECTED or FAILED; {@code message} is ExecutionEngine's reply or the error. */
     record SendResult(CommandStatus status, String message) {}
 
-    private final ExecutionEngineApi api;
+    private final ExecutionEngineClient api;
     private final URI baseUrl;
 
-    public CommandSender(ExecutionEngineApi api, @Value("${decision.execution-engine.url:}") String url) {
+    public CommandSender(ExecutionEngineClient api, @Value("${decision.execution-engine.url:}") String url) {
         this.api = api;
         this.baseUrl = parse(url);
     }

@@ -1,6 +1,6 @@
 package com.quant.finance.decision;
 
-import com.quant.finance.decision.autotrade.ExecutionEngineApi;
+import com.quant.finance.decision.autotrade.ExecutionEngineClient;
 import com.quant.finance.decision.client.AlpacaClient;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -12,7 +12,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.core.env.Environment;
 
 @SpringBootApplication
-@EnableFeignClients(clients = {ExecutionEngineApi.class, AlpacaClient.class})
+@EnableFeignClients(clients = {ExecutionEngineClient.class, AlpacaClient.class})
 @Slf4j
 public class DecisionEngineApplication {
     public static void main(String[] args) {

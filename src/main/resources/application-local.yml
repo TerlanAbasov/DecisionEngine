@@ -40,7 +40,7 @@ decision:
     timeframe: 1Min               # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
   execution-engine:
     # ExecutionEngine's TradeController (POST /api/v1/trades/command). Blank = not configured: nothing is sent and auto-trading cannot be switched on.
-    url: ${EXECUTION_ENGINE_URL:http://localhost:8081}
+    url: 'http://localhost:8081'
   autotrade:
-    tick-seconds: 30                    # how often the auto-trading job looks for new bars (which symbols it fetches depends on each strategy's timeframe)
+    tick-seconds: 60                    # how often the auto-trading job looks for new bars (which symbols it fetches depends on each strategy's timeframe)
   cors-allowed-origins: http://localhost:5173   # EngineUI's Vite dev server
