@@ -156,7 +156,7 @@ for the configured quantity. It is **off by default** and switched on and off fr
 (or `POST /api/autotrade/enable` / `disable`).
 
 - `EXECUTION_ENGINE_URL` (`decision.execution-engine.url`) — ExecutionEngine's base URL (e.g.
-  `http://localhost:8081`). Blank disables everything: the job cannot be switched on and nothing is sent.
+  `http://localhost:8081`). Required: the app does not start without it.
 - `decision.autotrade.tick-seconds` (default `30`) — how often the job looks for new bars. What it fetches on a
   tick is decided per symbol and timeframe: a 15-minute strategy is looked at once its next bar is complete,
   a daily one about once a day.
