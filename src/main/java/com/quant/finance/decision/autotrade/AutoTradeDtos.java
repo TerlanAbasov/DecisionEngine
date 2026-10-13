@@ -10,7 +10,7 @@ public final class AutoTradeDtos {
     public record PageDto<T>(List<T> items, long total, int page, int size) {}
 
     /** {@code configured}: ExecutionEngine's url is set; {@code running}: a pass is under way; {@code lastRun}: the last pass that had anything to look at. */
-    public record StatusDto(AutoTradeSettings settings, boolean configured, boolean running, RunSummary lastRun, int checkEverySeconds) {}
+    public record StatusDto(AutoTradeSettings settings, boolean running, RunSummary lastRun, int checkEverySeconds) {}
 
     public record CommandDto(Long id, Instant createdAt, String strategy, String symbol, String timeframe, Instant barOpen, String side,
                              double quantity, String orderType, Double limitPrice, String status, String response) {

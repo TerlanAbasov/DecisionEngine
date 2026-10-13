@@ -582,7 +582,7 @@ public final class Indicators {
      * Applies a smoother from the first non-NaN value on: {@link #ema} and {@link #sma} seed from the first {@code n} inputs,
      * so a NaN warm-up prefix from an earlier smoothing stage would otherwise poison every value after it.
      */
-    private static double[] fromFirstValid(double[] s, java.util.function.UnaryOperator<double[]> smoother) {
+    public static double[] fromFirstValid(double[] s, java.util.function.UnaryOperator<double[]> smoother) {
         int first = 0;
         while (first < s.length && Double.isNaN(s[first])) first++;
         if (first == 0) return smoother.apply(s);

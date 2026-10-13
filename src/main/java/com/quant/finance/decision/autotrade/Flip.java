@@ -8,8 +8,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
-/** A strategy that turned LONG (BUY) or SHORT (SELL) on the bar that opened at {@code barOpen}, whose last price was {@code close}. */
-record Flip(String strategy, String symbol, Timeframe timeframe, Side side, Instant barOpen, double close) {
+/** A strategy that turned LONG (BUY) or SHORT (SELL) on the bar that opened at {@code barOpen}, carrying that same bar's own OHLC. */
+record Flip(String strategy, String symbol, Timeframe timeframe, Side side, Instant barOpen,
+           double open, double high, double low, double close) {
 
     /** A signal older than this many bars is not acted on: something (a restart, an outage) made it late, and the market has moved on. */
     static final int STALE_AFTER_BARS = 2;
@@ -25,6 +26,8 @@ record Flip(String strategy, String symbol, Timeframe timeframe, Side side, Inst
         Instant closedAt = BarClock.closesAt(reading.barOpen(), timeframe);
         if (enabledSince == null || !closedAt.isAfter(enabledSince)) return Optional.empty();
         if (Duration.between(closedAt, now).getSeconds() > STALE_AFTER_BARS * BarClock.barSeconds(timeframe)) return Optional.empty();
-        return Optional.of(new Flip(strategy, symbol, timeframe, direction > 0 ? Side.BUY : Side.SELL, reading.barOpen(), reading.close()));
+        Side side = direction > 0 ? Side.BUY : Side.SELL;
+        return Optional.of(new Flip(strategy, symbol, timeframe, side, reading.barOpen(),
+                reading.open(), reading.high(), reading.low(), reading.close()));
     }
 }

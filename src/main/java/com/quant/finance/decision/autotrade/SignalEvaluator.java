@@ -55,8 +55,8 @@ public final class SignalEvaluator {
                 Arrays.copyOf(bars.volume, m));
     }
 
-    /** What a strategy wants after the last completed bar ({@code barOpen}, closing at {@code close}) and after the one before it. */
-    public record Reading(Instant barOpen, double close, double signal, double previousSignal) {}
+    /** What a strategy wants after the last completed bar (its own {@code open}/{@code high}/{@code low}/{@code close}) and after the one before it. */
+    public record Reading(Instant barOpen, double open, double high, double low, double close, double signal, double previousSignal) {}
 
     /** The strategy's target position (clamped to [-1, 1]) after the last completed bar, or null when there is not enough history to evaluate it. */
     static Double lastSignal(TradingStrategy strategy, Map<String, Double> params, BarSeries base, Timeframe tf,
@@ -76,7 +76,8 @@ public final class SignalEvaluator {
             throw new IllegalStateException(strategy.name() + " returned " + (sig == null ? "no" : sig.length)
                     + " signals for " + done.size() + " bars");
         int last = done.size() - 1;
-        return new Reading(done.date[last], done.close[last], clamp(sig[last]), clamp(sig[last - 1]));
+        return new Reading(done.date[last], done.open[last], done.high[last], done.low[last], done.close[last],
+                clamp(sig[last]), clamp(sig[last - 1]));
     }
 
     /** A signal within [-1, 1]; one that is not a number counts as flat. */

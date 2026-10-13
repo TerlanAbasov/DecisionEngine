@@ -24,7 +24,7 @@ class AutoTradeJobTest {
     private static final Instant NOW = Instant.parse("2026-09-21T15:00:30Z");
     private static final AutoTradeSettings ON = new AutoTradeSettings(true, Instant.parse("2026-09-21T14:00:00Z"), 1, OrderType.MKT,
             TimeInForce.DAY, List.of(), List.of(), 25);
-    private static final Flip FLIP = new Flip("rsi", "AAPL", Timeframe.M15, Side.BUY, Instant.parse("2026-09-21T14:45:00Z"), 100);
+    private static final Flip FLIP = new Flip("rsi", "AAPL", Timeframe.M15, Side.BUY, Instant.parse("2026-09-21T14:45:00Z"), 98, 101, 97, 100);
 
     private AutoTradeConfigService config;
     private SignalScanner scanner;

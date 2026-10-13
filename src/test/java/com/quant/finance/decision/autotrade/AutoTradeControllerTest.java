@@ -52,7 +52,6 @@ class AutoTradeControllerTest {
     @Test
     void statusShowsTheSwitchTheConfigurationAndTheLastRun() throws Exception {
         when(config.current()).thenReturn(ON);
-        when(sender.isConfigured()).thenReturn(true);
         when(job.lastRun()).thenReturn(new RunSummary(SINCE, 10, 0, 2, 1, 1, 0, 0));
         when(job.tickSeconds()).thenReturn(30);
 
@@ -61,7 +60,6 @@ class AutoTradeControllerTest {
                 .andExpect(jsonPath("$.settings.enabled").value(true))
                 .andExpect(jsonPath("$.settings.enabledSince").value("2026-09-21T14:00:00Z"))
                 .andExpect(jsonPath("$.settings.orderType").value("MKT"))
-                .andExpect(jsonPath("$.configured").value(true))
                 .andExpect(jsonPath("$.running").value(false))
                 .andExpect(jsonPath("$.lastRun.flips").value(2))
                 .andExpect(jsonPath("$.checkEverySeconds").value(30));

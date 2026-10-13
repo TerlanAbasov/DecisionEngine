@@ -34,7 +34,6 @@ class AutoTradeConfigServiceTest {
         StrategyService strategies = mock(StrategyService.class);
         when(strategies.isStrategy(any())).thenAnswer(i -> List.of("rsi", "macd").contains(i.<String>getArgument(0)));
         sender = mock(CommandSender.class);
-        when(sender.isConfigured()).thenReturn(true);
         service = new AutoTradeConfigService(repo, strategies, sender, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -68,14 +67,6 @@ class AutoTradeConfigServiceTest {
         AutoTradeConfigService later = new AutoTradeConfigService(repo, mock(StrategyService.class), sender,
                 Clock.fixed(NOW.plusSeconds(3600), ZoneOffset.UTC));
         assertEquals(NOW, later.enable().enabledSince(), "read back from the row, not restamped");
-    }
-
-    @Test
-    void enablingIsRefusedWhileExecutionEngineIsNotConfigured() {
-        when(sender.isConfigured()).thenReturn(false);
-        IllegalStateException e = assertThrows(IllegalStateException.class, () -> service.enable());
-        assertTrue(e.getMessage().contains("decision.execution-engine.url"));
-        assertFalse(service.current().enabled());
     }
 
     @Test

@@ -84,14 +84,16 @@ class AlpacaClientTest {
 
     @Test
     void fetchesBarsPageByPageWithSplitAdjustment() {
+        // relative to now: the window drops bars older than its lookback, so fixed dates stop working as the calendar moves on
+        Instant t1 = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).minusSeconds(120), t2 = t1.plusSeconds(60);
         int[] page = {0};
         routes.put("GET /v2/stocks/MU/bars", r -> page[0]++ == 0
-                ? new String[] {"200", "{\"bars\":[{\"t\":\"2026-09-21T14:00:00Z\",\"o\":1,\"h\":2,\"l\":0.5,\"c\":1.5,\"v\":100}],\"next_page_token\":\"p2\"}"}
-                : new String[] {"200", "{\"bars\":[{\"t\":\"2026-09-21T14:01:00Z\",\"o\":1.5,\"h\":2,\"l\":1,\"c\":1.8,\"v\":50}],\"next_page_token\":null}"});
+                ? new String[] {"200", "{\"bars\":[{\"t\":\"" + t1 + "\",\"o\":1,\"h\":2,\"l\":0.5,\"c\":1.5,\"v\":100}],\"next_page_token\":\"p2\"}"}
+                : new String[] {"200", "{\"bars\":[{\"t\":\"" + t2 + "\",\"o\":1.5,\"h\":2,\"l\":1,\"c\":1.8,\"v\":50}],\"next_page_token\":null}"});
         BarSeries s = data().bars("MU", com.quant.finance.decision.autotrade.LiveDataSource.Base.MIN1, 3);
         assertEquals(2, s.size());
         assertEquals(1.8, s.close[1], 1e-9);
-        assertEquals(Instant.parse("2026-09-21T14:01:00Z"), s.date[1]);
+        assertEquals(t2, s.date[1]);
         String q1 = requests.get(0).query(), q2 = requests.get(1).query();
         assertTrue(q1.contains("timeframe=1Min") && q1.contains("adjustment=split") && q1.contains("feed=iex"), q1);
         assertTrue(q2.contains("page_token=p2"), q2);

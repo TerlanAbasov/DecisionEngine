@@ -17,7 +17,7 @@ class FlipTest {
     private static final Instant NOW = Instant.parse("2026-09-21T15:00:30Z");
 
     private static Optional<Flip> detect(double signal, double previous, Instant enabledSince, Instant now) {
-        return Flip.detect("rsi", "AAPL", Timeframe.M15, new Reading(BAR_OPEN, 101.5, signal, previous), enabledSince, now);
+        return Flip.detect("rsi", "AAPL", Timeframe.M15, new Reading(BAR_OPEN, 100, 102, 99, 101.5, signal, previous), enabledSince, now);
     }
 
     @Test
@@ -26,6 +26,9 @@ class FlipTest {
         assertEquals(Side.BUY, buy.side());
         assertEquals("AAPL", buy.symbol());
         assertEquals(BAR_OPEN, buy.barOpen());
+        assertEquals(100, buy.open());
+        assertEquals(102, buy.high());
+        assertEquals(99, buy.low());
         assertEquals(101.5, buy.close());
         assertEquals(Side.SELL, detect(-0.4, 0, ENABLED, NOW).orElseThrow().side());
     }
@@ -67,7 +70,7 @@ class FlipTest {
     @Test
     void calendarFramesUseTheirTypicalLength() {
         Instant weekOpen = Instant.parse("2026-09-14T00:00:00Z");
-        Reading weekly = new Reading(weekOpen, 50, 1, 0);
+        Reading weekly = new Reading(weekOpen, 48, 52, 47, 50, 1, 0);
         assertTrue(Flip.detect("s", "AAPL", Timeframe.W1, weekly, Instant.parse("2026-09-01T00:00:00Z"), Instant.parse("2026-09-21T06:00:00Z")).isPresent());
         assertTrue(Flip.detect("s", "AAPL", Timeframe.W1, weekly, Instant.parse("2026-09-21T03:00:00Z"), Instant.parse("2026-09-21T06:00:00Z")).isEmpty());
     }

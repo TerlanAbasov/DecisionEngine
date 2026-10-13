@@ -78,6 +78,31 @@ class RsiMomentum extends AbstractStrategy {
     }
 }
 
+class RsiMaCross extends AbstractStrategy {
+    public String name() { return "rsi_ma_cross"; }
+    public String category() { return "momentum"; }
+    public String direction() { return "long_short"; }
+    public String description() { return "RSI crossing its own moving average (TradingView's RSI-based MA), with the 70/50/30 bands as guards."; }
+    public Map<String, Double> defaultParams() {
+        return Map.of("rsiN", 14.0, "maN", 14.0, "upper", 70.0, "lower", 30.0, "midTol", 20.0);
+    }
+    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
+        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
+        int maN = pi(pr, "maN");
+        double[] ma = Indicators.fromFirstValid(r, a -> Indicators.sma(a, maN));   // the MA is of the RSI, not of price; RSI's NaN warm-up would poison a plain sma
+        boolean[] up = and(gt(r, ma), shift1(lt(r, ma)));
+        boolean[] dn = and(lt(r, ma), shift1(gt(r, ma)));
+        double tol = p(pr, "midTol");
+        // Entries are the cross itself, but never a chase: no new long once RSI is already overbought, no new short
+        // once it is oversold, and the MA must sit within `midTol` of the 50 midline on the trade's own side —
+        // which keeps longs out of a washout and shorts out of a melt-up. midTol >= 50 turns that last guard off.
+        boolean[] li = and(and(up, lt(r, p(pr, "upper"))), gt(ma, 50 - tol));
+        boolean[] si = and(and(dn, gt(r, p(pr, "lower"))), lt(ma, 50 + tol));
+        // exits are the bare opposite cross, so a cross that fails the entry guard still closes what is open
+        return clean(hold(li, dn, si, up));
+    }
+}
+
 class MultiHorizonMomentum extends AbstractStrategy {
     public String name() { return "multi_horizon_momentum"; }
     public String category() { return "momentum"; }

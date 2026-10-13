@@ -4,8 +4,8 @@ import com.quant.finance.decision.strategy.TradingStrategy;
 import java.util.List;
 
 /**
- * The registry of all built-in single-asset strategies (55: 50 kept by backtest Sharpe ranking, 3 restored on request despite low ranking,
- * plus WaveTrend and Support/Resistance Bounce); Pairs is separate.
+ * The registry of all built-in single-asset strategies (56: 50 kept by backtest Sharpe ranking, 3 restored on request despite low ranking,
+ * plus WaveTrend, Support/Resistance Bounce and RSI-vs-its-MA cross); Pairs is separate.
  */
 public final class StrategyCatalog {
     private StrategyCatalog() {}
@@ -19,9 +19,9 @@ public final class StrategyCatalog {
             new CoppockCurve(), new DonchianMidline(),
             // mean reversion (3)
             new Rsi2(), new WaveTrend(), new SupportResistanceBounce(),
-            // momentum (11)
+            // momentum (12)
             new RocMomentum(), new High52wBreakout(), new DualMomentum(),
-            new VolScaledMomentum(), new RsiMomentum(), new MultiHorizonMomentum(),
+            new VolScaledMomentum(), new RsiMomentum(), new RsiMaCross(), new MultiHorizonMomentum(),
             new ForceIndexMomentum(), new CciMomentum(), new TrixMomentum(), new MaStackMomentum(),
             new HullMomentum(),
             // breakout (5)

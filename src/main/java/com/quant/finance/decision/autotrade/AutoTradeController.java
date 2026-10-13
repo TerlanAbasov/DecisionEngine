@@ -31,7 +31,7 @@ public class AutoTradeController {
 
     @GetMapping("/status")
     public StatusDto status() {
-        return new StatusDto(config.current(), sender.isConfigured(), job.running(), job.lastRun(), job.tickSeconds());
+        return new StatusDto(config.current(),job.running(), job.lastRun(), job.tickSeconds());
     }
 
     /** Saves the form fields (quantity, order type, time in force, strategies, symbols, limit); the switch is left as it is. */

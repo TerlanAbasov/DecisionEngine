@@ -25,7 +25,7 @@ class CommandLogTest {
     private static final Instant BAR = Instant.parse("2026-09-23T19:15:00Z");
     private static final AutoTradeSettings SETTINGS = new AutoTradeSettings(true, Instant.parse("2026-09-23T18:00:00Z"), 5,
             OrderType.MKT, TimeInForce.DAY, List.of(), List.of(), 25);
-    private static final Flip FLIP = new Flip("rsi2", "AAOI", Timeframe.M15, Side.BUY, BAR, 100);
+    private static final Flip FLIP = new Flip("rsi2", "AAOI", Timeframe.M15, Side.BUY, BAR, 98, 101, 97, 100);
 
     private AutoTradeCommandRepository repo;
     private CommandLog log;

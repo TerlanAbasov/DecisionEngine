@@ -41,7 +41,7 @@ class CommandForwarderTest {
     }
 
     private static Flip flip(String symbol, String strategy) {
-        return new Flip(strategy, symbol, Timeframe.M15, Side.BUY, BAR, 100);
+        return new Flip(strategy, symbol, Timeframe.M15, Side.BUY, BAR, 98, 101, 97, 100);
     }
 
     @BeforeEach
@@ -98,7 +98,7 @@ class CommandForwarderTest {
     @Test
     void theSameStrategyOnALaterBarIsANewCommand() {
         forwarder.forward(List.of(flip("AAPL", "rsi")));
-        forwarder.forward(List.of(new Flip("rsi", "AAPL", Timeframe.M15, Side.SELL, BAR.plusSeconds(900), 99)));
+        forwarder.forward(List.of(new Flip("rsi", "AAPL", Timeframe.M15, Side.SELL, BAR.plusSeconds(900), 97, 100, 96, 99)));
         assertEquals(2, sent.size());
     }
 
