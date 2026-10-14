@@ -49,9 +49,6 @@ public class AutoTradeConfigService {
     return updated;
   }
 
-  /**
-   * Switches the job on. Only bars that complete from now on can trigger a command. Refused while ExecutionEngine is not configured.
-   */
   public synchronized AutoTradeSettings enable() {
     AutoTradeSettings settings = current();
       if (settings.enabled()) {

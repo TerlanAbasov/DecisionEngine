@@ -1,44 +1,55 @@
 server:
   port: 8082
+  shutdown: graceful
 logging:
   level:
     ROOT: INFO
-    com.quant.finance.decision: INFO
+    com.quant.finance.execution: INFO
 
 spring:
   application:
     name: DecisionEngine
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/quant
-    username: ${QUANT_ENGINE_USER}
-    password: ${QUANT_ENGINE_PASSWORD}
+    username: 'engine'
+    password: 'engine2026'
   jpa:
-    hibernate:
-      ddl-auto: validate        # schema is owned by Liquibase (see changelog/master.yaml)
     open-in-view: false
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
     properties:
-      hibernate.jdbc.time_zone: UTC
+      hibernate:
+        default_schema: engine
+        jdbc.time_zone: UTC
   liquibase:
     enabled: true
     change-log: classpath:/changelog/master.yaml
   jackson:
     default-property-inclusion: non_null
+  profiles:
+    active: prod
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+
 
 decision:
   backtest:
     threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
     trace-per-symbol: true       # log one line per (strategy x stock) during backtests — set false for big sweeps
     run-all-max-days: 400        # cap the look-back window of a run-all / batch backtest (guards heap on 1-min data)
-  default-history-years: 6.5
+  default-history-years: 2
+  data:
+    fresh-days: 4               # a symbol counts as "fresh" if its newest cached bar is within this many days
   alpaca:
     api-key-id: PKSRTKKHKLY76BKUA22MYCYIZG
     api-secret-key: HxRYF5RwFD43zsxetHKZsFPqp4SZbULKjvyY6PhAGDvn
     data-base-url: https://data.alpaca.markets   # market data only — Alpaca never places an order in this app
     feed: iex                    # iex (free) | sip (paid subscription)
-    timeframe: 1Hour               # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
+    timeframe: 1Min              # 1Day (daily) | 1Week (weekly) | 1Hour (hourly) | 1Min/5Min/15Min (minute)
   execution-engine:
-    # ExecutionEngine's TradeController (POST /api/v1/trades/command). Required: the app does not start without it.
-    url: ${EXECUTION_ENGINE_URL:}
+    url: 'http://localhost:8081'
   autotrade:
-    tick-seconds: 30                    # how often the auto-trading job looks for new bars (which symbols it fetches depends on each strategy's timeframe)
-  cors-allowed-origins: http://localhost:5173
+    tick-seconds: 60                    # how often the auto-trading job looks for new bars (which symbols it fetches depends on each strategy's timeframe)
+  cors-allowed-origins: http://localhost:8083
