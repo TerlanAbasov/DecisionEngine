@@ -1,10 +1,20 @@
 package com.quant.finance.decision.autotrade;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.OrderType;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.controller.GlobalExceptionHandler;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
@@ -15,21 +25,11 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.time.Instant;
-import java.util.List;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 class AutoTradeControllerTest {
 
     private static final Instant SINCE = Instant.parse("2026-09-21T14:00:00Z");
-    private static final AutoTradeSettings ON = new AutoTradeSettings(true, SINCE, 5, OrderType.MKT, TimeInForce.DAY, List.of(), List.of("AAPL"), 25);
+    private static final AutoTradeSettings ON =
+            new AutoTradeSettings(true, SINCE, 5, OrderType.MKT, TimeInForce.DAY, List.of(), List.of("AAPL"), 25);
 
     private AutoTradeConfigService config;
     private AutoTradeJob job;
@@ -43,10 +43,13 @@ class AutoTradeControllerTest {
         job = mock(AutoTradeJob.class);
         sender = mock(CommandSender.class);
         commands = mock(CommandLog.class);
-        ObjectMapper bootLike = Jackson2ObjectMapperBuilder.json().featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
+        ObjectMapper bootLike = Jackson2ObjectMapperBuilder.json()
+                .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .build();
         mvc = MockMvcBuilders.standaloneSetup(new AutoTradeController(config, job, sender, commands))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(bootLike))
-                .setControllerAdvice(new GlobalExceptionHandler()).build();
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     @Test
@@ -70,28 +73,43 @@ class AutoTradeControllerTest {
         when(config.enable()).thenReturn(ON);
         when(config.disable()).thenReturn(AutoTradeSettings.defaults());
 
-        mvc.perform(post("/api/autotrade/enable")).andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(true));
-        mvc.perform(post("/api/autotrade/disable")).andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false));
+        mvc.perform(post("/api/autotrade/enable"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
+        mvc.perform(post("/api/autotrade/disable"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
     }
 
     @Test
     void enablingWhileNotConfiguredIsABadRequestWithTheReason() throws Exception {
-        when(config.enable()).thenThrow(new IllegalStateException("ExecutionEngine is not configured: set decision.execution-engine.url"));
+        when(config.enable())
+                .thenThrow(new IllegalStateException(
+                        "ExecutionEngine is not configured: set application.execution-engine.url"));
         mvc.perform(post("/api/autotrade/enable"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("ExecutionEngine is not configured: set decision.execution-engine.url"));
+                .andExpect(jsonPath("$.error")
+                        .value("ExecutionEngine is not configured: set application.execution-engine.url"));
     }
 
     @Test
     void theFormIsSavedThroughTheServiceAndBadInputIsRejected() throws Exception {
         when(config.update(any())).thenReturn(ON);
-        String body = "{\"quantity\":5,\"orderType\":\"MKT\",\"tif\":\"DAY\",\"strategyNames\":[],\"symbols\":[\"AAPL\"],\"maxCommandsPerRun\":25}";
-        mvc.perform(put("/api/autotrade/settings").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.quantity").value(5));
+        String body =
+                "{\"quantity\":5,\"orderType\":\"MKT\",\"tif\":\"DAY\",\"strategyNames\":[],\"symbols\":[\"AAPL\"],\"maxCommandsPerRun\":25}";
+        mvc.perform(put("/api/autotrade/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quantity").value(5));
 
-        when(config.update(any())).thenThrow(new IllegalArgumentException("quantity must be more than 0 and at most 1000000 shares"));
-        mvc.perform(put("/api/autotrade/settings").contentType(MediaType.APPLICATION_JSON).content(body.replace("\"quantity\":5", "\"quantity\":0")))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("quantity must be more than 0 and at most 1000000 shares"));
+        when(config.update(any()))
+                .thenThrow(new IllegalArgumentException("quantity must be more than 0 and at most 1000000 shares"));
+        mvc.perform(put("/api/autotrade/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body.replace("\"quantity\":5", "\"quantity\":0")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("quantity must be more than 0 and at most 1000000 shares"));
     }
 
     @Test
@@ -119,30 +137,41 @@ class AutoTradeControllerTest {
                 .andExpect(jsonPath("$.items[0].response").value("📊 Symbol will be bought"));
     }
 
-    private static final String SIGNAL = "{\"strategy\":\"rsi\",\"category\":\"mean\",\"symbol\":\"AAPL\",\"signal\":\"%s\",\"isNew\":true,"
-            + "\"bars\":1,\"weight\":1.0,\"close\":101.5,\"date\":\"2026-09-21T14:45:00Z\",\"timeframe\":\"M15\"}";
+    private static final String SIGNAL =
+            "{\"strategy\":\"rsi\",\"category\":\"mean\",\"symbol\":\"AAPL\",\"signal\":\"%s\",\"isNew\":true,"
+                    + "\"bars\":1,\"weight\":1.0,\"close\":101.5,\"date\":\"2026-09-21T14:45:00Z\",\"timeframe\":\"M15\"}";
 
     @Test
     void aScannedSignalCanBeForwardedByHandUsingTheSavedQuantity() throws Exception {
         when(config.current()).thenReturn(ON);
         when(sender.sendOrThrow(any())).thenReturn("📊 Symbol will be bought");
 
-        mvc.perform(post("/api/autotrade/forward").contentType(MediaType.APPLICATION_JSON).content(String.format(SIGNAL, "LONG")))
+        mvc.perform(post("/api/autotrade/forward")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format(SIGNAL, "LONG")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("sent"))
                 .andExpect(jsonPath("$.response").value("📊 Symbol will be bought"));
-        verify(sender).sendOrThrow(argThat(c -> c.command() == TradeCommand.Side.BUY && c.quantity() == 5 && c.identifier().equals("AAPL")));
+        verify(sender)
+                .sendOrThrow(argThat(c -> c.command() == TradeCommand.Side.BUY
+                        && c.quantity() == 5
+                        && c.identifier().equals("AAPL")));
     }
 
     @Test
     void aFlatSignalCannotBeForwardedAndAnEngineRefusalIsABadGateway() throws Exception {
         when(config.current()).thenReturn(ON);
-        mvc.perform(post("/api/autotrade/forward").contentType(MediaType.APPLICATION_JSON).content(String.format(SIGNAL, "FLAT")))
+        mvc.perform(post("/api/autotrade/forward")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format(SIGNAL, "FLAT")))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(sender);
 
-        when(sender.sendOrThrow(any())).thenThrow(new ExecutionEngineException("❌ Error while executing command: no contract"));
-        mvc.perform(post("/api/autotrade/forward").contentType(MediaType.APPLICATION_JSON).content(String.format(SIGNAL, "SHORT")))
+        when(sender.sendOrThrow(any()))
+                .thenThrow(new ExecutionEngineException("❌ Error while executing command: no contract"));
+        mvc.perform(post("/api/autotrade/forward")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format(SIGNAL, "SHORT")))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").value("ExecutionEngine: ❌ Error while executing command: no contract"));
     }

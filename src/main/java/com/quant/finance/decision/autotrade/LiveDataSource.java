@@ -1,7 +1,6 @@
 package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.strategy.BarSeries;
-
 import java.util.Collection;
 import java.util.Map;
 
@@ -9,9 +8,14 @@ import java.util.Map;
 public interface LiveDataSource {
 
     /** Granularity the bars are fetched at; coarser frames are built from these with the backtest's resampler. */
-    enum Base { MIN1("1Min"), DAY1("1Day");
+    enum Base {
+        MIN1("1Min"),
+        DAY1("1Day");
         public final String alpacaTimeframe;
-        Base(String alpacaTimeframe) { this.alpacaTimeframe = alpacaTimeframe; }
+
+        Base(String alpacaTimeframe) {
+            this.alpacaTimeframe = alpacaTimeframe;
+        }
     }
 
     /**

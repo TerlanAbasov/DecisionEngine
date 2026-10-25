@@ -1,20 +1,19 @@
 package com.quant.finance.decision.autotrade;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.quant.finance.decision.autotrade.AutoTradeSettings.OrderType;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.service.StrategyService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class AutoTradeConfigServiceTest {
 
@@ -30,9 +29,13 @@ class AutoTradeConfigServiceTest {
         repo = mock(AutoTradeConfigRepository.class);
         stored = null;
         when(repo.findById(1L)).thenAnswer(i -> Optional.ofNullable(stored));
-        when(repo.save(any())).thenAnswer(i -> { stored = i.getArgument(0); return stored; });
+        when(repo.save(any())).thenAnswer(i -> {
+            stored = i.getArgument(0);
+            return stored;
+        });
         StrategyService strategies = mock(StrategyService.class);
-        when(strategies.isStrategy(any())).thenAnswer(i -> List.of("rsi", "macd").contains(i.<String>getArgument(0)));
+        when(strategies.isStrategy(any()))
+                .thenAnswer(i -> List.of("rsi", "macd").contains(i.<String>getArgument(0)));
         sender = mock(CommandSender.class);
         service = new AutoTradeConfigService(repo, strategies, sender, Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -43,11 +46,11 @@ class AutoTradeConfigServiceTest {
 
     @Test
     void theFirstReadCreatesTheOffByDefaultRow() {
-        AutoTradeSettings s = service.current();
-        assertFalse(s.enabled());
+        AutoTradeSettings settings = service.current();
+        assertFalse(settings.enabled());
         assertNotNull(stored, "the defaults are saved");
         assertFalse(stored.isEnabled());
-        assertSame(s, service.current(), "and cached afterwards");
+        assertSame(settings, service.current(), "and cached afterwards");
         verify(repo, times(1)).findById(1L);
     }
 
@@ -64,8 +67,8 @@ class AutoTradeConfigServiceTest {
     @Test
     void enablingTwiceKeepsTheOriginalTime() {
         service.enable();
-        AutoTradeConfigService later = new AutoTradeConfigService(repo, mock(StrategyService.class), sender,
-                Clock.fixed(NOW.plusSeconds(3600), ZoneOffset.UTC));
+        AutoTradeConfigService later = new AutoTradeConfigService(
+                repo, mock(StrategyService.class), sender, Clock.fixed(NOW.plusSeconds(3600), ZoneOffset.UTC));
         assertEquals(NOW, later.enable().enabledSince(), "read back from the row, not restamped");
     }
 
@@ -99,7 +102,8 @@ class AutoTradeConfigServiceTest {
 
     @Test
     void aFormThatTriesToSwitchTheJobOnDoesNotDoSo() {
-        AutoTradeSettings sneaky = new AutoTradeSettings(true, NOW, 3, OrderType.MKT, TimeInForce.DAY, List.of(), List.of(), 5);
+        AutoTradeSettings sneaky =
+                new AutoTradeSettings(true, NOW, 3, OrderType.MKT, TimeInForce.DAY, List.of(), List.of(), 5);
         assertFalse(service.update(sneaky).enabled());
     }
 
@@ -117,13 +121,14 @@ class AutoTradeConfigServiceTest {
     void savedSettingsAreReadBackFromTheRowOnStartup() {
         service.enable();
         service.update(form(4, List.of("macd")));
-        AutoTradeConfigService restarted = new AutoTradeConfigService(repo, mock(StrategyService.class), sender, Clock.fixed(NOW, ZoneOffset.UTC));
+        AutoTradeConfigService restarted =
+                new AutoTradeConfigService(repo, mock(StrategyService.class), sender, Clock.fixed(NOW, ZoneOffset.UTC));
 
-        AutoTradeSettings s = restarted.current();
-        assertTrue(s.enabled());
-        assertEquals(NOW, s.enabledSince());
-        assertEquals(4, s.quantity());
-        assertEquals(List.of("macd"), s.strategyNames());
-        assertEquals(TimeInForce.GTC, s.tif());
+        AutoTradeSettings settings = restarted.current();
+        assertTrue(settings.enabled());
+        assertEquals(NOW, settings.enabledSince());
+        assertEquals(4, settings.quantity());
+        assertEquals(List.of("macd"), settings.strategyNames());
+        assertEquals(TimeInForce.GTC, settings.tif());
     }
 }

@@ -3,14 +3,19 @@ package com.quant.finance.decision.controller;
 import com.quant.finance.decision.data.MarketDataService;
 import com.quant.finance.decision.dto.Dtos.PriceSeriesDto;
 import com.quant.finance.decision.dto.Dtos.SymbolCoverageDto;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.web.bind.annotation.*;
-
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/market-data")
@@ -36,11 +41,12 @@ public class MarketDataController {
 
     /** OHLCV series for the chart view — resampled to {@code timeframe}, most recent {@code limit} bars. */
     @GetMapping("/bars")
-    public PriceSeriesDto bars(@RequestParam String symbol,
-                               @RequestParam(required = false) String timeframe,
-                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
-                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
-                               @RequestParam(defaultValue = "1500") int limit) {
+    public PriceSeriesDto bars(
+            @RequestParam String symbol,
+            @RequestParam(required = false) String timeframe,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+            @RequestParam(defaultValue = "1500") int limit) {
         return service.priceSeries(symbol, timeframe, start, end, Math.min(Math.max(limit, 50), 5000));
     }
 
@@ -51,13 +57,17 @@ public class MarketDataController {
     @PostMapping("/pull")
     public Map<String, Integer> pull(@RequestParam List<String> symbols) {
         Map<String, Integer> out = new LinkedHashMap<>();
-        for (String s : symbols) {
-            String sym = s.toUpperCase();
+        for (String symbol : symbols) {
+            String normalizedSymbol = symbol.toUpperCase();
             try {
-                out.put(sym, service.refresh(sym));
+                out.put(normalizedSymbol, service.refresh(normalizedSymbol));
             } catch (RuntimeException e) {
-                log.warn("Pull: {} failed — {}: {}", sym, e.getClass().getSimpleName(), e.getMessage());
-                out.put(sym, -1);
+                log.warn(
+                        "Pull: {} failed — {}: {}",
+                        normalizedSymbol,
+                        e.getClass().getSimpleName(),
+                        e.getMessage());
+                out.put(normalizedSymbol, -1);
             }
         }
         return out;

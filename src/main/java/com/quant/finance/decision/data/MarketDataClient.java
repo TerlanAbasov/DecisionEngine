@@ -1,7 +1,6 @@
 package com.quant.finance.decision.data;
 
 import com.quant.finance.decision.entity.PriceBarEntity;
-
 import java.time.Instant;
 import java.util.List;
 
@@ -20,5 +19,7 @@ public interface MarketDataClient {
     String source();
 
     /** Bar interval this client is currently configured to fetch (e.g. "1Day", "1Min"). */
-    default String configuredTimeframe() { return "1Day"; }
+    default String configuredTimeframe() {
+        return "1Day";
+    }
 }

@@ -1,24 +1,26 @@
 package com.quant.finance.decision.client;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.quant.finance.decision.autotrade.AlpacaLiveData;
 import com.quant.finance.decision.error.AlpacaApiException;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** {@link AlpacaClient} (Alpaca's market-data API) against a real local HTTP server that answers like Alpaca does. */
 class AlpacaClientTest {
@@ -27,9 +29,9 @@ class AlpacaClientTest {
 
     private HttpServer server;
     private final List<Req> requests = new CopyOnWriteArrayList<>();
-    private final Map<String, Function<Req, String[]>> routes = new HashMap<>();   // "GET /v2/stocks/MU/bars" -> [status, body]
+    private final Map<String, Function<Req, String[]>> routes =
+            new HashMap<>(); // "GET /v2/stocks/MU/bars" -> [status, body]
     private String base;
-    private final AlpacaCredentials creds = new AlpacaCredentials("PKTEST", "secret", "iex");
     private final List<FeignTestSupport> contexts = new ArrayList<>();
 
     @BeforeEach
@@ -48,31 +50,43 @@ class AlpacaClientTest {
 
     /** The real Feign client (with its interceptors and error decoder) pointed at {@code dataBase}. */
     private FeignTestSupport feign(String dataBase, String key, String secret) {
-        FeignTestSupport f = new FeignTestSupport(dataBase, key, secret);
-        contexts.add(f);
-        return f;
+        FeignTestSupport support = new FeignTestSupport(dataBase, key, secret);
+        contexts.add(support);
+        return support;
     }
 
-    private FeignTestSupport feign() { return feign(base, "PKTEST", "secret"); }
+    private FeignTestSupport feign() {
+        return feign(base, "PKTEST", "secret");
+    }
 
     private void handle(HttpExchange ex) throws IOException {
         ex.getRequestBody().readAllBytes();
-        Map<String, String> h = new HashMap<>();
-        ex.getRequestHeaders().forEach((k, v) -> h.put(k.toLowerCase(), v.get(0)));
-        Req r = new Req(ex.getRequestMethod(), ex.getRequestURI().getPath(), ex.getRequestURI().getRawQuery(), h);
-        requests.add(r);
-        Function<Req, String[]> route = routes.get(r.method() + " " + r.path());
-        String[] resp = route == null ? new String[] {"404", "{\"message\":\"no route\"}"} : route.apply(r);
+        Map<String, String> headers = new HashMap<>();
+        ex.getRequestHeaders().forEach((k, v) -> headers.put(k.toLowerCase(), v.get(0)));
+        Req request = new Req(
+                ex.getRequestMethod(),
+                ex.getRequestURI().getPath(),
+                ex.getRequestURI().getRawQuery(),
+                headers);
+        requests.add(request);
+        Function<Req, String[]> route = routes.get(request.method() + " " + request.path());
+        String[] resp = route == null ? new String[] {"404", "{\"message\":\"no route\"}"} : route.apply(request);
         byte[] out = resp[1].getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");
         ex.sendResponseHeaders(Integer.parseInt(resp[0]), out.length == 0 ? -1 : out.length);
-        if (out.length > 0) ex.getResponseBody().write(out);
+        if (out.length > 0) {
+            ex.getResponseBody().write(out);
+        }
         ex.close();
     }
 
-    private void route(String key, String status, String body) { routes.put(key, r -> new String[] {status, body}); }
+    private void route(String key, String status, String body) {
+        routes.put(key, r -> new String[] {status, body});
+    }
 
-    private AlpacaLiveData data() { return new AlpacaLiveData(feign().client(), creds, base); }
+    private AlpacaLiveData data() {
+        return new AlpacaLiveData(feign().client(), FeignTestSupport.properties(base, "PKTEST", "secret"));
+    }
 
     @Test
     void readsTheAccountKeysWithEveryRequest() {
@@ -84,29 +98,46 @@ class AlpacaClientTest {
 
     @Test
     void fetchesBarsPageByPageWithSplitAdjustment() {
-        // relative to now: the window drops bars older than its lookback, so fixed dates stop working as the calendar moves on
-        Instant t1 = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).minusSeconds(120), t2 = t1.plusSeconds(60);
+        // relative to now: the window drops bars older than its lookback, so fixed dates stop working as the calendar
+        // moves on
+        Instant t1 =
+                Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).minusSeconds(120);
+        Instant t2 = t1.plusSeconds(60);
         int[] page = {0};
-        routes.put("GET /v2/stocks/MU/bars", r -> page[0]++ == 0
-                ? new String[] {"200", "{\"bars\":[{\"t\":\"" + t1 + "\",\"o\":1,\"h\":2,\"l\":0.5,\"c\":1.5,\"v\":100}],\"next_page_token\":\"p2\"}"}
-                : new String[] {"200", "{\"bars\":[{\"t\":\"" + t2 + "\",\"o\":1.5,\"h\":2,\"l\":1,\"c\":1.8,\"v\":50}],\"next_page_token\":null}"});
-        BarSeries s = data().bars("MU", com.quant.finance.decision.autotrade.LiveDataSource.Base.MIN1, 3);
-        assertEquals(2, s.size());
-        assertEquals(1.8, s.close[1], 1e-9);
-        assertEquals(t2, s.date[1]);
-        String q1 = requests.get(0).query(), q2 = requests.get(1).query();
+        routes.put(
+                "GET /v2/stocks/MU/bars",
+                r -> page[0]++ == 0
+                        ? new String[] {
+                            "200",
+                            "{\"bars\":[{\"t\":\"" + t1
+                                    + "\",\"o\":1,\"h\":2,\"l\":0.5,\"c\":1.5,\"v\":100}],\"next_page_token\":\"p2\"}"
+                        }
+                        : new String[] {
+                            "200",
+                            "{\"bars\":[{\"t\":\"" + t2
+                                    + "\",\"o\":1.5,\"h\":2,\"l\":1,\"c\":1.8,\"v\":50}],\"next_page_token\":null}"
+                        });
+        BarSeries series = data().bars("MU", com.quant.finance.decision.autotrade.LiveDataSource.Base.MIN1, 3);
+        assertEquals(2, series.size());
+        assertEquals(1.8, series.close[1], 1e-9);
+        assertEquals(t2, series.date[1]);
+        String q1 = requests.get(0).query();
+        String q2 = requests.get(1).query();
         assertTrue(q1.contains("timeframe=1Min") && q1.contains("adjustment=split") && q1.contains("feed=iex"), q1);
         assertTrue(q2.contains("page_token=p2"), q2);
     }
 
     @Test
     void latestPricesReadTheTradeThenFallBackToTheBar() {
-        route("GET /v2/stocks/snapshots", "200", "{\"MU\":{\"latestTrade\":{\"p\":91.5}},\"AAOI\":{\"minuteBar\":{\"c\":20.25}},\"XYZ\":{}}");
-        Map<String, Double> p = data().latestPrices(List.of("MU", "AAOI", "XYZ", "NOPE"));
-        assertEquals(91.5, p.get("MU"));
-        assertEquals(20.25, p.get("AAOI"));
-        assertFalse(p.containsKey("XYZ"));
-        assertFalse(p.containsKey("NOPE"));
+        route(
+                "GET /v2/stocks/snapshots",
+                "200",
+                "{\"MU\":{\"latestTrade\":{\"p\":91.5}},\"AAOI\":{\"minuteBar\":{\"c\":20.25}},\"XYZ\":{}}");
+        Map<String, Double> values = data().latestPrices(List.of("MU", "AAOI", "XYZ", "NOPE"));
+        assertEquals(91.5, values.get("MU"));
+        assertEquals(20.25, values.get("AAOI"));
+        assertFalse(values.containsKey("XYZ"));
+        assertFalse(values.containsKey("NOPE"));
 
         route("GET /v2/stocks/snapshots", "200", "{\"snapshots\":{\"MU\":{\"latestTrade\":{\"p\":10}}}}");
         assertEquals(10.0, data().latestPrices(List.of("MU")).get("MU"), "the older response shape is understood too");
@@ -115,8 +146,11 @@ class AlpacaClientTest {
     @Test
     void readsAreRetriedOnAServerErrorButTheAnswerIsNotLost() {
         int[] calls = {0};
-        routes.put("GET /v2/stocks/snapshots", r -> calls[0]++ < 2 ? new String[] {"503", "{\"message\":\"busy\"}"}
-                : new String[] {"200", "{\"MU\":{\"latestTrade\":{\"p\":5}}}"});
+        routes.put(
+                "GET /v2/stocks/snapshots",
+                r -> calls[0]++ < 2
+                        ? new String[] {"503", "{\"message\":\"busy\"}"}
+                        : new String[] {"200", "{\"MU\":{\"latestTrade\":{\"p\":5}}}"});
         assertEquals(5.0, data().latestPrices(List.of("MU")).get("MU"));
         assertEquals(3, requests.size());
     }
@@ -124,20 +158,20 @@ class AlpacaClientTest {
     @Test
     void aReadThatKeepsFailingGivesUpWithAlpacasMessage() {
         route("GET /v2/stocks/snapshots", "500", "{\"message\":\"internal\"}");
-        AlpacaApiException e = assertThrows(AlpacaApiException.class, () -> data().latestPrices(List.of("MU")));
-        assertEquals(500, e.status());
+        AlpacaApiException error = assertThrows(AlpacaApiException.class, () -> data().latestPrices(List.of("MU")));
+        assertEquals(500, error.status());
         assertEquals(3, requests.size());
     }
 
     @Test
     void aServerThatCannotBeReachedIsReportedAsSuchAndReadsAreRetried() {
-        AlpacaLiveData d = data();
+        AlpacaLiveData liveData = data();
         server.stop(0);
         long t0 = System.currentTimeMillis();
-        AlpacaApiException e = assertThrows(AlpacaApiException.class, () -> d.latestPrices(List.of("MU")));
-        assertEquals(0, e.status());
-        assertTrue(e.getMessage().startsWith("Could not reach Alpaca"), e.getMessage());
-        assertTrue(e.transientFailure());
+        AlpacaApiException error = assertThrows(AlpacaApiException.class, () -> liveData.latestPrices(List.of("MU")));
+        assertEquals(0, error.status());
+        assertTrue(error.getMessage().startsWith("Could not reach Alpaca"), error.getMessage());
+        assertTrue(error.transientFailure());
         assertTrue(System.currentTimeMillis() - t0 >= 1000, "three attempts with a pause between them");
     }
 
@@ -145,29 +179,34 @@ class AlpacaClientTest {
 
     @Test
     void everyCallMustGoToAlpacasDataHostNotWherever() {
-        FeignTestSupport f = feign();
-        for (String evil : List.of("https://evil.example", "https://api.alpaca.markets", "https://paper-api.alpaca.markets")) {
-            IllegalStateException e = assertThrows(IllegalStateException.class,
-                    () -> f.client().snapshots(URI.create(evil), "MU", "iex"), evil);
-            assertTrue(e.getMessage().contains("not Alpaca's market-data host"), e.getMessage());
+        FeignTestSupport support = feign();
+        for (String evil :
+                List.of("https://evil.example", "https://api.alpaca.markets", "https://paper-api.alpaca.markets")) {
+            IllegalStateException error = assertThrows(
+                    IllegalStateException.class, () -> support.client().snapshots(URI.create(evil), "MU", "iex"), evil);
+            assertTrue(error.getMessage().contains("not Alpaca's market-data host"), error.getMessage());
         }
         assertTrue(requests.isEmpty(), "nothing left the machine");
     }
 
     @Test
     void theFeignClientRefusesToSendToTheWrongHostEvenWhenTheDeclaredTargetIsElsewhere() {
-        // AlpacaLiveData always passes its own base URL, so the client's declared @FeignClient url never matters in practice —
+        // AlpacaLiveData always passes its own base URL, so the client's declared @FeignClient url never matters in
+        // practice —
         // the guard is what actually decides, and it must accept the real data host regardless of that declared url.
-        FeignTestSupport f = feign("https://api.alpaca.markets", "PKTEST", "secret");
-        assertThrows(IllegalStateException.class, () -> f.client().snapshots(URI.create("https://api.alpaca.markets"), "MU", "iex"));
+        FeignTestSupport support = feign("https://api.alpaca.markets", "PKTEST", "secret");
+        assertThrows(IllegalStateException.class, () -> support.client()
+                .snapshots(URI.create("https://api.alpaca.markets"), "MU", "iex"));
         assertTrue(requests.isEmpty());
     }
 
     @Test
     void missingCredentialsFailWithAClearMessage() {
-        AlpacaLiveData d = new AlpacaLiveData(feign(base, "", "").client(), new AlpacaCredentials("", "", "iex"), base);
-        IllegalStateException e = assertThrows(IllegalStateException.class, () -> d.latestPrices(List.of("MU")));
-        assertTrue(e.getMessage().contains("credentials"), e.getMessage());
+        AlpacaLiveData liveData =
+                new AlpacaLiveData(feign(base, "", "").client(), FeignTestSupport.properties(base, "", ""));
+        IllegalStateException error =
+                assertThrows(IllegalStateException.class, () -> liveData.latestPrices(List.of("MU")));
+        assertTrue(error.getMessage().contains("credentials"), error.getMessage());
         assertTrue(requests.isEmpty());
     }
 }

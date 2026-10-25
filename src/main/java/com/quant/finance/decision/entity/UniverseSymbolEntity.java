@@ -1,12 +1,19 @@
 package com.quant.finance.decision.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "universe_symbol",
+@Table(
+        name = "universe_symbol",
         uniqueConstraints = @UniqueConstraint(name = "uk_universe_symbol", columnNames = "symbol"))
 @Getter
 @Setter

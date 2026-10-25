@@ -8,10 +8,14 @@ import java.util.Map;
  */
 public interface TradingStrategy {
     String name();
+
     String category();
-    String direction();          // "long_only" | "long_short"
+
+    String direction(); // "long_only" | "long_short"
+
     String description();
+
     Map<String, Double> defaultParams();
 
-    double[] generateSignals(BarSeries b, Map<String, Double> params);
+    double[] generateSignals(BarSeries bars, Map<String, Double> params);
 }

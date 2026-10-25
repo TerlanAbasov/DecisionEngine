@@ -1,5 +1,8 @@
 package com.quant.finance.decision.strategy;
 
+import java.util.Arrays;
+import java.util.function.UnaryOperator;
+
 /**
  * Vectorised technical indicators over double[]. Every value at index t uses only
  * data at indices &lt;= t (no look-ahead). NaN is used for the warm-up window.
@@ -7,554 +10,760 @@ package com.quant.finance.decision.strategy;
 public final class Indicators {
     private Indicators() {}
 
-    private static double[] nan(int n) {
-        double[] a = new double[n];
-        java.util.Arrays.fill(a, Double.NaN);
-        return a;
+    private static double[] filledWithNaN(int length) {
+        double[] result = new double[length];
+        Arrays.fill(result, Double.NaN);
+        return result;
     }
 
-    public static double[] sma(double[] s, int n) {
-        double[] out = nan(s.length);
+    public static double[] sma(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
         double sum = 0;
-        for (int i = 0; i < s.length; i++) {
-            sum += s[i];
-            if (i >= n) sum -= s[i - n];
-            if (i >= n - 1) out[i] = sum / n;
+        for (int i = 0; i < values.length; i++) {
+            sum += values[i];
+            if (i >= period) {
+                sum -= values[i - period];
+            }
+            if (i >= period - 1) {
+                out[i] = sum / period;
+            }
         }
         return out;
     }
 
-    public static double[] ema(double[] s, int n) {
-        double[] out = nan(s.length);
-        double k = 2.0 / (n + 1);
-        double prev = 0;
+    public static double[] ema(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        double alpha = 2.0 / (period + 1);
+        double previous = 0;
         boolean seeded = false;
         double seedSum = 0;
-        for (int i = 0; i < s.length; i++) {
+        for (int i = 0; i < values.length; i++) {
             if (!seeded) {
-                seedSum += s[i];
-                if (i == n - 1) { prev = seedSum / n; out[i] = prev; seeded = true; }
+                seedSum += values[i];
+                if (i == period - 1) {
+                    previous = seedSum / period;
+                    out[i] = previous;
+                    seeded = true;
+                }
             } else {
-                prev = s[i] * k + prev * (1 - k);
-                out[i] = prev;
+                previous = values[i] * alpha + previous * (1 - alpha);
+                out[i] = previous;
             }
         }
         return out;
     }
 
-    /** Wilder smoothing (alpha = 1/n). */
-    public static double[] wilder(double[] s, int n) {
-        double[] out = nan(s.length);
-        double prev = 0, seedSum = 0;
+    /** Wilder smoothing (alpha = 1/period). */
+    public static double[] wilder(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        double previous = 0;
+        double seedSum = 0;
         boolean seeded = false;
-        for (int i = 0; i < s.length; i++) {
-            double v = Double.isNaN(s[i]) ? 0 : s[i];
+        for (int i = 0; i < values.length; i++) {
+            double value = Double.isNaN(values[i]) ? 0 : values[i];
             if (!seeded) {
-                seedSum += v;
-                if (i == n - 1) { prev = seedSum / n; out[i] = prev; seeded = true; }
+                seedSum += value;
+                if (i == period - 1) {
+                    previous = seedSum / period;
+                    out[i] = previous;
+                    seeded = true;
+                }
             } else {
-                prev = prev + (v - prev) / n;
-                out[i] = prev;
+                previous = previous + (value - previous) / period;
+                out[i] = previous;
             }
         }
         return out;
     }
 
-    public static double[] roc(double[] s, int n) {
-        double[] out = nan(s.length);
-        for (int i = n; i < s.length; i++) out[i] = (s[i] / s[i - n] - 1.0) * 100.0;
+    public static double[] roc(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        for (int i = period; i < values.length; i++) {
+            out[i] = (values[i] / values[i - period] - 1.0) * 100.0;
+        }
         return out;
     }
 
-    public static double[] stddev(double[] s, int n) {
-        double[] out = nan(s.length);
-        for (int i = n - 1; i < s.length; i++) {
+    public static double[] stddev(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        for (int i = period - 1; i < values.length; i++) {
             double mean = 0;
-            for (int j = i - n + 1; j <= i; j++) mean += s[j];
-            mean /= n;
-            double var = 0;
-            for (int j = i - n + 1; j <= i; j++) var += (s[j] - mean) * (s[j] - mean);
-            out[i] = Math.sqrt(var / n);
+            for (int j = i - period + 1; j <= i; j++) {
+                mean += values[j];
+            }
+            mean /= period;
+            double variance = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                variance += (values[j] - mean) * (values[j] - mean);
+            }
+            out[i] = Math.sqrt(variance / period);
         }
         return out;
     }
 
-    public static double[] zscore(double[] s, int n) {
-        double[] mean = sma(s, n), sd = stddev(s, n), out = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(sd[i]) && sd[i] != 0) out[i] = (s[i] - mean[i]) / sd[i];
-        return out;
-    }
-
-    public static double[] rsi(double[] s, int n) {
-        double[] up = new double[s.length], dn = new double[s.length];
-        for (int i = 1; i < s.length; i++) {
-            double d = s[i] - s[i - 1];
-            up[i] = Math.max(d, 0);
-            dn[i] = Math.max(-d, 0);
-        }
-        double[] au = wilder(up, n), ad = wilder(dn, n), out = nan(s.length);
-        for (int i = 0; i < s.length; i++) {
-            if (Double.isNaN(au[i])) continue;
-            if (ad[i] == 0) { out[i] = 100; continue; }
-            double rs = au[i] / ad[i];
-            out[i] = 100.0 - 100.0 / (1.0 + rs);
+    public static double[] zscore(double[] values, int period) {
+        double[] mean = sma(values, period);
+        double[] deviation = stddev(values, period);
+        double[] out = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(deviation[i]) && deviation[i] != 0) {
+                out[i] = (values[i] - mean[i]) / deviation[i];
+            }
         }
         return out;
     }
 
-    public static double[] trueRange(BarSeries b) {
-        int n = b.size();
-        double[] tr = nan(n);
-        for (int i = 0; i < n; i++) {
-            if (i == 0) { tr[i] = b.high[i] - b.low[i]; continue; }
-            double a = b.high[i] - b.low[i];
-            double c = Math.abs(b.high[i] - b.close[i - 1]);
-            double d = Math.abs(b.low[i] - b.close[i - 1]);
-            tr[i] = Math.max(a, Math.max(c, d));
+    public static double[] rsi(double[] values, int period) {
+        double[] gains = new double[values.length];
+        double[] losses = new double[values.length];
+        for (int i = 1; i < values.length; i++) {
+            double change = values[i] - values[i - 1];
+            gains[i] = Math.max(change, 0);
+            losses[i] = Math.max(-change, 0);
         }
-        return tr;
+        double[] averageGain = wilder(gains, period);
+        double[] averageLoss = wilder(losses, period);
+        double[] out = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (Double.isNaN(averageGain[i])) {
+                continue;
+            }
+            if (averageLoss[i] == 0) {
+                out[i] = 100;
+                continue;
+            }
+            double relativeStrength = averageGain[i] / averageLoss[i];
+            out[i] = 100.0 - 100.0 / (1.0 + relativeStrength);
+        }
+        return out;
     }
 
-    public static double[] atr(BarSeries b, int n) {
-        return wilder(trueRange(b), n);
+    public static double[] trueRange(BarSeries bars) {
+        int length = bars.size();
+        double[] trueRange = filledWithNaN(length);
+        for (int i = 0; i < length; i++) {
+            if (i == 0) {
+                trueRange[i] = bars.high[i] - bars.low[i];
+                continue;
+            }
+            double highLow = bars.high[i] - bars.low[i];
+            double highToPreviousClose = Math.abs(bars.high[i] - bars.close[i - 1]);
+            double lowToPreviousClose = Math.abs(bars.low[i] - bars.close[i - 1]);
+            trueRange[i] = Math.max(highLow, Math.max(highToPreviousClose, lowToPreviousClose));
+        }
+        return trueRange;
+    }
+
+    public static double[] atr(BarSeries bars, int period) {
+        return wilder(trueRange(bars), period);
     }
 
     /** Bollinger Bands: returns {lower, mid, upper}. */
-    public static double[][] bollinger(double[] s, int n, double k) {
-        double[] mid = sma(s, n), sd = stddev(s, n);
-        double[] lo = nan(s.length), up = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(mid[i])) { lo[i] = mid[i] - k * sd[i]; up[i] = mid[i] + k * sd[i]; }
-        return new double[][]{lo, mid, up};
+    public static double[][] bollinger(double[] values, int period, double widthInDeviations) {
+        double[] mid = sma(values, period);
+        double[] deviation = stddev(values, period);
+        double[] lower = filledWithNaN(values.length);
+        double[] upper = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(mid[i])) {
+                lower[i] = mid[i] - widthInDeviations * deviation[i];
+                upper[i] = mid[i] + widthInDeviations * deviation[i];
+            }
+        }
+        return new double[][] {lower, mid, upper};
     }
 
     /** MACD: returns {macdLine, signalLine, histogram}. */
-    public static double[][] macd(double[] s, int fast, int slow, int signal) {
-        double[] ef = ema(s, fast), es = ema(s, slow), line = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(ef[i]) && !Double.isNaN(es[i])) line[i] = ef[i] - es[i];
-        double[] sig = ema(replaceNan(line), signal), hist = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(line[i]) && !Double.isNaN(sig[i])) hist[i] = line[i] - sig[i];
-        return new double[][]{line, sig, hist};
+    public static double[][] macd(double[] values, int fastPeriod, int slowPeriod, int signalPeriod) {
+        double[] fastEma = ema(values, fastPeriod);
+        double[] slowEma = ema(values, slowPeriod);
+        double[] macdLine = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(fastEma[i]) && !Double.isNaN(slowEma[i])) {
+                macdLine[i] = fastEma[i] - slowEma[i];
+            }
+        }
+        double[] signalLine = ema(replaceNaNWithZero(macdLine), signalPeriod);
+        double[] histogram = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(macdLine[i]) && !Double.isNaN(signalLine[i])) {
+                histogram[i] = macdLine[i] - signalLine[i];
+            }
+        }
+        return new double[][] {macdLine, signalLine, histogram};
     }
 
-    private static double[] replaceNan(double[] a) {
-        double[] out = a.clone();
-        for (int i = 0; i < out.length; i++) if (Double.isNaN(out[i])) out[i] = 0;
+    private static double[] replaceNaNWithZero(double[] values) {
+        double[] out = values.clone();
+        for (int i = 0; i < out.length; i++) {
+            if (Double.isNaN(out[i])) {
+                out[i] = 0;
+            }
+        }
         return out;
     }
 
     /** ADX: returns {adx, plusDI, minusDI}. */
-    public static double[][] adx(BarSeries b, int n) {
-        int len = b.size();
-        double[] plusDM = new double[len], minusDM = new double[len];
-        for (int i = 1; i < len; i++) {
-            double up = b.high[i] - b.high[i - 1];
-            double dn = b.low[i - 1] - b.low[i];
-            plusDM[i] = (up > dn && up > 0) ? up : 0;
-            minusDM[i] = (dn > up && dn > 0) ? dn : 0;
+    public static double[][] adx(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] plusDM = new double[length];
+        double[] minusDM = new double[length];
+        for (int i = 1; i < length; i++) {
+            double upMove = bars.high[i] - bars.high[i - 1];
+            double downMove = bars.low[i - 1] - bars.low[i];
+            plusDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+            minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
         }
-        double[] atr = wilder(trueRange(b), n);
-        double[] pdi = nan(len), mdi = nan(len), dx = nan(len);
-        double[] spdm = wilder(plusDM, n), smdm = wilder(minusDM, n);
-        for (int i = 0; i < len; i++) {
-            if (Double.isNaN(atr[i]) || atr[i] == 0) continue;
-            pdi[i] = 100 * spdm[i] / atr[i];
-            mdi[i] = 100 * smdm[i] / atr[i];
-            double sum = pdi[i] + mdi[i];
-            dx[i] = sum == 0 ? 0 : 100 * Math.abs(pdi[i] - mdi[i]) / sum;
+        double[] atr = wilder(trueRange(bars), period);
+        double[] plusDI = filledWithNaN(length);
+        double[] minusDI = filledWithNaN(length);
+        double[] directionalIndex = filledWithNaN(length);
+        double[] smoothedPlusDM = wilder(plusDM, period);
+        double[] smoothedMinusDM = wilder(minusDM, period);
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(atr[i]) || atr[i] == 0) {
+                continue;
+            }
+            plusDI[i] = 100 * smoothedPlusDM[i] / atr[i];
+            minusDI[i] = 100 * smoothedMinusDM[i] / atr[i];
+            double sum = plusDI[i] + minusDI[i];
+            directionalIndex[i] = sum == 0 ? 0 : 100 * Math.abs(plusDI[i] - minusDI[i]) / sum;
         }
-        return new double[][]{wilder(dx, n), pdi, mdi};
+        return new double[][] {wilder(directionalIndex, period), plusDI, minusDI};
     }
 
-    public static double[] rollingMax(double[] s, int n) {
-        double[] out = nan(s.length);
-        for (int i = n - 1; i < s.length; i++) {
-            double m = -Double.MAX_VALUE;
-            for (int j = i - n + 1; j <= i; j++) m = Math.max(m, s[j]);
-            out[i] = m;
+    public static double[] rollingMax(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        for (int i = period - 1; i < values.length; i++) {
+            double max = -Double.MAX_VALUE;
+            for (int j = i - period + 1; j <= i; j++) {
+                max = Math.max(max, values[j]);
+            }
+            out[i] = max;
         }
         return out;
     }
 
-    public static double[] rollingMin(double[] s, int n) {
-        double[] out = nan(s.length);
-        for (int i = n - 1; i < s.length; i++) {
-            double m = Double.MAX_VALUE;
-            for (int j = i - n + 1; j <= i; j++) m = Math.min(m, s[j]);
-            out[i] = m;
+    public static double[] rollingMin(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        for (int i = period - 1; i < values.length; i++) {
+            double min = Double.MAX_VALUE;
+            for (int j = i - period + 1; j <= i; j++) {
+                min = Math.min(min, values[j]);
+            }
+            out[i] = min;
         }
         return out;
     }
 
     /** Stochastic: returns {%K, %D}. */
-    public static double[][] stochastic(BarSeries b, int n, int d) {
-        double[] hh = rollingMax(b.high, n), ll = rollingMin(b.low, n), k = nan(b.size());
-        for (int i = 0; i < b.size(); i++) {
-            if (Double.isNaN(hh[i])) continue;
-            double range = hh[i] - ll[i];
-            k[i] = range == 0 ? 50 : 100 * (b.close[i] - ll[i]) / range;
+    public static double[][] stochastic(BarSeries bars, int period, int smoothing) {
+        double[] highestHigh = rollingMax(bars.high, period);
+        double[] lowestLow = rollingMin(bars.low, period);
+        double[] percentK = filledWithNaN(bars.size());
+        for (int i = 0; i < bars.size(); i++) {
+            if (Double.isNaN(highestHigh[i])) {
+                continue;
+            }
+            double range = highestHigh[i] - lowestLow[i];
+            percentK[i] = range == 0 ? 50 : 100 * (bars.close[i] - lowestLow[i]) / range;
         }
-        return new double[][]{k, sma(replaceNan(k), d)};
+        return new double[][] {percentK, sma(replaceNaNWithZero(percentK), smoothing)};
     }
 
-    public static double[] williamsR(BarSeries b, int n) {
-        double[] hh = rollingMax(b.high, n), ll = rollingMin(b.low, n), out = nan(b.size());
-        for (int i = 0; i < b.size(); i++) {
-            if (Double.isNaN(hh[i])) continue;
-            double range = hh[i] - ll[i];
-            out[i] = range == 0 ? -50 : -100 * (hh[i] - b.close[i]) / range;
+    public static double[] williamsR(BarSeries bars, int period) {
+        double[] highestHigh = rollingMax(bars.high, period);
+        double[] lowestLow = rollingMin(bars.low, period);
+        double[] out = filledWithNaN(bars.size());
+        for (int i = 0; i < bars.size(); i++) {
+            if (Double.isNaN(highestHigh[i])) {
+                continue;
+            }
+            double range = highestHigh[i] - lowestLow[i];
+            out[i] = range == 0 ? -50 : -100 * (highestHigh[i] - bars.close[i]) / range;
         }
         return out;
     }
 
     /** Keltner channel: returns {lower, mid, upper}. */
-    public static double[][] keltner(BarSeries b, int n, double m) {
-        double[] mid = ema(b.close, n), atr = atr(b, n);
-        double[] lo = nan(b.size()), up = nan(b.size());
-        for (int i = 0; i < b.size(); i++)
-            if (!Double.isNaN(mid[i]) && !Double.isNaN(atr[i])) { lo[i] = mid[i] - m * atr[i]; up[i] = mid[i] + m * atr[i]; }
-        return new double[][]{lo, mid, up};
+    public static double[][] keltner(BarSeries bars, int period, double atrMultiplier) {
+        double[] mid = ema(bars.close, period);
+        double[] atr = atr(bars, period);
+        double[] lower = filledWithNaN(bars.size());
+        double[] upper = filledWithNaN(bars.size());
+        for (int i = 0; i < bars.size(); i++) {
+            if (!Double.isNaN(mid[i]) && !Double.isNaN(atr[i])) {
+                lower[i] = mid[i] - atrMultiplier * atr[i];
+                upper[i] = mid[i] + atrMultiplier * atr[i];
+            }
+        }
+        return new double[][] {lower, mid, upper};
     }
 
     /** Supertrend direction: +1 uptrend, -1 downtrend. */
-    public static double[] supertrend(BarSeries b, int n, double mult) {
-        int len = b.size();
-        double[] atr = atr(b, n), dir = nan(len);
-        double[] fu = new double[len], fl = new double[len];
-        boolean up = true;
-        for (int i = 0; i < len; i++) {
-            if (i == 0 || Double.isNaN(atr[i])) { continue; }
-            double hl2 = (b.high[i] + b.low[i]) / 2;
-            double bu = hl2 + mult * atr[i], bl = hl2 - mult * atr[i];
-            fu[i] = (b.close[i - 1] <= fu[i - 1] || fu[i - 1] == 0) ? Math.min(bu, fu[i - 1] == 0 ? bu : fu[i - 1]) : bu;
-            fl[i] = (b.close[i - 1] >= fl[i - 1]) ? Math.max(bl, fl[i - 1]) : bl;
-            if (b.close[i] > fu[i - 1]) up = true;
-            else if (b.close[i] < fl[i - 1]) up = false;
-            dir[i] = up ? 1 : -1;
+    public static double[] supertrend(BarSeries bars, int period, double atrMultiplier) {
+        int length = bars.size();
+        double[] atr = atr(bars, period);
+        double[] direction = filledWithNaN(length);
+        double[] finalUpper = new double[length];
+        double[] finalLower = new double[length];
+        boolean upTrend = true;
+        for (int i = 0; i < length; i++) {
+            if (i == 0 || Double.isNaN(atr[i])) {
+                continue;
+            }
+            double midPrice = (bars.high[i] + bars.low[i]) / 2;
+            double basicUpper = midPrice + atrMultiplier * atr[i];
+            double basicLower = midPrice - atrMultiplier * atr[i];
+            finalUpper[i] = (bars.close[i - 1] <= finalUpper[i - 1] || finalUpper[i - 1] == 0)
+                    ? Math.min(basicUpper, finalUpper[i - 1] == 0 ? basicUpper : finalUpper[i - 1])
+                    : basicUpper;
+            finalLower[i] =
+                    (bars.close[i - 1] >= finalLower[i - 1]) ? Math.max(basicLower, finalLower[i - 1]) : basicLower;
+            if (bars.close[i] > finalUpper[i - 1]) {
+                upTrend = true;
+            } else if (bars.close[i] < finalLower[i - 1]) {
+                upTrend = false;
+            }
+            direction[i] = upTrend ? 1 : -1;
         }
-        return dir;
+        return direction;
     }
 
-    public static double[] obv(BarSeries b) {
-        double[] out = new double[b.size()];
-        for (int i = 1; i < b.size(); i++) {
-            double sign = Math.signum(b.close[i] - b.close[i - 1]);
-            out[i] = out[i - 1] + sign * b.volume[i];
+    public static double[] obv(BarSeries bars) {
+        double[] out = new double[bars.size()];
+        for (int i = 1; i < bars.size(); i++) {
+            double sign = Math.signum(bars.close[i] - bars.close[i - 1]);
+            out[i] = out[i - 1] + sign * bars.volume[i];
         }
         return out;
     }
 
-    public static double[] vwap(BarSeries b, int n) {
-        double[] out = nan(b.size());
-        for (int i = n - 1; i < b.size(); i++) {
-            double pv = 0, vv = 0;
-            for (int j = i - n + 1; j <= i; j++) {
-                double tp = (b.high[j] + b.low[j] + b.close[j]) / 3;
-                pv += tp * b.volume[j];
-                vv += b.volume[j];
+    public static double[] vwap(BarSeries bars, int period) {
+        double[] out = filledWithNaN(bars.size());
+        for (int i = period - 1; i < bars.size(); i++) {
+            double priceVolume = 0;
+            double totalVolume = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                double typicalPrice = (bars.high[j] + bars.low[j] + bars.close[j]) / 3;
+                priceVolume += typicalPrice * bars.volume[j];
+                totalVolume += bars.volume[j];
             }
-            out[i] = vv == 0 ? Double.NaN : pv / vv;
+            out[i] = totalVolume == 0 ? Double.NaN : priceVolume / totalVolume;
         }
         return out;
     }
 
     /** 1-D Kalman filter estimate of price level (smooth trend). */
-    public static double[] kalman(double[] s, double q, double r) {
-        double[] out = new double[s.length];
-        double x = s[0], p = 1;
-        out[0] = x;
-        for (int i = 1; i < s.length; i++) {
-            double pm = p + q;
-            double k = pm / (pm + r);
-            x = x + k * (s[i] - x);
-            p = (1 - k) * pm;
-            out[i] = x;
+    public static double[] kalman(double[] values, double processNoise, double measurementNoise) {
+        double[] out = new double[values.length];
+        double estimate = values[0];
+        double errorCovariance = 1;
+        out[0] = estimate;
+        for (int i = 1; i < values.length; i++) {
+            double predictedCovariance = errorCovariance + processNoise;
+            double gain = predictedCovariance / (predictedCovariance + measurementNoise);
+            estimate = estimate + gain * (values[i] - estimate);
+            errorCovariance = (1 - gain) * predictedCovariance;
+            out[i] = estimate;
         }
         return out;
     }
 
-    private static double[] wma(double[] s, int n) {
-        double[] out = nan(s.length);
-        double denom = n * (n + 1) / 2.0;
-        for (int i = n - 1; i < s.length; i++) {
+    private static double[] wma(double[] values, int period) {
+        double[] out = filledWithNaN(values.length);
+        double weightSum = period * (period + 1) / 2.0;
+        for (int i = period - 1; i < values.length; i++) {
             double sum = 0;
-            for (int j = 0; j < n; j++) sum += s[i - j] * (n - j);
-            out[i] = sum / denom;
+            for (int j = 0; j < period; j++) {
+                sum += values[i - j] * (period - j);
+            }
+            out[i] = sum / weightSum;
         }
         return out;
     }
 
     /** Hull Moving Average: WMA(2*WMA(n/2) - WMA(n), sqrt(n)) — lower lag than SMA/EMA. */
-    public static double[] hullMa(double[] s, int n) {
-        int half = Math.max(1, n / 2);
-        int sqrtN = Math.max(1, (int) Math.round(Math.sqrt(n)));
-        double[] wmaHalf = wma(s, half), wmaFull = wma(s, n);
-        double[] raw = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(wmaHalf[i]) && !Double.isNaN(wmaFull[i])) raw[i] = 2 * wmaHalf[i] - wmaFull[i];
-        return wma(replaceNan(raw), sqrtN);
+    public static double[] hullMa(double[] values, int period) {
+        int halfPeriod = Math.max(1, period / 2);
+        int sqrtPeriod = Math.max(1, (int) Math.round(Math.sqrt(period)));
+        double[] wmaHalf = wma(values, halfPeriod);
+        double[] wmaFull = wma(values, period);
+        double[] raw = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(wmaHalf[i]) && !Double.isNaN(wmaFull[i])) {
+                raw[i] = 2 * wmaHalf[i] - wmaFull[i];
+            }
+        }
+        return wma(replaceNaNWithZero(raw), sqrtPeriod);
     }
 
     /** Double EMA: 2*EMA - EMA(EMA) — less lag than a plain EMA. */
-    public static double[] dema(double[] s, int n) {
-        double[] e1 = ema(s, n), e2 = ema(replaceNan(e1), n), out = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(e1[i]) && !Double.isNaN(e2[i])) out[i] = 2 * e1[i] - e2[i];
+    public static double[] dema(double[] values, int period) {
+        double[] ema1 = ema(values, period);
+        double[] ema2 = ema(replaceNaNWithZero(ema1), period);
+        double[] out = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(ema1[i]) && !Double.isNaN(ema2[i])) {
+                out[i] = 2 * ema1[i] - ema2[i];
+            }
+        }
         return out;
     }
 
     /** Triple EMA: 3*EMA1 - 3*EMA2 + EMA3. */
-    public static double[] tema(double[] s, int n) {
-        double[] e1 = ema(s, n), e2 = ema(replaceNan(e1), n), e3 = ema(replaceNan(e2), n), out = nan(s.length);
-        for (int i = 0; i < s.length; i++)
-            if (!Double.isNaN(e1[i]) && !Double.isNaN(e2[i]) && !Double.isNaN(e3[i]))
-                out[i] = 3 * e1[i] - 3 * e2[i] + e3[i];
-        return out;
-    }
-
-    /** Volume-weighted moving average over n bars. */
-    public static double[] vwma(BarSeries b, int n) {
-        double[] out = nan(b.size());
-        for (int i = n - 1; i < b.size(); i++) {
-            double pv = 0, vv = 0;
-            for (int j = i - n + 1; j <= i; j++) { pv += b.close[j] * b.volume[j]; vv += b.volume[j]; }
-            out[i] = vv == 0 ? Double.NaN : pv / vv;
-        }
-        return out;
-    }
-
-    /** Aroon: returns {up, down}, each 0..100 based on bars since the n-period high/low. */
-    public static double[][] aroon(BarSeries b, int n) {
-        int len = b.size();
-        double[] up = nan(len), down = nan(len);
-        for (int i = n; i < len; i++) {
-            int hiIdx = i, loIdx = i;
-            double hi = b.high[i], lo = b.low[i];
-            for (int j = i - n; j <= i; j++) {
-                if (b.high[j] >= hi) { hi = b.high[j]; hiIdx = j; }
-                if (b.low[j] <= lo) { lo = b.low[j]; loIdx = j; }
+    public static double[] tema(double[] values, int period) {
+        double[] ema1 = ema(values, period);
+        double[] ema2 = ema(replaceNaNWithZero(ema1), period);
+        double[] ema3 = ema(replaceNaNWithZero(ema2), period);
+        double[] out = filledWithNaN(values.length);
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isNaN(ema1[i]) && !Double.isNaN(ema2[i]) && !Double.isNaN(ema3[i])) {
+                out[i] = 3 * ema1[i] - 3 * ema2[i] + ema3[i];
             }
-            up[i] = 100.0 * (n - (i - hiIdx)) / n;
-            down[i] = 100.0 * (n - (i - loIdx)) / n;
         }
-        return new double[][]{up, down};
+        return out;
+    }
+
+    /** Volume-weighted moving average over {@code period} bars. */
+    public static double[] vwma(BarSeries bars, int period) {
+        double[] out = filledWithNaN(bars.size());
+        for (int i = period - 1; i < bars.size(); i++) {
+            double priceVolume = 0;
+            double totalVolume = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                priceVolume += bars.close[j] * bars.volume[j];
+                totalVolume += bars.volume[j];
+            }
+            out[i] = totalVolume == 0 ? Double.NaN : priceVolume / totalVolume;
+        }
+        return out;
+    }
+
+    /** Aroon: returns {up, down}, each 0..100 based on bars since the period's high/low. */
+    public static double[][] aroon(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] up = filledWithNaN(length);
+        double[] down = filledWithNaN(length);
+        for (int i = period; i < length; i++) {
+            int highIndex = i;
+            int lowIndex = i;
+            double high = bars.high[i];
+            double low = bars.low[i];
+            for (int j = i - period; j <= i; j++) {
+                if (bars.high[j] >= high) {
+                    high = bars.high[j];
+                    highIndex = j;
+                }
+                if (bars.low[j] <= low) {
+                    low = bars.low[j];
+                    lowIndex = j;
+                }
+            }
+            up[i] = 100.0 * (period - (i - highIndex)) / period;
+            down[i] = 100.0 * (period - (i - lowIndex)) / period;
+        }
+        return new double[][] {up, down};
     }
 
     /** Vortex Indicator: returns {VI+, VI-}. */
-    public static double[][] vortex(BarSeries b, int n) {
-        int len = b.size();
-        double[] vmPlus = new double[len], vmMinus = new double[len], tr = trueRange(b);
-        for (int i = 1; i < len; i++) {
-            vmPlus[i] = Math.abs(b.high[i] - b.low[i - 1]);
-            vmMinus[i] = Math.abs(b.low[i] - b.high[i - 1]);
+    public static double[][] vortex(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] plusMovement = new double[length];
+        double[] minusMovement = new double[length];
+        double[] trueRange = trueRange(bars);
+        for (int i = 1; i < length; i++) {
+            plusMovement[i] = Math.abs(bars.high[i] - bars.low[i - 1]);
+            minusMovement[i] = Math.abs(bars.low[i] - bars.high[i - 1]);
         }
-        double[] viP = nan(len), viM = nan(len);
-        for (int i = n; i < len; i++) {
-            double sp = 0, sm = 0, st = 0;
-            for (int j = i - n + 1; j <= i; j++) { sp += vmPlus[j]; sm += vmMinus[j]; st += Double.isNaN(tr[j]) ? 0 : tr[j]; }
-            if (st == 0) continue;
-            viP[i] = sp / st; viM[i] = sm / st;
+        double[] plusVortex = filledWithNaN(length);
+        double[] minusVortex = filledWithNaN(length);
+        for (int i = period; i < length; i++) {
+            double plusSum = 0;
+            double minusSum = 0;
+            double trueRangeSum = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                plusSum += plusMovement[j];
+                minusSum += minusMovement[j];
+                trueRangeSum += Double.isNaN(trueRange[j]) ? 0 : trueRange[j];
+            }
+            if (trueRangeSum == 0) {
+                continue;
+            }
+            plusVortex[i] = plusSum / trueRangeSum;
+            minusVortex[i] = minusSum / trueRangeSum;
         }
-        return new double[][]{viP, viM};
+        return new double[][] {plusVortex, minusVortex};
     }
 
     /** TRIX: rate of change of a triple-smoothed EMA. */
-    public static double[] trix(double[] s, int n) {
-        double[] e1 = ema(s, n), e2 = ema(replaceNan(e1), n), e3 = ema(replaceNan(e2), n), out = nan(s.length);
-        for (int i = 1; i < s.length; i++)
-            if (!Double.isNaN(e3[i]) && !Double.isNaN(e3[i - 1]) && e3[i - 1] != 0)
-                out[i] = (e3[i] / e3[i - 1] - 1) * 100;
+    public static double[] trix(double[] values, int period) {
+        double[] ema1 = ema(values, period);
+        double[] ema2 = ema(replaceNaNWithZero(ema1), period);
+        double[] ema3 = ema(replaceNaNWithZero(ema2), period);
+        double[] out = filledWithNaN(values.length);
+        for (int i = 1; i < values.length; i++) {
+            if (!Double.isNaN(ema3[i]) && !Double.isNaN(ema3[i - 1]) && ema3[i - 1] != 0) {
+                out[i] = (ema3[i] / ema3[i - 1] - 1) * 100;
+            }
+        }
         return out;
     }
 
-    /** Rolling linear regression over the last n points: returns {fitted value at the current bar, slope}. */
-    public static double[][] linreg(double[] s, int n) {
-        int len = s.length;
-        double[] val = nan(len), slope = nan(len);
-        double sx = 0, sxx = 0;
-        for (int i = 0; i < n; i++) { sx += i; sxx += (double) i * i; }
-        double xBar = sx / n;
-        double denom = sxx - n * xBar * xBar;
-        for (int i = n - 1; i < len; i++) {
-            double sy = 0, sxy = 0;
-            for (int j = 0; j < n; j++) { double y = s[i - n + 1 + j]; sy += y; sxy += j * y; }
-            double yBar = sy / n;
-            double b1 = denom == 0 ? 0 : (sxy - n * xBar * yBar) / denom;
-            slope[i] = b1;
-            val[i] = (yBar - b1 * xBar) + b1 * (n - 1);
+    /** Rolling linear regression over the last {@code period} points: returns {fitted value at the current bar, slope}. */
+    public static double[][] linreg(double[] values, int period) {
+        int length = values.length;
+        double[] fitted = filledWithNaN(length);
+        double[] slope = filledWithNaN(length);
+        double sumX = 0;
+        double sumXSquared = 0;
+        for (int i = 0; i < period; i++) {
+            sumX += i;
+            sumXSquared += (double) i * i;
         }
-        return new double[][]{val, slope};
+        double meanX = sumX / period;
+        double denominator = sumXSquared - period * meanX * meanX;
+        for (int i = period - 1; i < length; i++) {
+            double sumY = 0;
+            double sumXY = 0;
+            for (int j = 0; j < period; j++) {
+                double value = values[i - period + 1 + j];
+                sumY += value;
+                sumXY += j * value;
+            }
+            double meanY = sumY / period;
+            double barSlope = denominator == 0 ? 0 : (sumXY - period * meanX * meanY) / denominator;
+            slope[i] = barSlope;
+            fitted[i] = (meanY - barSlope * meanX) + barSlope * (period - 1);
+        }
+        return new double[][] {fitted, slope};
     }
 
     /** Wilder's Parabolic SAR trend flag: +1 while price is above the SAR (uptrend), -1 below. */
-    public static double[] psar(BarSeries b, double step, double maxStep) {
-        int len = b.size();
-        double[] dir = nan(len);
-        if (len < 2) return dir;
-        boolean up = true;
-        double sar = b.low[0], ep = b.high[0], af = step;
-        dir[0] = 1;
-        for (int i = 1; i < len; i++) {
-            sar = sar + af * (ep - sar);
-            if (up) {
-                sar = Math.min(sar, Math.min(b.low[i - 1], i >= 2 ? b.low[i - 2] : b.low[i - 1]));
-                if (b.low[i] < sar) { up = false; sar = ep; ep = b.low[i]; af = step; }
-                else if (b.high[i] > ep) { ep = b.high[i]; af = Math.min(maxStep, af + step); }
-            } else {
-                sar = Math.max(sar, Math.max(b.high[i - 1], i >= 2 ? b.high[i - 2] : b.high[i - 1]));
-                if (b.high[i] > sar) { up = true; sar = ep; ep = b.high[i]; af = step; }
-                else if (b.low[i] < ep) { ep = b.low[i]; af = Math.min(maxStep, af + step); }
-            }
-            dir[i] = up ? 1 : -1;
+    public static double[] psar(BarSeries bars, double step, double maxStep) {
+        int length = bars.size();
+        double[] direction = filledWithNaN(length);
+        if (length < 2) {
+            return direction;
         }
-        return dir;
+        boolean upTrend = true;
+        double sar = bars.low[0];
+        double extremePoint = bars.high[0];
+        double accelerationFactor = step;
+        direction[0] = 1;
+        for (int i = 1; i < length; i++) {
+            sar = sar + accelerationFactor * (extremePoint - sar);
+            if (upTrend) {
+                sar = Math.min(sar, Math.min(bars.low[i - 1], i >= 2 ? bars.low[i - 2] : bars.low[i - 1]));
+                if (bars.low[i] < sar) {
+                    upTrend = false;
+                    sar = extremePoint;
+                    extremePoint = bars.low[i];
+                    accelerationFactor = step;
+                } else if (bars.high[i] > extremePoint) {
+                    extremePoint = bars.high[i];
+                    accelerationFactor = Math.min(maxStep, accelerationFactor + step);
+                }
+            } else {
+                sar = Math.max(sar, Math.max(bars.high[i - 1], i >= 2 ? bars.high[i - 2] : bars.high[i - 1]));
+                if (bars.high[i] > sar) {
+                    upTrend = true;
+                    sar = extremePoint;
+                    extremePoint = bars.high[i];
+                    accelerationFactor = step;
+                } else if (bars.low[i] < extremePoint) {
+                    extremePoint = bars.low[i];
+                    accelerationFactor = Math.min(maxStep, accelerationFactor + step);
+                }
+            }
+            direction[i] = upTrend ? 1 : -1;
+        }
+        return direction;
     }
 
     /** Commodity Channel Index. */
-    public static double[] cci(BarSeries b, int n) {
-        int len = b.size();
-        double[] tp = new double[len];
-        for (int i = 0; i < len; i++) tp[i] = (b.high[i] + b.low[i] + b.close[i]) / 3.0;
-        double[] tpSma = sma(tp, n), out = nan(len);
-        for (int i = n - 1; i < len; i++) {
-            double md = 0;
-            for (int j = i - n + 1; j <= i; j++) md += Math.abs(tp[j] - tpSma[i]);
-            md /= n;
-            out[i] = md == 0 ? 0 : (tp[i] - tpSma[i]) / (0.015 * md);
+    public static double[] cci(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] typicalPrice = new double[length];
+        for (int i = 0; i < length; i++) {
+            typicalPrice[i] = (bars.high[i] + bars.low[i] + bars.close[i]) / 3.0;
+        }
+        double[] typicalPriceSma = sma(typicalPrice, period);
+        double[] out = filledWithNaN(length);
+        for (int i = period - 1; i < length; i++) {
+            double meanDeviation = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                meanDeviation += Math.abs(typicalPrice[j] - typicalPriceSma[i]);
+            }
+            meanDeviation /= period;
+            out[i] = meanDeviation == 0 ? 0 : (typicalPrice[i] - typicalPriceSma[i]) / (0.015 * meanDeviation);
         }
         return out;
     }
 
     /** Money Flow Index (volume-weighted RSI). */
-    public static double[] mfi(BarSeries b, int n) {
-        int len = b.size();
-        double[] tp = new double[len], posFlow = new double[len], negFlow = new double[len];
-        for (int i = 0; i < len; i++) tp[i] = (b.high[i] + b.low[i] + b.close[i]) / 3.0;
-        for (int i = 1; i < len; i++) {
-            double mf = tp[i] * b.volume[i];
-            if (tp[i] > tp[i - 1]) posFlow[i] = mf;
-            else if (tp[i] < tp[i - 1]) negFlow[i] = mf;
+    public static double[] mfi(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] typicalPrice = new double[length];
+        double[] positiveFlow = new double[length];
+        double[] negativeFlow = new double[length];
+        for (int i = 0; i < length; i++) {
+            typicalPrice[i] = (bars.high[i] + bars.low[i] + bars.close[i]) / 3.0;
         }
-        double[] out = nan(len);
-        for (int i = n; i < len; i++) {
-            double pf = 0, nf = 0;
-            for (int j = i - n + 1; j <= i; j++) { pf += posFlow[j]; nf += negFlow[j]; }
-            out[i] = nf == 0 ? 100 : 100 - 100 / (1 + pf / nf);
+        for (int i = 1; i < length; i++) {
+            double moneyFlow = typicalPrice[i] * bars.volume[i];
+            if (typicalPrice[i] > typicalPrice[i - 1]) {
+                positiveFlow[i] = moneyFlow;
+            } else if (typicalPrice[i] < typicalPrice[i - 1]) {
+                negativeFlow[i] = moneyFlow;
+            }
+        }
+        double[] out = filledWithNaN(length);
+        for (int i = period; i < length; i++) {
+            double positiveSum = 0;
+            double negativeSum = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                positiveSum += positiveFlow[j];
+                negativeSum += negativeFlow[j];
+            }
+            out[i] = negativeSum == 0 ? 100 : 100 - 100 / (1 + positiveSum / negativeSum);
         }
         return out;
     }
 
     /** Chande Momentum Oscillator. */
-    public static double[] cmo(double[] s, int n) {
-        int len = s.length;
-        double[] up = new double[len], dn = new double[len];
-        for (int i = 1; i < len; i++) {
-            double d = s[i] - s[i - 1];
-            up[i] = Math.max(d, 0); dn[i] = Math.max(-d, 0);
+    public static double[] cmo(double[] values, int period) {
+        int length = values.length;
+        double[] gains = new double[length];
+        double[] losses = new double[length];
+        for (int i = 1; i < length; i++) {
+            double change = values[i] - values[i - 1];
+            gains[i] = Math.max(change, 0);
+            losses[i] = Math.max(-change, 0);
         }
-        double[] out = nan(len);
-        for (int i = n; i < len; i++) {
-            double su = 0, sd = 0;
-            for (int j = i - n + 1; j <= i; j++) { su += up[j]; sd += dn[j]; }
-            out[i] = (su + sd) == 0 ? 0 : 100 * (su - sd) / (su + sd);
+        double[] out = filledWithNaN(length);
+        for (int i = period; i < length; i++) {
+            double gainSum = 0;
+            double lossSum = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                gainSum += gains[j];
+                lossSum += losses[j];
+            }
+            out[i] = (gainSum + lossSum) == 0 ? 0 : 100 * (gainSum - lossSum) / (gainSum + lossSum);
         }
         return out;
     }
 
-    /** Detrended Price Oscillator: price minus an SMA lagged by n/2+1 bars (no look-ahead). */
-    public static double[] dpo(double[] s, int n) {
-        double[] smaS = sma(s, n);
-        int shift = n / 2 + 1;
-        double[] out = nan(s.length);
-        for (int i = shift; i < s.length; i++)
-            if (!Double.isNaN(smaS[i - shift])) out[i] = s[i] - smaS[i - shift];
+    /** Detrended Price Oscillator: price minus an SMA lagged by period/2+1 bars (no look-ahead). */
+    public static double[] dpo(double[] values, int period) {
+        double[] average = sma(values, period);
+        int shift = period / 2 + 1;
+        double[] out = filledWithNaN(values.length);
+        for (int i = shift; i < values.length; i++) {
+            if (!Double.isNaN(average[i - shift])) {
+                out[i] = values[i] - average[i - shift];
+            }
+        }
         return out;
     }
 
     /** Ultimate Oscillator (Williams): weighted blend of buying pressure over 3 horizons. */
-    public static double[] ultimateOscillator(BarSeries b, int n1, int n2, int n3) {
-        int len = b.size();
-        double[] bp = new double[len], tr = new double[len];
-        for (int i = 1; i < len; i++) {
-            double prevClose = b.close[i - 1];
-            bp[i] = b.close[i] - Math.min(b.low[i], prevClose);
-            tr[i] = Math.max(b.high[i], prevClose) - Math.min(b.low[i], prevClose);
+    public static double[] ultimateOscillator(BarSeries bars, int shortPeriod, int midPeriod, int longPeriod) {
+        int length = bars.size();
+        double[] buyingPressure = new double[length];
+        double[] trueRange = new double[length];
+        for (int i = 1; i < length; i++) {
+            double previousClose = bars.close[i - 1];
+            buyingPressure[i] = bars.close[i] - Math.min(bars.low[i], previousClose);
+            trueRange[i] = Math.max(bars.high[i], previousClose) - Math.min(bars.low[i], previousClose);
         }
-        double[] out = nan(len);
-        int maxN = Math.max(n1, Math.max(n2, n3));
-        for (int i = maxN; i < len; i++) {
-            double a1 = uoAvg(bp, tr, i, n1), a2 = uoAvg(bp, tr, i, n2), a3 = uoAvg(bp, tr, i, n3);
-            out[i] = 100 * (4 * a1 + 2 * a2 + a3) / 7.0;
+        double[] out = filledWithNaN(length);
+        int longestPeriod = Math.max(shortPeriod, Math.max(midPeriod, longPeriod));
+        for (int i = longestPeriod; i < length; i++) {
+            double shortAverage = pressureRatio(buyingPressure, trueRange, i, shortPeriod);
+            double midAverage = pressureRatio(buyingPressure, trueRange, i, midPeriod);
+            double longAverage = pressureRatio(buyingPressure, trueRange, i, longPeriod);
+            out[i] = 100 * (4 * shortAverage + 2 * midAverage + longAverage) / 7.0;
         }
         return out;
     }
 
-    private static double uoAvg(double[] bp, double[] tr, int i, int n) {
-        double sbp = 0, str = 0;
-        for (int j = i - n + 1; j <= i; j++) { sbp += bp[j]; str += tr[j]; }
-        return str == 0 ? 0 : sbp / str;
+    /** Sum of buying pressure over sum of true range for the {@code period} bars ending at {@code end}. */
+    private static double pressureRatio(double[] buyingPressure, double[] trueRange, int end, int period) {
+        double pressureSum = 0;
+        double rangeSum = 0;
+        for (int j = end - period + 1; j <= end; j++) {
+            pressureSum += buyingPressure[j];
+            rangeSum += trueRange[j];
+        }
+        return rangeSum == 0 ? 0 : pressureSum / rangeSum;
     }
 
     /** Elder's Force Index: (close change) * volume, EMA-smoothed. */
-    public static double[] forceIndex(BarSeries b, int n) {
-        int len = b.size();
-        double[] raw = new double[len];
-        for (int i = 1; i < len; i++) raw[i] = (b.close[i] - b.close[i - 1]) * b.volume[i];
-        return ema(raw, n);
+    public static double[] forceIndex(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] raw = new double[length];
+        for (int i = 1; i < length; i++) {
+            raw[i] = (bars.close[i] - bars.close[i - 1]) * bars.volume[i];
+        }
+        return ema(raw, period);
     }
 
-    /** Chaikin Money Flow: sum(money-flow-volume, n) / sum(volume, n). */
-    public static double[] cmf(BarSeries b, int n) {
-        int len = b.size();
-        double[] mfv = new double[len];
-        for (int i = 0; i < len; i++) {
-            double range = b.high[i] - b.low[i];
-            double mult = range == 0 ? 0 : ((b.close[i] - b.low[i]) - (b.high[i] - b.close[i])) / range;
-            mfv[i] = mult * b.volume[i];
+    /** Chaikin Money Flow: sum(money-flow-volume, period) / sum(volume, period). */
+    public static double[] cmf(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] moneyFlowVolume = new double[length];
+        for (int i = 0; i < length; i++) {
+            double range = bars.high[i] - bars.low[i];
+            double multiplier =
+                    range == 0 ? 0 : ((bars.close[i] - bars.low[i]) - (bars.high[i] - bars.close[i])) / range;
+            moneyFlowVolume[i] = multiplier * bars.volume[i];
         }
-        double[] out = nan(len);
-        for (int i = n - 1; i < len; i++) {
-            double sm = 0, sv = 0;
-            for (int j = i - n + 1; j <= i; j++) { sm += mfv[j]; sv += b.volume[j]; }
-            out[i] = sv == 0 ? 0 : sm / sv;
+        double[] out = filledWithNaN(length);
+        for (int i = period - 1; i < length; i++) {
+            double flowSum = 0;
+            double volumeSum = 0;
+            for (int j = i - period + 1; j <= i; j++) {
+                flowSum += moneyFlowVolume[j];
+                volumeSum += bars.volume[j];
+            }
+            out[i] = volumeSum == 0 ? 0 : flowSum / volumeSum;
         }
         return out;
     }
 
     /** Ease of Movement: price advance per unit of range/volume, SMA-smoothed. */
-    public static double[] emv(BarSeries b, int n) {
-        int len = b.size();
-        double[] raw = new double[len];
-        for (int i = 1; i < len; i++) {
-            double dist = (b.high[i] + b.low[i]) / 2.0 - (b.high[i - 1] + b.low[i - 1]) / 2.0;
-            double range = b.high[i] - b.low[i];
-            raw[i] = (b.volume[i] == 0 || range == 0) ? 0 : dist * range / b.volume[i];
+    public static double[] emv(BarSeries bars, int period) {
+        int length = bars.size();
+        double[] raw = new double[length];
+        for (int i = 1; i < length; i++) {
+            double distance = (bars.high[i] + bars.low[i]) / 2.0 - (bars.high[i - 1] + bars.low[i - 1]) / 2.0;
+            double range = bars.high[i] - bars.low[i];
+            raw[i] = (bars.volume[i] == 0 || range == 0) ? 0 : distance * range / bars.volume[i];
         }
-        return sma(raw, n);
+        return sma(raw, period);
     }
 
     /** Accumulation/Distribution line: cumulative close-location-weighted volume. */
-    public static double[] adLine(BarSeries b) {
-        int len = b.size();
-        double[] out = new double[len];
-        for (int i = 0; i < len; i++) {
-            double range = b.high[i] - b.low[i];
-            double mult = range == 0 ? 0 : ((b.close[i] - b.low[i]) - (b.high[i] - b.close[i])) / range;
-            out[i] = (i == 0 ? 0 : out[i - 1]) + mult * b.volume[i];
+    public static double[] adLine(BarSeries bars) {
+        int length = bars.size();
+        double[] out = new double[length];
+        for (int i = 0; i < length; i++) {
+            double range = bars.high[i] - bars.low[i];
+            double multiplier =
+                    range == 0 ? 0 : ((bars.close[i] - bars.low[i]) - (bars.high[i] - bars.close[i])) / range;
+            out[i] = (i == 0 ? 0 : out[i - 1]) + multiplier * bars.volume[i];
         }
         return out;
     }
 
     /** Volume Price Trend: cumulative volume weighted by percentage price change. */
-    public static double[] vpt(BarSeries b) {
-        int len = b.size();
-        double[] out = new double[len];
-        for (int i = 1; i < len; i++) {
-            double pct = b.close[i - 1] == 0 ? 0 : (b.close[i] - b.close[i - 1]) / b.close[i - 1];
-            out[i] = out[i - 1] + pct * b.volume[i];
+    public static double[] vpt(BarSeries bars) {
+        int length = bars.size();
+        double[] out = new double[length];
+        for (int i = 1; i < length; i++) {
+            double change = bars.close[i - 1] == 0 ? 0 : (bars.close[i] - bars.close[i - 1]) / bars.close[i - 1];
+            out[i] = out[i - 1] + change * bars.volume[i];
         }
         return out;
     }
@@ -563,31 +772,42 @@ public final class Indicators {
      * LazyBear's WaveTrend oscillator: {@code channelLen} smooths the (H+L+C)/3 price and its mean deviation into a CCI-like ratio, {@code avgLen} smooths that into WT1,
      * and WT2 is a 4-bar SMA of WT1 (read like a MACD/signal-line cross, gated by ±60 zones); returns {@code {wt1, wt2}}.
      */
-    public static double[][] waveTrend(BarSeries b, int channelLen, int avgLen) {
-        int len = b.size();
-        double[] ap = new double[len];
-        for (int i = 0; i < len; i++) ap[i] = (b.high[i] + b.low[i] + b.close[i]) / 3.0;
-        double[] esa = ema(ap, channelLen);
-        double[] absDiff = new double[len];
-        for (int i = 0; i < len; i++) absDiff[i] = Math.abs(ap[i] - esa[i]);   // NaN while esa warms up
-        double[] d = fromFirstValid(absDiff, a -> ema(a, channelLen));
-        double[] ci = new double[len];
-        for (int i = 0; i < len; i++) ci[i] = d[i] == 0 ? 0 : (ap[i] - esa[i]) / (0.015 * d[i]);
-        double[] wt1 = fromFirstValid(ci, a -> ema(a, avgLen));
-        double[] wt2 = fromFirstValid(wt1, a -> sma(a, 4));
-        return new double[][] { wt1, wt2 };
+    public static double[][] waveTrend(BarSeries bars, int channelLen, int avgLen) {
+        int length = bars.size();
+        double[] averagePrice = new double[length];
+        for (int i = 0; i < length; i++) {
+            averagePrice[i] = (bars.high[i] + bars.low[i] + bars.close[i]) / 3.0;
+        }
+        double[] smoothedPrice = ema(averagePrice, channelLen);
+        double[] absoluteDeviation = new double[length];
+        for (int i = 0; i < length; i++) {
+            absoluteDeviation[i] = Math.abs(averagePrice[i] - smoothedPrice[i]); // NaN while smoothedPrice warms up
+        }
+        double[] meanDeviation = fromFirstValid(absoluteDeviation, series -> ema(series, channelLen));
+        double[] channelIndex = new double[length];
+        for (int i = 0; i < length; i++) {
+            channelIndex[i] =
+                    meanDeviation[i] == 0 ? 0 : (averagePrice[i] - smoothedPrice[i]) / (0.015 * meanDeviation[i]);
+        }
+        double[] wt1 = fromFirstValid(channelIndex, series -> ema(series, avgLen));
+        double[] wt2 = fromFirstValid(wt1, series -> sma(series, 4));
+        return new double[][] {wt1, wt2};
     }
 
     /**
-     * Applies a smoother from the first non-NaN value on: {@link #ema} and {@link #sma} seed from the first {@code n} inputs,
+     * Applies a smoother from the first non-NaN value on: {@link #ema} and {@link #sma} seed from the first {@code period} inputs,
      * so a NaN warm-up prefix from an earlier smoothing stage would otherwise poison every value after it.
      */
-    public static double[] fromFirstValid(double[] s, java.util.function.UnaryOperator<double[]> smoother) {
+    public static double[] fromFirstValid(double[] values, UnaryOperator<double[]> smoother) {
         int first = 0;
-        while (first < s.length && Double.isNaN(s[first])) first++;
-        if (first == 0) return smoother.apply(s);
-        double[] out = nan(s.length);
-        double[] tail = smoother.apply(java.util.Arrays.copyOfRange(s, first, s.length));
+        while (first < values.length && Double.isNaN(values[first])) {
+            first++;
+        }
+        if (first == 0) {
+            return smoother.apply(values);
+        }
+        double[] out = filledWithNaN(values.length);
+        double[] tail = smoother.apply(Arrays.copyOfRange(values, first, values.length));
         System.arraycopy(tail, 0, out, first, tail.length);
         return out;
     }

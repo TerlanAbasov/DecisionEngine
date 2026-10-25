@@ -1,10 +1,11 @@
 package com.quant.finance.decision.engine;
 
 import com.quant.finance.decision.strategy.BarSeries;
-
 import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -17,64 +18,90 @@ import java.util.List;
 public final class BarResampler {
     private BarResampler() {}
 
-    public static BarSeries resample(BarSeries src, Timeframe tf) {
-        if (src == null || tf == null || tf.isNative() || src.size() < 2) return src;
+    public static BarSeries resample(BarSeries source, Timeframe timeframe) {
+        if (source == null || timeframe == null || timeframe.isNative() || source.size() < 2) {
+            return source;
+        }
 
-        List<Instant> bd = new ArrayList<>();
-        List<Double> bo = new ArrayList<>(), bh = new ArrayList<>(), bl = new ArrayList<>(),
-                bc = new ArrayList<>(), bv = new ArrayList<>();
+        List<Instant> bucketDates = new ArrayList<>();
+        List<Double> bucketOpen = new ArrayList<>();
+        List<Double> bucketHigh = new ArrayList<>();
+        List<Double> bucketLow = new ArrayList<>();
+        List<Double> bucketClose = new ArrayList<>();
+        List<Double> bucketVolume = new ArrayList<>();
 
-        long curKey = Long.MIN_VALUE;
-        for (int i = 0; i < src.size(); i++) {
-            long key = bucketKey(src.date[i], tf);
-            if (key != curKey) {
-                curKey = key;
-                bd.add(bucketStart(src.date[i], tf));
-                bo.add(src.open[i]); bh.add(src.high[i]); bl.add(src.low[i]);
-                bc.add(src.close[i]); bv.add(src.volume[i]);
+        long currentKey = Long.MIN_VALUE;
+        for (int i = 0; i < source.size(); i++) {
+            long key = bucketKey(source.date[i], timeframe);
+            if (key != currentKey) {
+                currentKey = key;
+                bucketDates.add(bucketStart(source.date[i], timeframe));
+                bucketOpen.add(source.open[i]);
+                bucketHigh.add(source.high[i]);
+                bucketLow.add(source.low[i]);
+                bucketClose.add(source.close[i]);
+                bucketVolume.add(source.volume[i]);
             } else {
-                int j = bd.size() - 1;
-                bh.set(j, Math.max(bh.get(j), src.high[i]));
-                bl.set(j, Math.min(bl.get(j), src.low[i]));
-                bc.set(j, src.close[i]);
-                bv.set(j, bv.get(j) + src.volume[i]);
+                int last = bucketDates.size() - 1;
+                bucketHigh.set(last, Math.max(bucketHigh.get(last), source.high[i]));
+                bucketLow.set(last, Math.min(bucketLow.get(last), source.low[i]));
+                bucketClose.set(last, source.close[i]);
+                bucketVolume.set(last, bucketVolume.get(last) + source.volume[i]);
             }
         }
-        if (bd.size() >= src.size()) return src;   // not a real downsample — keep native bars
-
-        int n = bd.size();
-        Instant[] date = bd.toArray(new Instant[0]);
-        double[] o = new double[n], h = new double[n], l = new double[n], c = new double[n], v = new double[n];
-        for (int i = 0; i < n; i++) {
-            o[i] = bo.get(i); h[i] = bh.get(i); l[i] = bl.get(i); c[i] = bc.get(i); v[i] = bv.get(i);
+        if (bucketDates.size() >= source.size()) {
+            return source; // not a real downsample — keep native bars
         }
-        return new BarSeries(src.symbol, date, o, h, l, c, v);
+        return new BarSeries(
+                source.symbol,
+                bucketDates.toArray(new Instant[0]),
+                toArray(bucketOpen),
+                toArray(bucketHigh),
+                toArray(bucketLow),
+                toArray(bucketClose),
+                toArray(bucketVolume));
     }
 
-    private static long bucketKey(Instant t, Timeframe tf) {
-        if (tf.seconds > 0) return t.getEpochSecond() / tf.seconds;
-        var d = t.atZone(ZoneOffset.UTC);
-        return switch (tf) {
-            case W1 -> d.get(IsoFields.WEEK_BASED_YEAR) * 100L + d.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
-            case MN -> d.getYear() * 100L + d.getMonthValue();
-            case Q1 -> d.getYear() * 10L + d.get(IsoFields.QUARTER_OF_YEAR);
-            case Y1 -> d.getYear();
-            default -> t.getEpochSecond();
+    private static double[] toArray(List<Double> values) {
+        double[] result = new double[values.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = values.get(i);
+        }
+        return result;
+    }
+
+    private static long bucketKey(Instant time, Timeframe timeframe) {
+        if (timeframe.seconds > 0) {
+            return time.getEpochSecond() / timeframe.seconds;
+        }
+        ZonedDateTime date = time.atZone(ZoneOffset.UTC);
+        return switch (timeframe) {
+            case W1 -> date.get(IsoFields.WEEK_BASED_YEAR) * 100L + date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+            case MN -> date.getYear() * 100L + date.getMonthValue();
+            case Q1 -> date.getYear() * 10L + date.get(IsoFields.QUARTER_OF_YEAR);
+            case Y1 -> date.getYear();
+            default -> time.getEpochSecond();
         };
     }
 
-    private static Instant bucketStart(Instant t, Timeframe tf) {
-        if (tf.seconds > 0)
-            return Instant.ofEpochSecond((t.getEpochSecond() / tf.seconds) * tf.seconds);
-        var d = t.atZone(ZoneOffset.UTC).toLocalDate();
-        return switch (tf) {
-            case W1 -> d.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                    .atStartOfDay(ZoneOffset.UTC).toInstant();
-            case MN -> d.withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-            case Q1 -> d.withDayOfMonth(1).withMonth((d.get(IsoFields.QUARTER_OF_YEAR) - 1) * 3 + 1)
-                    .atStartOfDay(ZoneOffset.UTC).toInstant();
-            case Y1 -> d.withDayOfYear(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-            default -> t;
+    private static Instant bucketStart(Instant time, Timeframe timeframe) {
+        if (timeframe.seconds > 0) {
+            return Instant.ofEpochSecond((time.getEpochSecond() / timeframe.seconds) * timeframe.seconds);
+        }
+        LocalDate date = time.atZone(ZoneOffset.UTC).toLocalDate();
+        return switch (timeframe) {
+            case W1 ->
+                date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                        .atStartOfDay(ZoneOffset.UTC)
+                        .toInstant();
+            case MN -> date.withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+            case Q1 ->
+                date.withDayOfMonth(1)
+                        .withMonth((date.get(IsoFields.QUARTER_OF_YEAR) - 1) * 3 + 1)
+                        .atStartOfDay(ZoneOffset.UTC)
+                        .toInstant();
+            case Y1 -> date.withDayOfYear(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+            default -> time;
         };
     }
 }

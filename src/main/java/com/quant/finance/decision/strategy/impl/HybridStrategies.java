@@ -6,151 +6,298 @@ import com.quant.finance.decision.strategy.Indicators;
 import java.util.Map;
 
 class MacdRsiCombo extends AbstractStrategy {
-    public String name() { return "macd_rsi_combo"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Confluence filter: MACD trend AND RSI regime must agree."; }
-    public Map<String, Double> defaultParams() { return Map.of("rsiN", 14.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[][] m = Indicators.macd(b.close, 12, 26, 9);
-        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
-        return clean(regime(and(gt(m[0], m[1]), gt(r, 50)), and(lt(m[0], m[1]), lt(r, 50))));
+    public String name() {
+        return "macd_rsi_combo";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Confluence filter: MACD trend AND RSI regime must agree.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("rsiN", 14.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[][] macd = Indicators.macd(bars.close, 12, 26, 9);
+        double[] macdLine = macd[0];
+        double[] signalLine = macd[1];
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiN"));
+        boolean[] longCondition = and(above(macdLine, signalLine), above(rsi, 50));
+        boolean[] shortCondition = and(below(macdLine, signalLine), below(rsi, 50));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class DualMaAtrStop extends AbstractStrategy {
-    public String name() { return "dual_ma_atr_stop"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_only"; }
-    public String description() { return "EMA cross entry with a chandelier ATR trailing stop for exits."; }
-    public Map<String, Double> defaultParams() { return Map.of("fast", 20.0, "slow", 50.0, "atrN", 22.0, "atrMult", 3.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[] f = Indicators.ema(b.close, pi(pr, "fast"));
-        double[] s = Indicators.ema(b.close, pi(pr, "slow"));
-        double[] atr = Indicators.atr(b, pi(pr, "atrN"));
-        double mult = p(pr, "atrMult");
-        int n = b.size();
-        double[] pos = new double[n];
+    public String name() {
+        return "dual_ma_atr_stop";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_only";
+    }
+
+    public String description() {
+        return "EMA cross entry with a chandelier ATR trailing stop for exits.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("fast", 20.0, "slow", 50.0, "atrN", 22.0, "atrMult", 3.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] fastMa = Indicators.ema(bars.close, intParam(params, "fast"));
+        double[] slowMa = Indicators.ema(bars.close, intParam(params, "slow"));
+        double[] atr = Indicators.atr(bars, intParam(params, "atrN"));
+        double atrMultiplier = param(params, "atrMult");
+        int length = bars.size();
+        double[] position = new double[length];
         int state = 0;
-        double peak = Double.NaN;
-        for (int i = 1; i < n; i++) {
-            boolean cross = !nan(f[i]) && !nan(s[i]) && f[i] > s[i] && f[i - 1] <= s[i - 1];
+        double peakHigh = Double.NaN;
+        for (int i = 1; i < length; i++) {
+            boolean bothReady = !Double.isNaN(fastMa[i]) && !Double.isNaN(slowMa[i]);
+            boolean crossUp = bothReady && fastMa[i] > slowMa[i] && fastMa[i - 1] <= slowMa[i - 1];
             if (state == 0) {
-                if (cross) { state = 1; peak = b.high[i]; }
+                if (crossUp) {
+                    state = 1;
+                    peakHigh = bars.high[i];
+                }
             } else {
-                peak = Math.max(peak, b.high[i]);
-                double stop = peak - mult * (nan(atr[i]) ? 0 : atr[i]);
-                if (b.close[i] < stop || (!nan(f[i]) && !nan(s[i]) && f[i] < s[i])) { state = 0; peak = Double.NaN; }
+                peakHigh = Math.max(peakHigh, bars.high[i]);
+                double trailingStop = peakHigh - atrMultiplier * (Double.isNaN(atr[i]) ? 0 : atr[i]);
+                if (bars.close[i] < trailingStop || (bothReady && fastMa[i] < slowMa[i])) {
+                    state = 0;
+                    peakHigh = Double.NaN;
+                }
             }
-            pos[i] = state;
+            position[i] = state;
         }
-        return clean(pos);
+        return clean(position);
     }
 }
 
 class TripleConfirmation extends AbstractStrategy {
-    public String name() { return "triple_confirmation"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "ADX strength + MACD direction + RSI regime must all agree."; }
-    public Map<String, Double> defaultParams() { return Map.of("adxN", 14.0, "adxMin", 20.0, "rsiN", 14.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[][] a = Indicators.adx(b, pi(pr, "adxN"));
-        double[][] m = Indicators.macd(b.close, 12, 26, 9);
-        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
-        boolean[] strong = gt(a[0], p(pr, "adxMin"));
-        boolean[] up = and(strong, and(gt(m[0], m[1]), gt(r, 50)));
-        boolean[] dn = and(strong, and(lt(m[0], m[1]), lt(r, 50)));
-        return clean(regime(up, dn));
+    public String name() {
+        return "triple_confirmation";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "ADX strength + MACD direction + RSI regime must all agree.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("adxN", 14.0, "adxMin", 20.0, "rsiN", 14.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] adxLine = Indicators.adx(bars, intParam(params, "adxN"))[0];
+        double[][] macd = Indicators.macd(bars.close, 12, 26, 9);
+        double[] macdLine = macd[0];
+        double[] signalLine = macd[1];
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiN"));
+        boolean[] strongTrend = above(adxLine, param(params, "adxMin"));
+        boolean[] longCondition = and(strongTrend, and(above(macdLine, signalLine), above(rsi, 50)));
+        boolean[] shortCondition = and(strongTrend, and(below(macdLine, signalLine), below(rsi, 50)));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class TrendVolumeCombo extends AbstractStrategy {
-    public String name() { return "trend_volume_combo"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "EMA trend confirmed by OBV sitting above/below its own EMA."; }
-    public Map<String, Double> defaultParams() { return Map.of("fast", 20.0, "slow", 50.0, "obvEma", 20.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[] f = Indicators.ema(b.close, pi(pr, "fast"));
-        double[] s = Indicators.ema(b.close, pi(pr, "slow"));
-        double[] o = Indicators.obv(b);
-        double[] oe = Indicators.ema(o, pi(pr, "obvEma"));
-        boolean[] up = and(gt(f, s), gt(o, oe));
-        boolean[] dn = and(lt(f, s), lt(o, oe));
-        return clean(regime(up, dn));
+    public String name() {
+        return "trend_volume_combo";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "EMA trend confirmed by OBV sitting above/below its own EMA.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("fast", 20.0, "slow", 50.0, "obvEma", 20.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] fastMa = Indicators.ema(bars.close, intParam(params, "fast"));
+        double[] slowMa = Indicators.ema(bars.close, intParam(params, "slow"));
+        double[] obv = Indicators.obv(bars);
+        double[] obvEma = Indicators.ema(obv, intParam(params, "obvEma"));
+        boolean[] longCondition = and(above(fastMa, slowMa), above(obv, obvEma));
+        boolean[] shortCondition = and(below(fastMa, slowMa), below(obv, obvEma));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class BreakoutMomentumCombo extends AbstractStrategy {
-    public String name() { return "breakout_momentum_combo"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_only"; }
-    public String description() { return "Donchian breakout that also carries positive rate-of-change momentum."; }
-    public Map<String, Double> defaultParams() { return Map.of("entryN", 20.0, "exitN", 10.0, "rocN", 63.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        boolean[] brk = gt(b.close, shift1(Indicators.rollingMax(b.high, pi(pr, "entryN"))));
-        boolean[] mom = gt(Indicators.roc(b.close, pi(pr, "rocN")), 0);
-        boolean[] in = and(brk, mom);
-        boolean[] out = lt(b.close, shift1(Indicators.rollingMin(b.low, pi(pr, "exitN"))));
-        return clean(hold(in, out, null, null));
+    public String name() {
+        return "breakout_momentum_combo";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_only";
+    }
+
+    public String description() {
+        return "Donchian breakout that also carries positive rate-of-change momentum.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("entryN", 20.0, "exitN", 10.0, "rocN", 63.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        boolean[] breakout = above(bars.close, previous(Indicators.rollingMax(bars.high, intParam(params, "entryN"))));
+        boolean[] positiveMomentum = above(Indicators.roc(bars.close, intParam(params, "rocN")), 0);
+        boolean[] longEntry = and(breakout, positiveMomentum);
+        boolean[] longExit = below(bars.close, previous(Indicators.rollingMin(bars.low, intParam(params, "exitN"))));
+        return clean(hold(longEntry, longExit, null, null));
     }
 }
 
 class RsiPullbackTrendFilter extends AbstractStrategy {
-    public String name() { return "rsi_pullback_trend_filter"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_only"; }
-    public String description() { return "RSI(2) pullback entries, gated by a rising (not just above) 200-SMA."; }
-    public Map<String, Double> defaultParams() { return Map.of("trendMa", 200.0, "rsiN", 2.0, "entry", 10.0, "exitMa", 5.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[] ma = Indicators.sma(b.close, pi(pr, "trendMa"));
-        boolean[] aboveMa = gt(b.close, ma);
-        boolean[] rising = gt(ma, shift1(ma));
-        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
-        boolean[] in = and(and(aboveMa, rising), lt(r, p(pr, "entry")));
-        boolean[] out = gt(b.close, Indicators.sma(b.close, pi(pr, "exitMa")));
-        return clean(hold(in, out, null, null));
+    public String name() {
+        return "rsi_pullback_trend_filter";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_only";
+    }
+
+    public String description() {
+        return "RSI(2) pullback entries, gated by a rising (not just above) 200-SMA.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("trendMa", 200.0, "rsiN", 2.0, "entry", 10.0, "exitMa", 5.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] trendMa = Indicators.sma(bars.close, intParam(params, "trendMa"));
+        boolean[] aboveTrendMa = above(bars.close, trendMa);
+        boolean[] trendMaRising = above(trendMa, previous(trendMa));
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiN"));
+        boolean[] longEntry = and(and(aboveTrendMa, trendMaRising), below(rsi, param(params, "entry")));
+        boolean[] longExit = above(bars.close, Indicators.sma(bars.close, intParam(params, "exitMa")));
+        return clean(hold(longEntry, longExit, null, null));
     }
 }
 
 class AdaptiveRegimeSwitch extends AbstractStrategy {
-    public String name() { return "adaptive_regime_switch"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Trend-follow (EMA cross) when ADX is high, mean-revert (RSI) when it's low."; }
-    public Map<String, Double> defaultParams() { return Map.of("adxN", 14.0, "adxMin", 25.0, "fast", 20.0, "slow", 50.0, "rsiN", 14.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[][] a = Indicators.adx(b, pi(pr, "adxN"));
-        double adxMin = p(pr, "adxMin");
-        double[] f = Indicators.ema(b.close, pi(pr, "fast"));
-        double[] s = Indicators.ema(b.close, pi(pr, "slow"));
-        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
-        int len = b.size();
-        double[] sig = new double[len];
-        for (int i = 0; i < len; i++) {
-            if (nan(a[0][i])) continue;
-            if (a[0][i] >= adxMin) {
-                sig[i] = (nan(f[i]) || nan(s[i])) ? Double.NaN : (f[i] > s[i] ? 1 : -1);
-            } else if (!nan(r[i])) {
-                sig[i] = r[i] < 30 ? 1 : r[i] > 70 ? -1 : 0;
+    public String name() {
+        return "adaptive_regime_switch";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Trend-follow (EMA cross) when ADX is high, mean-revert (RSI) when it's low.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("adxN", 14.0, "adxMin", 25.0, "fast", 20.0, "slow", 50.0, "rsiN", 14.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] adxLine = Indicators.adx(bars, intParam(params, "adxN"))[0];
+        double adxMin = param(params, "adxMin");
+        double[] fastMa = Indicators.ema(bars.close, intParam(params, "fast"));
+        double[] slowMa = Indicators.ema(bars.close, intParam(params, "slow"));
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiN"));
+        int length = bars.size();
+        double[] signal = new double[length];
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(adxLine[i])) {
+                continue;
+            }
+            if (adxLine[i] >= adxMin) {
+                // trending: follow the moving-average cross
+                if (Double.isNaN(fastMa[i]) || Double.isNaN(slowMa[i])) {
+                    signal[i] = Double.NaN;
+                } else {
+                    signal[i] = fastMa[i] > slowMa[i] ? 1 : -1;
+                }
+            } else if (!Double.isNaN(rsi[i])) {
+                // ranging: fade RSI extremes
+                if (rsi[i] < 30) {
+                    signal[i] = 1;
+                } else if (rsi[i] > 70) {
+                    signal[i] = -1;
+                } else {
+                    signal[i] = 0;
+                }
             }
         }
-        return clean(sig);
+        return clean(signal);
     }
 }
 
 class SupertrendRsiCombo extends AbstractStrategy {
-    public String name() { return "supertrend_rsi_combo"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Supertrend direction confirmed by RSI on the same side of 50."; }
-    public Map<String, Double> defaultParams() { return Map.of("n", 10.0, "mult", 3.0, "rsiN", 14.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[] st = Indicators.supertrend(b, pi(pr, "n"), p(pr, "mult"));
-        double[] r = Indicators.rsi(b.close, pi(pr, "rsiN"));
-        boolean[] up = and(gt(st, 0), gt(r, 50));
-        boolean[] dn = and(lt(st, 0), lt(r, 50));
-        return clean(regime(up, dn));
+    public String name() {
+        return "supertrend_rsi_combo";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Supertrend direction confirmed by RSI on the same side of 50.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("n", 10.0, "mult", 3.0, "rsiN", 14.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] trendDirection = Indicators.supertrend(bars, intParam(params, "n"), param(params, "mult"));
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiN"));
+        boolean[] longCondition = and(above(trendDirection, 0), above(rsi, 50));
+        boolean[] shortCondition = and(below(trendDirection, 0), below(rsi, 50));
+        return clean(regime(longCondition, shortCondition));
     }
 }

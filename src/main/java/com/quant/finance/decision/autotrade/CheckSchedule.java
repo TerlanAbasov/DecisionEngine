@@ -1,7 +1,6 @@
 package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.engine.Timeframe;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -15,6 +14,7 @@ final class CheckSchedule {
 
     /** Data providers publish a bar a little after it closes. */
     static final Duration GRACE = Duration.ofSeconds(20);
+
     static final Duration LATE_WINDOW = Duration.ofMinutes(5);
     static final Duration LATE_RETRY = Duration.ofSeconds(30);
     static final Duration IDLE_RETRY_CAP = Duration.ofMinutes(15);
@@ -34,10 +34,14 @@ final class CheckSchedule {
     static Instant next(Instant now, Instant lastBarOpen, Timeframe timeframe) {
         long bar = BarClock.barSeconds(timeframe);
         Duration idle = Duration.ofSeconds(Math.min(bar, IDLE_RETRY_CAP.toSeconds()));
-        if (lastBarOpen == null) return now.plus(idle);
+        if (lastBarOpen == null) {
+            return now.plus(idle);
+        }
 
-        Instant due = lastBarOpen.plusSeconds(2 * bar).plus(GRACE);          // the next bar is complete, and its data has landed
-        if (now.isBefore(due)) return due;
+        Instant due = lastBarOpen.plusSeconds(2 * bar).plus(GRACE); // the next bar is complete, and its data has landed
+        if (now.isBefore(due)) {
+            return due;
+        }
         return now.plus(Duration.between(due, now).compareTo(LATE_WINDOW) < 0 ? LATE_RETRY : idle);
     }
 

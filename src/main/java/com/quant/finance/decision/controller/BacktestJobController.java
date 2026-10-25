@@ -1,15 +1,22 @@
 package com.quant.finance.decision.controller;
 
-import com.quant.finance.decision.dto.Dtos.*;
-import com.quant.finance.decision.job.BacktestJobService;
 import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.dto.Dtos.BacktestRequest;
+import com.quant.finance.decision.dto.Dtos.EnsembleRequest;
+import com.quant.finance.decision.dto.Dtos.JobDto;
+import com.quant.finance.decision.dto.Dtos.PairsRequest;
+import com.quant.finance.decision.job.BacktestJobService;
 import com.quant.finance.decision.service.BacktestService;
 import com.quant.finance.decision.service.EnsembleService;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Backtests as background jobs: POSTs return 202 with the job, the UI polls {@code GET /{id}} and gets the result once COMPLETED.
@@ -31,36 +38,53 @@ public class BacktestJobController {
     }
 
     @PostMapping("/run")
-    public ResponseEntity<JobDto> run(@RequestBody BacktestRequest req) {
-        if (req.strategyName() == null || req.strategyName().isBlank())
+    public ResponseEntity<JobDto> run(@RequestBody BacktestRequest request) {
+        if (request.strategyName() == null || request.strategyName().isBlank()) {
             throw new IllegalArgumentException("strategyName is required");
-        return started(jobs.submit(JobKind.RUN, req.strategyName() + " · " + scope(req.symbols()) + tf(req.timeframe()),
-                req, p -> backtests.run(req, p)));
+        }
+        return started(jobs.submit(
+                JobKind.RUN,
+                request.strategyName() + " · " + scope(request.symbols()) + tf(request.timeframe()),
+                request,
+                p -> backtests.run(request, p)));
     }
 
     @PostMapping("/run-all")
-    public ResponseEntity<JobDto> runAll(@RequestBody BacktestRequest req) {
-        int picked = req.strategyNames() == null ? 0 : req.strategyNames().size();
+    public ResponseEntity<JobDto> runAll(@RequestBody BacktestRequest request) {
+        int picked =
+                request.strategyNames() == null ? 0 : request.strategyNames().size();
         String what = picked > 0 ? picked + " picked strateg" + (picked == 1 ? "y" : "ies") : "All strategies";
-        return started(jobs.submit(JobKind.RUN_ALL, what + " · " + scope(req.symbols()) + tf(req.timeframe()),
-                req, p -> backtests.runAll(req, p)));
+        return started(jobs.submit(
+                JobKind.RUN_ALL,
+                what + " · " + scope(request.symbols()) + tf(request.timeframe()),
+                request,
+                p -> backtests.runAll(request, p)));
     }
 
     @PostMapping("/pairs")
-    public ResponseEntity<JobDto> pairs(@RequestBody PairsRequest req) {
-        if (blank(req.symbolA()) || blank(req.symbolB()))
+    public ResponseEntity<JobDto> pairs(@RequestBody PairsRequest request) {
+        if (blank(request.symbolA()) || blank(request.symbolB())) {
             throw new IllegalArgumentException("symbolA and symbolB are required");
-        return started(jobs.submit(JobKind.PAIRS,
-                "Pairs " + req.symbolA().toUpperCase() + "/" + req.symbolB().toUpperCase() + tf(req.timeframe()),
-                req, p -> backtests.runPairs(req, p)));
+        }
+        return started(jobs.submit(
+                JobKind.PAIRS,
+                "Pairs " + request.symbolA().toUpperCase() + "/"
+                        + request.symbolB().toUpperCase() + tf(request.timeframe()),
+                request,
+                p -> backtests.runPairs(request, p)));
     }
 
     @PostMapping("/ensemble")
-    public ResponseEntity<JobDto> ensemble(@RequestBody EnsembleRequest req) {
-        int legs = req.strategyNames() == null ? 0 : req.strategyNames().size();
-        String what = legs > 0 ? "Ensemble of " + legs + " strateg" + (legs == 1 ? "y" : "ies") : "Ensemble of all enabled strategies";
-        return started(jobs.submit(JobKind.ENSEMBLE, what + " · " + scope(req.symbols()) + tf(req.timeframe()),
-                req, p -> ensemble.ensemble(req, p)));
+    public ResponseEntity<JobDto> ensemble(@RequestBody EnsembleRequest request) {
+        int legs = request.strategyNames() == null ? 0 : request.strategyNames().size();
+        String what = legs > 0
+                ? "Ensemble of " + legs + " strateg" + (legs == 1 ? "y" : "ies")
+                : "Ensemble of all enabled strategies";
+        return started(jobs.submit(
+                JobKind.ENSEMBLE,
+                what + " · " + scope(request.symbols()) + tf(request.timeframe()),
+                request,
+                p -> ensemble.ensemble(request, p)));
     }
 
     @GetMapping("/active")
@@ -82,10 +106,14 @@ public class BacktestJobController {
         return ResponseEntity.accepted().body(job);
     }
 
-    private static boolean blank(String s) { return s == null || s.isBlank(); }
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
 
     private static String scope(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) return "universe";
+        if (symbols == null || symbols.isEmpty()) {
+            return "universe";
+        }
         return symbols.size() <= 4 ? String.join(", ", symbols) : symbols.size() + " symbols";
     }
 

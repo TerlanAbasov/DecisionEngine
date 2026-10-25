@@ -1,36 +1,53 @@
 package com.quant.finance.decision.service;
 
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.config.ExecutorConfig;
 import com.quant.finance.decision.data.MarketDataService;
-import com.quant.finance.decision.entity.BacktestResultEntity;
-import com.quant.finance.decision.entity.BacktestRunEntity;
-import com.quant.finance.decision.entity.TradeEntity;
+import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.dto.Dtos.BacktestRequest;
+import com.quant.finance.decision.dto.Dtos.BacktestResultDto;
+import com.quant.finance.decision.dto.Dtos.LeaderboardEntryDto;
+import com.quant.finance.decision.dto.Dtos.PairsRequest;
+import com.quant.finance.decision.dto.Dtos.PruneResultDto;
+import com.quant.finance.decision.dto.Dtos.SymbolResultDto;
+import com.quant.finance.decision.dto.Dtos.TimeframeDto;
+import com.quant.finance.decision.dto.Dtos.TradeDetailDto;
+import com.quant.finance.decision.dto.Dtos.TradePageDto;
 import com.quant.finance.decision.engine.BacktestConfig;
 import com.quant.finance.decision.engine.BacktestOutput;
 import com.quant.finance.decision.engine.Backtester;
 import com.quant.finance.decision.engine.BarResampler;
-import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.engine.SymbolResult;
+import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.engine.TradeResult;
-import com.quant.finance.decision.domain.JobKind;
+import com.quant.finance.decision.entity.BacktestResultEntity;
+import com.quant.finance.decision.entity.BacktestRunEntity;
+import com.quant.finance.decision.entity.TradeEntity;
 import com.quant.finance.decision.job.JobProgress;
 import com.quant.finance.decision.job.JobProgress.Step;
 import com.quant.finance.decision.repository.BacktestResultRepository;
 import com.quant.finance.decision.repository.BacktestRunRepository;
 import com.quant.finance.decision.repository.TradeRepository;
-import com.quant.finance.decision.dto.Dtos.*;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import com.quant.finance.decision.strategy.impl.PairsStrategy;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Slf4j
@@ -39,15 +56,19 @@ public class BacktestService {
     /** A single named strategy may lever up to 5×; a batch sweep is pinned at 1× so
      *  transaction-cost drag isn't multiplied across every strategy at once. */
     private static final double SINGLE_RUN_MAX_POSITION = 5.0;
+
     private static final double MULTI_RUN_MAX_POSITION = 1.0;
     /** A batch run never executes on 1-minute bars — AUTO fans out per strategy, an
      *  explicit "Native" is lifted to this floor. */
     private static final Timeframe RUN_ALL_MIN_FRAME = Timeframe.M15;
 
-    private static String fmtMetrics(Map<String, Double> m) {
-        return String.format("return=%.1f%% sharpe=%.2f maxDD=%.1f%% trades=%.0f",
-                m.getOrDefault("totalReturnPct", 0.0), m.getOrDefault("sharpe", 0.0),
-                m.getOrDefault("maxDrawdownPct", 0.0), m.getOrDefault("trades", 0.0));
+    private static String formatMetrics(Map<String, Double> metrics) {
+        return String.format(
+                "return=%.1f%% sharpe=%.2f maxDD=%.1f%% trades=%.0f",
+                metrics.getOrDefault("totalReturnPct", 0.0),
+                metrics.getOrDefault("sharpe", 0.0),
+                metrics.getOrDefault("maxDrawdownPct", 0.0),
+                metrics.getOrDefault("trades", 0.0));
     }
 
     private final MarketDataService marketData;
@@ -59,21 +80,21 @@ public class BacktestService {
     private final TradeRepository tradeRepo;
     private final ExecutorService executor;
     private final Backtester backtester;
-    /** Cap on how far back a run-all / batch backtest may reach (heap guard on 1-min data). */
-    private final int runAllMaxDays;
+    private final ApplicationProperties properties;
 
-    public BacktestService(MarketDataService marketData, StrategyService strategies,
-                           UniverseService universe, JsonCodec json,
-                           BacktestRunRepository runRepo, BacktestResultRepository resultRepo,
-                           TradeRepository tradeRepo,
-                           @org.springframework.beans.factory.annotation.Qualifier(
-                                   ExecutorConfig.BACKTEST_EXECUTOR) ExecutorService executor,
-                           @org.springframework.beans.factory.annotation.Value(
-                                   "${decision.backtest.trace-per-symbol:true}") boolean tracePerSymbol,
-                           @org.springframework.beans.factory.annotation.Value(
-                                   "${decision.backtest.run-all-max-days:400}") int runAllMaxDays) {
-        this.backtester = new Backtester(tracePerSymbol);
-        this.runAllMaxDays = runAllMaxDays > 0 ? runAllMaxDays : 400;
+    public BacktestService(
+            MarketDataService marketData,
+            StrategyService strategies,
+            UniverseService universe,
+            JsonCodec json,
+            BacktestRunRepository runRepo,
+            BacktestResultRepository resultRepo,
+            TradeRepository tradeRepo,
+            @org.springframework.beans.factory.annotation.Qualifier(ExecutorConfig.BACKTEST_EXECUTOR)
+                    ExecutorService executor,
+            ApplicationProperties properties) {
+        this.backtester = new Backtester(properties.getBacktest().isTracePerSymbol());
+        this.properties = properties;
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
@@ -84,11 +105,18 @@ public class BacktestService {
         this.executor = executor;
     }
 
+    /** Cap on how far back a run-all / batch backtest may reach (heap guard on 1-min data); 400 when not set. */
+    private int runAllMaxDays() {
+        int days = properties.getBacktest().getRunAllMaxDays();
+        return days > 0 ? days : 400;
+    }
+
     /** Resample targets offered by the backtest form. */
     public List<TimeframeDto> timeframes() {
         List<TimeframeDto> out = new ArrayList<>();
-        for (Timeframe t : Timeframe.values())
-            out.add(new TimeframeDto(t.name(), t.label, t.isNative()));
+        for (Timeframe frame : Timeframe.values()) {
+            out.add(new TimeframeDto(frame.name(), frame.label, frame.isNative()));
+        }
         return out;
     }
 
@@ -97,90 +125,129 @@ public class BacktestService {
      * named strategy's recommended frame (or NATIVE when the target isn't a single strategy).
      */
     private Timeframe resolveTimeframe(String strategyName, String reqTimeframe) {
-        if (!Timeframe.isAuto(reqTimeframe)) return Timeframe.from(reqTimeframe);
-        return strategies.isStrategy(strategyName)
-                ? strategies.recommendedTimeframe(strategyName) : Timeframe.NATIVE;
+        if (!Timeframe.isAuto(reqTimeframe)) {
+            return Timeframe.from(reqTimeframe);
+        }
+        return strategies.isStrategy(strategyName) ? strategies.recommendedTimeframe(strategyName) : Timeframe.NATIVE;
     }
 
     /** A batch run never executes on 1-min bars: NATIVE is lifted to the floor frame. */
-    private static Timeframe batchFrame(Timeframe tf) {
-        return tf == null || tf.isNative() ? RUN_ALL_MIN_FRAME : tf;
+    private static Timeframe batchFrame(Timeframe frame) {
+        return frame == null || frame.isNative() ? RUN_ALL_MIN_FRAME : frame;
     }
 
-    private BacktestConfig cfg(BacktestRequest r) { return cfg(r, SINGLE_RUN_MAX_POSITION); }
-
-    private BacktestConfig cfg(BacktestRequest r, double maxPositionSize) {
-        BacktestConfig.Builder b = BacktestConfig.builder()
-                .capital(r.capital() != null ? r.capital() : 100_000)
-                .commissionBps(r.commissionBps() != null ? r.commissionBps() : 1.0)
-                .slippageBps(r.slippageBps() != null ? r.slippageBps() : 2.0)
-                .allowShort(r.allowShort() == null || r.allowShort())
-                .timeframe(resolveTimeframe(r.strategyName(), r.timeframe()));
-        if (r.execLag() != null) b.execLag(r.execLag());
-        if (r.positionSize() != null) {
-            double ps = Math.min(r.positionSize(), maxPositionSize);
-            if (ps < r.positionSize())
-                log.info("Config[{}]: positionSize {}× capped to {}× (batch run)",
-                        r.strategyName() == null ? "ALL" : r.strategyName(), r.positionSize(), ps);
-            b.positionSize(ps);
+    private BacktestConfig configOf(BacktestRequest request, double maxPositionSize) {
+        BacktestConfig.Builder builder = BacktestConfig.builder()
+                .capital(request.capital() != null ? request.capital() : 100_000)
+                .commissionBps(request.commissionBps() != null ? request.commissionBps() : 1.0)
+                .slippageBps(request.slippageBps() != null ? request.slippageBps() : 2.0)
+                .allowShort(request.allowShort() == null || request.allowShort())
+                .timeframe(resolveTimeframe(request.strategyName(), request.timeframe()));
+        if (request.execLag() != null) {
+            builder.execLag(request.execLag());
         }
-        if (r.riskFreePct() != null) b.riskFreePct(r.riskFreePct());
-        if (r.warmupBars() != null) b.warmupBars(r.warmupBars());
+        if (request.positionSize() != null) {
+            double positionSize = Math.min(request.positionSize(), maxPositionSize);
+            if (positionSize < request.positionSize()) {
+                log.info(
+                        "Config[{}]: positionSize {}× capped to {}× (batch run)",
+                        request.strategyName() == null ? "ALL" : request.strategyName(),
+                        request.positionSize(),
+                        positionSize);
+            }
+            builder.positionSize(positionSize);
+        }
+        if (request.riskFreePct() != null) {
+            builder.riskFreePct(request.riskFreePct());
+        }
+        if (request.warmupBars() != null) {
+            builder.warmupBars(request.warmupBars());
+        }
         // unset SL/TP on a single named strategy falls back to its own saved default
         // (same "AUTO" convention as timeframe) — a batch/ALL request resolves this per-job instead.
-        Double sl = r.stopLossPct();
-        if (sl == null && strategies.isStrategy(r.strategyName())) sl = strategies.defaultStopLossPct(r.strategyName());
-        if (sl != null) b.stopLossPct(sl);
-        Double tp = r.takeProfitPct();
-        if (tp == null && strategies.isStrategy(r.strategyName())) tp = strategies.defaultTakeProfitPct(r.strategyName());
-        if (tp != null) b.takeProfitPct(tp);
-        BacktestConfig cfg = b.build();
-        log.info("Config[{}]: tf={} tfReq={} capital={} comm={}bps slip={}bps posSize={} execLag={} SL={}% TP={}% warmup={} rf={}% allowShort={}",
-                r.strategyName(), cfg.timeframe, r.timeframe() == null ? "AUTO" : r.timeframe(), cfg.capital,
-                cfg.commissionBps, cfg.slippageBps, cfg.positionSize, cfg.execLag, cfg.stopLossPct,
-                cfg.takeProfitPct, cfg.warmupBars, cfg.riskFreePct, cfg.allowShort);
-        return cfg;
+        Double stopLossPct = request.stopLossPct();
+        if (stopLossPct == null && strategies.isStrategy(request.strategyName())) {
+            stopLossPct = strategies.defaultStopLossPct(request.strategyName());
+        }
+        if (stopLossPct != null) {
+            builder.stopLossPct(stopLossPct);
+        }
+        Double takeProfitPct = request.takeProfitPct();
+        if (takeProfitPct == null && strategies.isStrategy(request.strategyName())) {
+            takeProfitPct = strategies.defaultTakeProfitPct(request.strategyName());
+        }
+        if (takeProfitPct != null) {
+            builder.takeProfitPct(takeProfitPct);
+        }
+        BacktestConfig config = builder.build();
+        log.info(
+                "Config[{}]: tf={} tfReq={} capital={} comm={}bps slip={}bps posSize={} execLag={} SL={}% TP={}% warmup={} rf={}% allowShort={}",
+                request.strategyName(),
+                config.timeframe,
+                request.timeframe() == null ? "AUTO" : request.timeframe(),
+                config.capital,
+                config.commissionBps,
+                config.slippageBps,
+                config.positionSize,
+                config.execLag,
+                config.stopLossPct,
+                config.takeProfitPct,
+                config.warmupBars,
+                config.riskFreePct,
+                config.allowShort);
+        return config;
     }
 
     private List<String> resolveSymbols(List<String> requested) {
         if (requested != null && !requested.isEmpty()) {
-            List<String> syms = requested.stream().map(String::toUpperCase).toList();
-            log.info("Symbols: {} requested {}", syms.size(), preview(syms));
-            return syms;
+            List<String> resolved = requested.stream().map(String::toUpperCase).toList();
+            log.info("Symbols: {} requested {}", resolved.size(), preview(resolved));
+            return resolved;
         }
-        List<String> syms = universe.get();
-        log.info("Symbols: {} from universe {}", syms.size(), preview(syms));
-        return syms;
+        List<String> resolved = universe.get();
+        log.info("Symbols: {} from universe {}", resolved.size(), preview(resolved));
+        return resolved;
     }
 
-    private static double orZero(Double v) { return v == null ? 0 : v; }
-
-    private static String preview(List<String> l) {
-        return l.size() <= 12 ? l.toString() : l.subList(0, 12) + " …+" + (l.size() - 12);
+    private static double orZero(Double value) {
+        return value == null ? 0 : value;
     }
 
-    private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf) {
-        return load(symbols, start, end, tf, new JobProgress(JobKind.RUN));
+    private static String preview(List<String> items) {
+        return items.size() <= 12 ? items.toString() : items.subList(0, 12) + " …+" + (items.size() - 12);
     }
 
-    private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf,
-                                 JobProgress progress) {
-        long t0 = System.currentTimeMillis();
-        log.info("Load bars: {} symbol(s) {}..{} @ {}", symbols.size(), start, end, tf);
+    private List<BarSeries> load(List<String> symbols, LocalDate start, LocalDate end, Timeframe frame) {
+        return load(symbols, start, end, frame, new JobProgress(JobKind.RUN));
+    }
+
+    private List<BarSeries> load(
+            List<String> symbols, LocalDate start, LocalDate end, Timeframe frame, JobProgress progress) {
+        long startMillis = System.currentTimeMillis();
+        log.info("Load bars: {} symbol(s) {}..{} @ {}", symbols.size(), start, end, frame);
         List<BarSeries> out = new ArrayList<>();
         int miss = 0;
         long bars = 0;
-        for (String s : symbols) {
+        for (String symbol : symbols) {
             progress.checkCancelled();
-            BarSeries b = marketData.getBars(s, start, end);
-            if (b.size() > 0) { BarSeries rs = BarResampler.resample(b, tf); out.add(rs); bars += rs.size(); }
-            else miss++;
-            progress.symbolLoaded(s, b.size() > 0);
+            BarSeries symbolBars = marketData.getBars(symbol, start, end);
+            if (symbolBars.size() > 0) {
+                BarSeries resampled = BarResampler.resample(symbolBars, frame);
+                out.add(resampled);
+                bars += resampled.size();
+            } else {
+                miss++;
+            }
+            progress.symbolLoaded(symbol, symbolBars.size() > 0);
         }
-        log.info("Load bars: {} series ready, {} bars total{} in {} ms", out.size(), bars,
-                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
+        log.info(
+                "Load bars: {} series ready, {} bars total{} in {} ms",
+                out.size(),
+                bars,
+                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "",
+                System.currentTimeMillis() - startMillis);
         if (out.isEmpty()) {
-            log.warn("Load bars: no market data for {} @ {} {}..{}", preview(symbols), tf, start, end);
+            log.warn("Load bars: no market data for {} @ {} {}..{}", preview(symbols), frame, start, end);
             throw new IllegalStateException("No market data for requested symbols/range");
         }
         return out;
@@ -190,28 +257,38 @@ public class BacktestService {
      * Loads native bars once per symbol and resamples each into every requested frame, holding one symbol's native series at a time
      * (1-min native is ~1.9M bars in a batch, so this keeps the working set an order of magnitude smaller).
      */
-    private Map<Timeframe, List<BarSeries>> loadResampled(List<String> symbols, LocalDate start,
-                                                          LocalDate end, Set<Timeframe> frames,
-                                                          JobProgress progress) {
-        long t0 = System.currentTimeMillis();
+    private Map<Timeframe, List<BarSeries>> loadResampled(
+            List<String> symbols, LocalDate start, LocalDate end, Set<Timeframe> frames, JobProgress progress) {
+        long startMillis = System.currentTimeMillis();
         Map<Timeframe, List<BarSeries>> out = new LinkedHashMap<>();
-        for (Timeframe tf : frames) out.put(tf, new ArrayList<>());
+        for (Timeframe frame : frames) {
+            out.put(frame, new ArrayList<>());
+        }
         long bars = 0;
         int miss = 0;
-        for (String s : symbols) {
+        for (String symbol : symbols) {
             progress.checkCancelled();
-            BarSeries nativeB = marketData.getBars(s, start, end);
-            if (nativeB.size() == 0) { miss++; progress.symbolLoaded(s, false); continue; }
-            for (Timeframe tf : frames) {
-                BarSeries rs = BarResampler.resample(nativeB, tf);
-                out.get(tf).add(rs);
-                bars += rs.size();
+            BarSeries nativeB = marketData.getBars(symbol, start, end);
+            if (nativeB.size() == 0) {
+                miss++;
+                progress.symbolLoaded(symbol, false);
+                continue;
             }
-            progress.symbolLoaded(s, true);
+            for (Timeframe frame : frames) {
+                BarSeries resampled = BarResampler.resample(nativeB, frame);
+                out.get(frame).add(resampled);
+                bars += resampled.size();
+            }
+            progress.symbolLoaded(symbol, true);
         }
-        log.info("Load bars: {} symbol(s) -> {} frame(s) {}, {} resampled bars total{} in {} ms",
-                symbols.size(), frames.size(), frames, bars,
-                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "", System.currentTimeMillis() - t0);
+        log.info(
+                "Load bars: {} symbol(s) -> {} frame(s) {}, {} resampled bars total{} in {} ms",
+                symbols.size(),
+                frames.size(),
+                frames,
+                bars,
+                miss > 0 ? " (" + miss + " symbol(s) had no data)" : "",
+                System.currentTimeMillis() - startMillis);
         if (out.values().stream().allMatch(List::isEmpty)) {
             log.warn("Load bars: no market data for {} {}..{}", preview(symbols), start, end);
             throw new IllegalStateException("No market data for requested symbols/range");
@@ -222,105 +299,130 @@ public class BacktestService {
     // ---- shared entry points for the optimizer / ensemble services --------
 
     /** Requested symbols upper-cased, or the saved universe when none are given. */
-    public List<String> universeOr(List<String> requested) { return resolveSymbols(requested); }
+    public List<String> universeOr(List<String> requested) {
+        return resolveSymbols(requested);
+    }
 
     /** Load + resample bars once so a sweep can reuse them across many runs. */
-    public List<BarSeries> loadData(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf) {
-        return load(symbols, start, end, tf);
+    public List<BarSeries> loadData(List<String> symbols, LocalDate start, LocalDate end, Timeframe frame) {
+        return load(symbols, start, end, frame);
     }
 
     /** As {@link #loadData(List, LocalDate, LocalDate, Timeframe)}, reporting each symbol to {@code progress}. */
-    public List<BarSeries> loadData(List<String> symbols, LocalDate start, LocalDate end, Timeframe tf,
-                                    JobProgress progress) {
-        return load(symbols, start, end, tf, progress);
+    public List<BarSeries> loadData(
+            List<String> symbols, LocalDate start, LocalDate end, Timeframe frame, JobProgress progress) {
+        return load(symbols, start, end, frame, progress);
     }
 
-    public BacktestConfig configOf(BacktestRequest req) { return cfg(req); }
+    public BacktestConfig configOf(BacktestRequest request) {
+        return configOf(request, SINGLE_RUN_MAX_POSITION);
+    }
 
     /** Shared backtest thread pool — for the optimiser / ensemble to fan out their own work. */
-    public ExecutorService executor() { return executor; }
+    public ExecutorService executor() {
+        return executor;
+    }
 
     /** Run one portfolio backtest against already-loaded data and return only its metrics (no persistence). */
-    public Map<String, Double> evaluate(TradingStrategy strat, Map<String, Double> params,
-                                        List<BarSeries> data, BacktestConfig cfg) {
-        BacktestOutput o = backtester.runPortfolio(data, strat,
-                params == null || params.isEmpty() ? null : params, cfg, null, false);
-        return o.metrics;
+    public Map<String, Double> evaluate(
+            TradingStrategy strategy, Map<String, Double> params, List<BarSeries> data, BacktestConfig config) {
+        BacktestOutput output = backtester.runPortfolio(
+                data, strategy, params == null || params.isEmpty() ? null : params, config, null, false);
+        return output.metrics;
     }
 
     /** Full portfolio output against already-loaded data (no persistence) — for the ensemble blend. */
-    public BacktestOutput runOnce(TradingStrategy strat, Map<String, Double> params,
-                                  List<BarSeries> data, BacktestConfig cfg) {
-        return backtester.runPortfolio(data, strat, params == null || params.isEmpty() ? null : params, cfg, null, false);
+    public BacktestOutput runOnce(
+            TradingStrategy strategy, Map<String, Double> params, List<BarSeries> data, BacktestConfig config) {
+        return backtester.runPortfolio(
+                data, strategy, params == null || params.isEmpty() ? null : params, config, null, false);
     }
 
     @Transactional
-    public BacktestResultDto run(BacktestRequest req) {
-        return run(req, new JobProgress(JobKind.RUN));
+    public BacktestResultDto run(BacktestRequest request) {
+        return run(request, new JobProgress(JobKind.RUN));
     }
 
     @Transactional
-    public BacktestResultDto run(BacktestRequest req, JobProgress progress) {
+    public BacktestResultDto run(BacktestRequest request, JobProgress progress) {
         progress.begin(Step.PREPARE, 1, "Resolving symbols and settings");
-        List<String> symbols = resolveSymbols(req.symbols());
-        BacktestConfig cfg = cfg(req);
-        TradingStrategy strat = strategies.getStrategy(req.strategyName());
-        Map<String, Double> params = strategies.getParams(req.strategyName());
+        List<String> symbols = resolveSymbols(request.symbols());
+        BacktestConfig config = configOf(request);
+        TradingStrategy strategy = strategies.getStrategy(request.strategyName());
+        Map<String, Double> params = strategies.getParams(request.strategyName());
         progress.planSymbols(symbols);
-        progress.planStrategies(List.of(req.strategyName()));
+        progress.planStrategies(List.of(request.strategyName()));
         progress.complete(Step.PREPARE);
-        long t0 = System.currentTimeMillis();
-        log.info("Backtest: '{}' on {} symbol(s) {}..{} @ {}", req.strategyName(), symbols.size(),
-                req.start(), req.end(), cfg.timeframe);
+        long startMillis = System.currentTimeMillis();
+        log.info(
+                "Backtest: '{}' on {} symbol(s) {}..{} @ {}",
+                request.strategyName(),
+                symbols.size(),
+                request.start(),
+                request.end(),
+                config.timeframe);
         progress.begin(Step.LOAD, symbols.size(), "Loading market data");
-        List<BarSeries> data = load(symbols, req.start(), req.end(), cfg.timeframe, progress);
+        List<BarSeries> data = load(symbols, request.start(), request.end(), config.timeframe, progress);
         progress.complete(Step.LOAD);
         progress.checkCancelled();
-        log.info("Backtest: '{}' computing portfolio over {} series (symbols in parallel)…", req.strategyName(), data.size());
+        log.info(
+                "Backtest: '{}' computing portfolio over {} series (symbols in parallel)…",
+                request.strategyName(),
+                data.size());
         progress.beginCompute(data.size(), 1, "Computing " + data.size() + " symbol(s)");
-        progress.strategyStarted(req.strategyName());
-        BacktestOutput o = backtester.runPortfolio(data, strat, params.isEmpty() ? null : params, cfg, executor,
-                true, progress::symbolComputed);
-        progress.strategyFinished(req.strategyName(), true);
+        progress.strategyStarted(request.strategyName());
+        BacktestOutput output = backtester.runPortfolio(
+                data, strategy, params.isEmpty() ? null : params, config, executor, true, progress::symbolComputed);
+        progress.strategyFinished(request.strategyName(), true);
         progress.complete(Step.COMPUTE);
         progress.checkCancelled();
         progress.begin(Step.SAVE, 1, "Saving the run, its results and trades");
-        BacktestResultDto dto = persist(o, symbols, cfg, req.start(), req.end());
+        BacktestResultDto dto = persist(output, symbols, config, request.start(), request.end());
         progress.complete(Step.SAVE);
-        log.info("Backtest: '{}' done in {} ms — run #{} {}", req.strategyName(),
-                System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
+        log.info(
+                "Backtest: '{}' done in {} ms — run #{} {}",
+                request.strategyName(),
+                System.currentTimeMillis() - startMillis,
+                dto.runId(),
+                formatMetrics(output.metrics));
         return dto;
     }
 
     @Transactional
-    public List<LeaderboardEntryDto> runAll(BacktestRequest req) {
-        return runAll(req, new JobProgress(JobKind.RUN_ALL));
+    public List<LeaderboardEntryDto> runAll(BacktestRequest request) {
+        return runAll(request, new JobProgress(JobKind.RUN_ALL));
     }
 
     @Transactional
-    public List<LeaderboardEntryDto> runAll(BacktestRequest req, JobProgress progress) {
+    public List<LeaderboardEntryDto> runAll(BacktestRequest request, JobProgress progress) {
         progress.begin(Step.PREPARE, 1, "Resolving symbols, strategies and settings");
-        List<String> symbols = resolveSymbols(req.symbols());
+        List<String> symbols = resolveSymbols(request.symbols());
 
         // cap the look-back window — hundreds of strategies over years of 1-min bars is what OOMs the box
-        LocalDate start = req.start(), end = req.end();
-        if (start != null && end != null && start.isBefore(end.minusDays(runAllMaxDays))) {
-            LocalDate capped = end.minusDays(runAllMaxDays);
-            log.info("Backtest run-all: window {}..{} exceeds the {}-day batch cap — starting from {}",
-                    start, end, runAllMaxDays, capped);
+        LocalDate start = request.start();
+        LocalDate end = request.end();
+        int maxDays = runAllMaxDays();
+        if (start != null && end != null && start.isBefore(end.minusDays(maxDays))) {
+            LocalDate capped = end.minusDays(maxDays);
+            log.info(
+                    "Backtest run-all: window {}..{} exceeds the {}-day batch cap — starting from {}",
+                    start,
+                    end,
+                    maxDays,
+                    capped);
             start = capped;
         }
 
-        BacktestConfig cfg = cfg(req, MULTI_RUN_MAX_POSITION);
+        BacktestConfig batchConfig = configOf(request, MULTI_RUN_MAX_POSITION);
         // AUTO (or an explicit "Native") on a batch run must never execute on 1-min bars:
         // AUTO fans each strategy out on its own recommended frame; an explicit Native is
         // lifted to the batch floor frame.
-        boolean perStrategyTf = Boolean.TRUE.equals(req.perStrategyTimeframe())
-                || Timeframe.isAuto(req.timeframe());
-        Timeframe sharedFrame = cfg.timeframe.isNative() ? RUN_ALL_MIN_FRAME : cfg.timeframe;
+        boolean perStrategyTf =
+                Boolean.TRUE.equals(request.perStrategyTimeframe()) || Timeframe.isAuto(request.timeframe());
+        Timeframe sharedFrame = batchConfig.timeframe.isNative() ? RUN_ALL_MIN_FRAME : batchConfig.timeframe;
 
-        boolean includeDisabled = Boolean.TRUE.equals(req.includeDisabled());
-        List<String> picked = req.strategyNames();
+        boolean includeDisabled = Boolean.TRUE.equals(request.includeDisabled());
+        List<String> picked = request.strategyNames();
         String scope;
         Map<String, TradingStrategy> enabled;
         if (picked != null && !picked.isEmpty()) {
@@ -334,21 +436,33 @@ public class BacktestService {
             scope = "enabled";
         }
         long batchStart = System.currentTimeMillis();
-        if (enabled.isEmpty())
-            throw new IllegalStateException(picked != null && !picked.isEmpty()
-                    ? "None of the picked strategies are runnable (unknown or archived)."
-                    : includeDisabled
-                        ? "No strategies to run — every strategy is archived."
-                        : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
+        if (enabled.isEmpty()) {
+            throw new IllegalStateException(
+                    picked != null && !picked.isEmpty()
+                            ? "None of the picked strategies are runnable (unknown or archived)."
+                            : includeDisabled
+                                    ? "No strategies to run — every strategy is archived."
+                                    : "No enabled strategies — enable some on the Strategies tab, or use 'include disabled'.");
+        }
 
         // which resample frames does this batch actually need? (a per-strategy frame that
         // resolves to Native is lifted to the batch floor — no batch runs on 1-min bars)
         Set<Timeframe> frames = new LinkedHashSet<>();
-        if (perStrategyTf) for (String name : enabled.keySet()) frames.add(batchFrame(strategies.recommendedTimeframe(name)));
-        else frames.add(sharedFrame);
+        if (perStrategyTf) {
+            for (String name : enabled.keySet()) {
+                frames.add(batchFrame(strategies.recommendedTimeframe(name)));
+            }
+        } else {
+            frames.add(sharedFrame);
+        }
 
-        log.info("Backtest run-all: {} {} strategies on {} symbol(s) {}..{} ({})",
-                enabled.size(), scope, symbols.size(), start, end,
+        log.info(
+                "Backtest run-all: {} {} strategies on {} symbol(s) {}..{} ({})",
+                enabled.size(),
+                scope,
+                symbols.size(),
+                start,
+                end,
                 perStrategyTf ? "per-strategy timeframe " + frames : sharedFrame.toString());
 
         progress.planSymbols(symbols);
@@ -362,55 +476,81 @@ public class BacktestService {
 
         // unset SL/TP on a batch request falls back to each strategy's own saved default
         // (same "AUTO" convention as timeframe); an explicit value overrides uniformly for all.
-        boolean autoSL = req.stopLossPct() == null;
-        boolean autoTP = req.takeProfitPct() == null;
+        boolean autoSL = request.stopLossPct() == null;
+        boolean autoTP = request.takeProfitPct() == null;
 
         // --- prep one job per strategy (single-threaded: resolves params / timeframe / data, no compute) ---
-        record Job(String name, TradingStrategy strat, Map<String, Double> params,
-                   BacktestConfig cfg, List<BarSeries> data) {}
+        record Job(
+                String name,
+                TradingStrategy strategy,
+                Map<String, Double> params,
+                BacktestConfig config,
+                List<BarSeries> data) {}
         List<Job> jobs = new ArrayList<>();
-        for (Map.Entry<String, TradingStrategy> e : enabled.entrySet()) {
-            Map<String, Double> params = strategies.getParams(e.getKey());
-            Timeframe tf = perStrategyTf ? batchFrame(strategies.recommendedTimeframe(e.getKey())) : sharedFrame;
-            BacktestConfig runCfg = cfg.timeframe == tf ? cfg : cfg.withTimeframe(tf);
+        for (Map.Entry<String, TradingStrategy> entry : enabled.entrySet()) {
+            Map<String, Double> params = strategies.getParams(entry.getKey());
+            Timeframe frame = perStrategyTf ? batchFrame(strategies.recommendedTimeframe(entry.getKey())) : sharedFrame;
+            BacktestConfig runCfg = batchConfig.timeframe == frame ? batchConfig : batchConfig.withTimeframe(frame);
             if (autoSL || autoTP) {
-                double sl = autoSL ? orZero(strategies.defaultStopLossPct(e.getKey())) : runCfg.stopLossPct;
-                double tp = autoTP ? orZero(strategies.defaultTakeProfitPct(e.getKey())) : runCfg.takeProfitPct;
+                double sl = autoSL ? orZero(strategies.defaultStopLossPct(entry.getKey())) : runCfg.stopLossPct;
+                double tp = autoTP ? orZero(strategies.defaultTakeProfitPct(entry.getKey())) : runCfg.takeProfitPct;
                 runCfg = runCfg.withRisk(sl, tp);
             }
-            jobs.add(new Job(e.getKey(), e.getValue(), params.isEmpty() ? null : params, runCfg, tfData.get(tf)));
+            jobs.add(new Job(
+                    entry.getKey(), entry.getValue(), params.isEmpty() ? null : params, runCfg, tfData.get(frame)));
         }
-        log.info("Backtest run-all: {} jobs prepared ({} distinct timeframe(s)) — submitting to pool",
-                jobs.size(), frames.size());
+        log.info(
+                "Backtest run-all: {} jobs prepared ({} distinct timeframe(s)) — submitting to pool",
+                jobs.size(),
+                frames.size());
 
         // --- fan the CPU-bound backtests out across the pool (no DB in the tasks) ---
         // one strategy failing (bad data, indicator NaN, …) must not abort the whole batch
         int total = jobs.size();
         int units = 0;
-        for (Job j : jobs) units += j.data().size();     // one unit per (strategy, loaded symbol)
+        for (Job job : jobs) {
+            units += job.data().size(); // one unit per (strategy, loaded symbol)
+        }
         progress.beginCompute(units, total, total + " strategies × " + (units / Math.max(1, total)) + " symbol(s)");
         List<CompletableFuture<BacktestOutput>> futures = new ArrayList<>(total);
-        for (Job j : jobs) {
-            futures.add(CompletableFuture.supplyAsync(() -> {
-                if (progress.isCancelled()) return null;   // stopped: skip work that has not started yet
-                progress.strategyStarted(j.name());
-                boolean ok = false;
-                try {
-                    long t0 = System.currentTimeMillis();
-                    BacktestOutput o = backtester.runPortfolio(j.data(), j.strat(), j.params(), j.cfg(),
-                            null, true, progress::symbolComputed);
-                    log.info("Backtest run-all: '{}' @ {} computed in {} ms — {}",
-                            j.name(), j.cfg().timeframe, System.currentTimeMillis() - t0, fmtMetrics(o.metrics));
-                    ok = true;
-                    return o;
-                } catch (RuntimeException ex) {
-                    log.warn("Backtest run-all: '{}' failed — {}: {}", j.name(),
-                            ex.getClass().getSimpleName(), ex.getMessage());
-                    return null;
-                } finally {
-                    progress.strategyFinished(j.name(), ok);
-                }
-            }, executor));
+        for (Job job : jobs) {
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> {
+                        if (progress.isCancelled()) {
+                            return null; // stopped: skip work that has not started yet
+                        }
+                        progress.strategyStarted(job.name());
+                        boolean ok = false;
+                        try {
+                            long startMillis = System.currentTimeMillis();
+                            BacktestOutput output = backtester.runPortfolio(
+                                    job.data(),
+                                    job.strategy(),
+                                    job.params(),
+                                    job.config(),
+                                    null,
+                                    true,
+                                    progress::symbolComputed);
+                            log.info(
+                                    "Backtest run-all: '{}' @ {} computed in {} ms — {}",
+                                    job.name(),
+                                    job.config().timeframe,
+                                    System.currentTimeMillis() - startMillis,
+                                    formatMetrics(output.metrics));
+                            ok = true;
+                            return output;
+                        } catch (RuntimeException ex) {
+                            log.warn(
+                                    "Backtest run-all: '{}' failed — {}: {}",
+                                    job.name(),
+                                    ex.getClass().getSimpleName(),
+                                    ex.getMessage());
+                            return null;
+                        } finally {
+                            progress.strategyFinished(job.name(), ok);
+                        }
+                    },
+                    executor));
         }
 
         // --- persist sequentially on this transaction thread ---
@@ -419,161 +559,201 @@ public class BacktestService {
         int failed = 0;
         for (int i = 0; i < total; i++) {
             progress.checkCancelled();
-            Job j = jobs.get(i);
-            BacktestOutput o = futures.get(i).join();
-            futures.set(i, null);   // release the output once we've persisted / skipped it
+            Job job = jobs.get(i);
+            BacktestOutput output = futures.get(i).join();
+            futures.set(i, null); // release the output once we've persisted / skipped it
             progress.checkCancelled();
-            if (o == null) {
+            if (output == null) {
                 failed++;
-                progress.advance(Step.SAVE, j.name() + " failed (" + (i + 1) + "/" + total + ")");
+                progress.advance(Step.SAVE, job.name() + " failed (" + (i + 1) + "/" + total + ")");
                 continue;
             }
-            BacktestResultDto dto = persist(o, symbols, j.cfg(), start, end);
-            board.add(new LeaderboardEntryDto(dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(),
-                    dto.symbols(), dto.metrics()));
-            progress.advance(Step.SAVE, "Saved " + j.name() + " (" + (i + 1) + "/" + total + ")");
+            BacktestResultDto dto = persist(output, symbols, job.config(), start, end);
+            board.add(new LeaderboardEntryDto(
+                    dto.runId(), dto.strategy(), dto.timeframe(), dto.bars(), dto.symbols(), dto.metrics()));
+            progress.advance(Step.SAVE, "Saved " + job.name() + " (" + (i + 1) + "/" + total + ")");
         }
         progress.complete(Step.COMPUTE);
         progress.complete(Step.SAVE);
         board.sort((a, b) -> Double.compare(
                 b.metrics().getOrDefault("sharpe", 0.0), a.metrics().getOrDefault("sharpe", 0.0)));
-        log.info("Backtest run-all: {} of {} strategies done in {} ms (parallel){}", board.size(), total,
-                System.currentTimeMillis() - batchStart, failed > 0 ? " — " + failed + " failed" : "");
+        log.info(
+                "Backtest run-all: {} of {} strategies done in {} ms (parallel){}",
+                board.size(),
+                total,
+                System.currentTimeMillis() - batchStart,
+                failed > 0 ? " — " + failed + " failed" : "");
         return board;
     }
 
     @Transactional
-    public BacktestResultDto runPairs(PairsRequest req) {
-        return runPairs(req, new JobProgress(JobKind.PAIRS));
+    public BacktestResultDto runPairs(PairsRequest request) {
+        return runPairs(request, new JobProgress(JobKind.PAIRS));
     }
 
     @Transactional
-    public BacktestResultDto runPairs(PairsRequest req, JobProgress progress) {
+    public BacktestResultDto runPairs(PairsRequest request, JobProgress progress) {
         progress.begin(Step.PREPARE, 1, "Preparing the pair");
-        BacktestConfig.Builder b = BacktestConfig.builder()
-                .capital(req.capital() != null ? req.capital() : 100_000)
-                .commissionBps(req.commissionBps() != null ? req.commissionBps() : 1.0)
-                .slippageBps(req.slippageBps() != null ? req.slippageBps() : 2.0)
+        BacktestConfig.Builder builder = BacktestConfig.builder()
+                .capital(request.capital() != null ? request.capital() : 100_000)
+                .commissionBps(request.commissionBps() != null ? request.commissionBps() : 1.0)
+                .slippageBps(request.slippageBps() != null ? request.slippageBps() : 2.0)
                 .allowShort(true)
-                .timeframe(Timeframe.from(req.timeframe()));
-        if (req.positionSize() != null) b.positionSize(req.positionSize());
-        if (req.stopLossPct() != null) b.stopLossPct(req.stopLossPct());
-        if (req.takeProfitPct() != null) b.takeProfitPct(req.takeProfitPct());
-        BacktestConfig cfg = b.build();
-        String symA = req.symbolA().toUpperCase(), symB = req.symbolB().toUpperCase();
+                .timeframe(Timeframe.from(request.timeframe()));
+        if (request.positionSize() != null) {
+            builder.positionSize(request.positionSize());
+        }
+        if (request.stopLossPct() != null) {
+            builder.stopLossPct(request.stopLossPct());
+        }
+        if (request.takeProfitPct() != null) {
+            builder.takeProfitPct(request.takeProfitPct());
+        }
+        BacktestConfig config = builder.build();
+        String symA = request.symbolA().toUpperCase();
+        String symB = request.symbolB().toUpperCase();
         progress.planSymbols(List.of(symA, symB));
         progress.complete(Step.PREPARE);
 
-        long t0 = System.currentTimeMillis();
-        log.info("Backtest: pairs {}/{} {}..{} @ {}", req.symbolA(), req.symbolB(),
-                req.start(), req.end(), cfg.timeframe);
+        long startMillis = System.currentTimeMillis();
+        log.info(
+                "Backtest: pairs {}/{} {}..{} @ {}",
+                request.symbolA(),
+                request.symbolB(),
+                request.start(),
+                request.end(),
+                config.timeframe);
         progress.begin(Step.LOAD, 2, "Loading market data");
         progress.checkCancelled();
-        BarSeries rawA = marketData.getBars(symA, req.start(), req.end());
+        BarSeries rawA = marketData.getBars(symA, request.start(), request.end());
         progress.symbolLoaded(symA, rawA.size() > 0);
         progress.checkCancelled();
-        BarSeries rawB = marketData.getBars(symB, req.start(), req.end());
+        BarSeries rawB = marketData.getBars(symB, request.start(), request.end());
         progress.symbolLoaded(symB, rawB.size() > 0);
-        BarSeries a = BarResampler.resample(rawA, cfg.timeframe);
-        BarSeries bs = BarResampler.resample(rawB, cfg.timeframe);
+        BarSeries seriesA = BarResampler.resample(rawA, config.timeframe);
+        BarSeries seriesB = BarResampler.resample(rawB, config.timeframe);
         progress.complete(Step.LOAD);
         progress.checkCancelled();
-        PairsStrategy strat = new PairsStrategy(
-                req.window() != null ? req.window() : 60,
-                req.entry() != null ? req.entry() : 2.0,
-                req.exit() != null ? req.exit() : 0.5);
+        PairsStrategy strategy = new PairsStrategy(
+                request.window() != null ? request.window() : 60,
+                request.entry() != null ? request.entry() : 2.0,
+                request.exit() != null ? request.exit() : 0.5);
         progress.beginCompute(1, 0, "Backtesting the pair");
-        BacktestOutput o = backtester.runPairs(a, bs, strat, cfg);
+        BacktestOutput output = backtester.runPairs(seriesA, seriesB, strategy, config);
         progress.complete(Step.COMPUTE);
         progress.checkCancelled();
         progress.begin(Step.SAVE, 1, "Saving the run, its results and trades");
-        BacktestResultDto dto = persist(o, List.of(symA, symB), cfg, req.start(), req.end());
+        BacktestResultDto dto = persist(output, List.of(symA, symB), config, request.start(), request.end());
         progress.complete(Step.SAVE);
-        log.info("Backtest: pairs {}/{} done in {} ms — run #{} {}", req.symbolA(), req.symbolB(),
-                System.currentTimeMillis() - t0, dto.runId(), fmtMetrics(o.metrics));
+        log.info(
+                "Backtest: pairs {}/{} done in {} ms — run #{} {}",
+                request.symbolA(),
+                request.symbolB(),
+                System.currentTimeMillis() - startMillis,
+                dto.runId(),
+                formatMetrics(output.metrics));
         return dto;
     }
 
-    private BacktestResultDto persist(BacktestOutput o, List<String> symbols, BacktestConfig cfg,
-                                      LocalDate start, LocalDate end) {
+    private BacktestResultDto persist(
+            BacktestOutput output, List<String> symbols, BacktestConfig config, LocalDate start, LocalDate end) {
         BacktestRunEntity run = new BacktestRunEntity();
-        run.setStrategyName(o.strategy);
+        run.setStrategyName(output.strategy);
         run.setSymbolsCsv(String.join(",", symbols));
-        run.setStartDate(o.startDate);
-        run.setEndDate(o.endDate);
-        run.setCapital(cfg.capital);
-        run.setCommissionBps(cfg.commissionBps);
-        run.setSlippageBps(cfg.slippageBps);
-        run.setAllowShort(cfg.allowShort);
-        run.setTimeframe(cfg.timeframe.name());
-        run.setExecLag(cfg.execLag);
-        run.setPositionSize(cfg.positionSize);
-        run.setRiskFreePct(cfg.riskFreePct);
-        run.setWarmupBars(cfg.warmupBars);
-        run.setStopLossPct(cfg.stopLossPct);
-        run.setTakeProfitPct(cfg.takeProfitPct);
-        run.setBars(o.dates.length);
-        applySummary(run, o.metrics);
+        run.setStartDate(output.startDate);
+        run.setEndDate(output.endDate);
+        run.setCapital(config.capital);
+        run.setCommissionBps(config.commissionBps);
+        run.setSlippageBps(config.slippageBps);
+        run.setAllowShort(config.allowShort);
+        run.setTimeframe(config.timeframe.name());
+        run.setExecLag(config.execLag);
+        run.setPositionSize(config.positionSize);
+        run.setRiskFreePct(config.riskFreePct);
+        run.setWarmupBars(config.warmupBars);
+        run.setStopLossPct(config.stopLossPct);
+        run.setTakeProfitPct(config.takeProfitPct);
+        run.setBars(output.dates.length);
+        applySummary(run, output.metrics);
         run.setStatus("COMPLETED");
         run = runRepo.save(run);
 
         BacktestResultEntity result = new BacktestResultEntity();
         result.setRun(run);
-        result.setMetricsJson(json.write(o.metrics));
-        result.setDatesJson(json.write(datesToStrings(o.dates)));
-        result.setEquityJson(json.write(o.equity));
-        result.setBenchmarkJson(json.write(o.benchmark));
-        result.setDrawdownJson(json.write(o.drawdown));
-        result.setSymbolReturnsJson(json.write(o.symbolReturnsPct));
-        result.setSymbolDetailsJson(json.write(new SymbolDetails(o.yearlyReturnsPct, o.symbolResults)));
+        result.setMetricsJson(json.write(output.metrics));
+        result.setDatesJson(json.write(datesToStrings(output.dates)));
+        result.setEquityJson(json.write(output.equity));
+        result.setBenchmarkJson(json.write(output.benchmark));
+        result.setDrawdownJson(json.write(output.drawdown));
+        result.setSymbolReturnsJson(json.write(output.symbolReturnsPct));
+        result.setSymbolDetailsJson(json.write(new SymbolDetails(output.yearlyReturnsPct, output.symbolResults)));
         resultRepo.save(result);
 
         List<TradeEntity> trades = new ArrayList<>();
-        for (TradeResult t : o.trades) {
+        for (TradeResult trade : output.trades) {
             TradeEntity te = new TradeEntity();
             te.setRun(run);
-            te.setSymbol(t.symbol);
-            te.setSide(t.side);
-            te.setEntryDate(t.entryDate);
-            te.setExitDate(t.exitDate);
-            te.setEntryPx(t.entryPx);
-            te.setExitPx(t.exitPx);
-            te.setBars(t.bars);
-            te.setReturnPct(t.returnPct);
-            te.setGrossReturn(t.grossReturn);
-            te.setCost(t.cost);
-            te.setNetReturn(t.netReturn);
-            te.setExposure(t.exposure);
-            te.setStillOpen(t.open);
+            te.setSymbol(trade.symbol);
+            te.setSide(trade.side);
+            te.setEntryDate(trade.entryDate);
+            te.setExitDate(trade.exitDate);
+            te.setEntryPx(trade.entryPx);
+            te.setExitPx(trade.exitPx);
+            te.setBars(trade.bars);
+            te.setReturnPct(trade.returnPct);
+            te.setGrossReturn(trade.grossReturn);
+            te.setCost(trade.cost);
+            te.setNetReturn(trade.netReturn);
+            te.setExposure(trade.exposure);
+            te.setStillOpen(trade.open);
             trades.add(te);
         }
         tradeRepo.saveAll(trades);
-        log.info("Persisted run #{}: '{}' @ {} — {} symbols, {} bars, {} trades", run.getId(), o.strategy,
-                cfg.timeframe.name(), symbols.size(), o.dates.length, trades.size());
+        log.info(
+                "Persisted run #{}: '{}' @ {} — {} symbols, {} bars, {} trades",
+                run.getId(),
+                output.strategy,
+                config.timeframe.name(),
+                symbols.size(),
+                output.dates.length,
+                trades.size());
 
-        return toDto(run.getId(), cfg.timeframe.name(), o.dates.length, o);
+        return toDto(run.getId(), config.timeframe.name(), output.dates.length, output);
     }
 
     public BacktestResultDto getRun(Long runId) {
         log.info("Backtest: loading run #{}", runId);
-        BacktestRunEntity run = runRepo.findById(runId)
-                .orElseThrow(() -> new NoSuchElementException("No run " + runId));
-        BacktestResultEntity res = resultRepo.findByRunId(runId)
+        BacktestRunEntity run =
+                runRepo.findById(runId).orElseThrow(() -> new NoSuchElementException("No run " + runId));
+        BacktestResultEntity result = resultRepo
+                .findByRunId(runId)
                 .orElseThrow(() -> new NoSuchElementException("No result for run " + runId));
         // runs saved before per-symbol results existed have no details document: empty, not an error
-        SymbolDetails details = json.read(res.getSymbolDetailsJson(), SymbolDetails.class);
-        List<String> symbols = run.getSymbolsCsv() == null ? List.of()
+        SymbolDetails details = json.read(result.getSymbolDetailsJson(), SymbolDetails.class);
+        List<String> symbols = run.getSymbolsCsv() == null
+                ? List.of()
                 : Arrays.asList(run.getSymbolsCsv().split(","));
-        List<String> dates = readStrings(res.getDatesJson());
-        String tf = run.getTimeframe() != null ? run.getTimeframe() : Timeframe.NATIVE.name();
+        List<String> dates = readStrings(result.getDatesJson());
+        String frame = run.getTimeframe() != null ? run.getTimeframe() : Timeframe.NATIVE.name();
         int bars = run.getBars() != null ? run.getBars() : dates.size();
-        return new BacktestResultDto(runId, run.getStrategyName(), symbols,
-                run.getStartDate(), run.getEndDate(), tf, bars, json.readMetrics(res.getMetricsJson()),
-                dates, json.readDoubles(res.getEquityJson()),
-                json.readDoubles(res.getBenchmarkJson()), json.readDoubles(res.getDrawdownJson()),
-                json.readMetrics(res.getSymbolReturnsJson()),
+        return new BacktestResultDto(
+                runId,
+                run.getStrategyName(),
+                symbols,
+                run.getStartDate(),
+                run.getEndDate(),
+                frame,
+                bars,
+                json.readDoubleMap(result.getMetricsJson()),
+                dates,
+                json.readDoubles(result.getEquityJson()),
+                json.readDoubles(result.getBenchmarkJson()),
+                json.readDoubles(result.getDrawdownJson()),
+                json.readDoubleMap(result.getSymbolReturnsJson()),
                 details == null ? List.of() : symbolResultDtos(details.symbols()),
-                details == null || details.portfolioYearlyReturnsPct() == null ? Map.of() : details.portfolioYearlyReturnsPct(),
+                details == null || details.portfolioYearlyReturnsPct() == null
+                        ? Map.of()
+                        : details.portfolioYearlyReturnsPct(),
                 tradeRepo.countByRunId(runId));
     }
 
@@ -581,11 +761,17 @@ public class BacktestService {
      * One page of a run's trades, optionally for one symbol / side, with totals over everything
      * that matches. Loaded whole and paged in memory (see {@link TradeDetails}).
      */
-    public TradePageDto getTrades(Long runId, String symbol, String side, String sort, String dir,
-                                  Integer page, Integer size) {
+    public TradePageDto getTrades(
+            Long runId, String symbol, String side, String sort, String dir, Integer page, Integer size) {
         List<TradeDetailDto> all = tradeDetails(requireRun(runId));
-        return TradeDetails.page(all, symbol, side, sort, dir,
-                page == null ? 0 : page, size == null ? TradeDetails.DEFAULT_PAGE_SIZE : size);
+        return TradeDetails.page(
+                all,
+                symbol,
+                side,
+                sort,
+                dir,
+                page == null ? 0 : page,
+                size == null ? TradeDetails.DEFAULT_PAGE_SIZE : size);
     }
 
     /** Every trade of the run matching the filter, in the requested order, as the bytes of an .xlsx workbook. */
@@ -601,16 +787,23 @@ public class BacktestService {
     }
 
     private List<TradeDetailDto> tradeDetails(BacktestRunEntity run) {
-        TradeDetails.RunCosts costs = new TradeDetails.RunCosts(run.getCapital(), run.getCommissionBps(),
-                run.getSlippageBps(), run.getPositionSize() != null ? run.getPositionSize() : 1.0);
-        return tradeRepo.findByRunId(run.getId()).stream().map(t -> TradeDetails.toDto(t, costs)).toList();
+        TradeDetails.RunCosts costs = new TradeDetails.RunCosts(
+                run.getCapital(),
+                run.getCommissionBps(),
+                run.getSlippageBps(),
+                run.getPositionSize() != null ? run.getPositionSize() : 1.0);
+        return tradeRepo.findByRunId(run.getId()).stream()
+                .map(t -> TradeDetails.toDto(t, costs))
+                .toList();
     }
 
     /** What {@code backtest_result.symbol_details_json} holds. */
     public record SymbolDetails(Map<String, Double> portfolioYearlyReturnsPct, Map<String, SymbolResult> symbols) {}
 
     private static List<SymbolResultDto> symbolResultDtos(Map<String, SymbolResult> results) {
-        if (results == null) return List.of();
+        if (results == null) {
+            return List.of();
+        }
         List<SymbolResultDto> out = new ArrayList<>(results.size());
         results.forEach((sym, r) -> out.add(new SymbolResultDto(sym, r.metrics(), r.yearlyReturnsPct())));
         return out;
@@ -618,7 +811,9 @@ public class BacktestService {
 
     @Transactional
     public void deleteRun(Long runId) {
-        if (!runRepo.existsById(runId)) throw new NoSuchElementException("No run " + runId);
+        if (!runRepo.existsById(runId)) {
+            throw new NoSuchElementException("No run " + runId);
+        }
         tradeRepo.deleteByRunId(runId);
         resultRepo.deleteByRunId(runId);
         runRepo.deleteById(runId);
@@ -642,27 +837,40 @@ public class BacktestService {
         List<Scored> ranked = new ArrayList<>();
         for (String name : runRepo.distinctStrategyNames()) {
             List<BacktestRunEntity> runs = runRepo.findByStrategyNameOrderByCreatedAtDesc(name);
-            double sum = 0; int c = 0;
-            for (BacktestRunEntity r : runs) {
-                if (c >= window) break;
-                Double v = bySharpe ? r.getSharpe() : r.getTotalReturnPct();
-                if (v != null && !v.isNaN()) { sum += v; c++; }
+            double sum = 0;
+            int count = 0;
+            for (BacktestRunEntity run : runs) {
+                if (count >= window) {
+                    break;
+                }
+                Double score = bySharpe ? run.getSharpe() : run.getTotalReturnPct();
+                if (score != null && !score.isNaN()) {
+                    sum += score;
+                    count++;
+                }
             }
-            ranked.add(new Scored(name, c > 0 ? sum / c : Double.NEGATIVE_INFINITY));
+            ranked.add(new Scored(name, count > 0 ? sum / count : Double.NEGATIVE_INFINITY));
         }
         ranked.sort(Comparator.comparingDouble(Scored::score).reversed());
 
         int total = ranked.size();
-        int k = keep != null ? Math.max(1, keep)
+        int keepCount = keep != null
+                ? Math.max(1, keep)
                 : (int) Math.ceil(total * Math.min(100, Math.max(1, keepPct == null ? 50 : keepPct)) / 100.0);
         // floor so repeated prunes can't cascade the active set down to almost nothing
-        k = Math.min(total, Math.max(k, Math.min(total, 5)));
+        keepCount = Math.min(total, Math.max(keepCount, Math.min(total, 5)));
 
-        List<String> kept = ranked.stream().limit(k).map(Scored::name).toList();
-        List<String> losers = ranked.stream().skip(k).map(Scored::name).toList();
+        List<String> kept = ranked.stream().limit(keepCount).map(Scored::name).toList();
+        List<String> losers = ranked.stream().skip(keepCount).map(Scored::name).toList();
         String action = hardDelete ? "permanently deleted" : archive ? "archived" : "disabled";
-        log.info("Prune: {} strategies with history ranked by avg {} of last {} runs — keeping {}, {} {} + deleting their runs",
-                total, rankedBy, window, k, losers.size(), action);
+        log.info(
+                "Prune: {} strategies with history ranked by avg {} of last {} runs — keeping {}, {} {} + deleting their runs",
+                total,
+                rankedBy,
+                window,
+                keepCount,
+                losers.size(),
+                action);
 
         int deletedRuns = 0;
         for (String name : losers) {
@@ -670,19 +878,24 @@ public class BacktestService {
             resultRepo.deleteByRunStrategyName(name);
             deletedRuns += runRepo.deleteByStrategyName(name);
             if (strategies.isStrategy(name)) {
-                if (hardDelete) strategies.deleteStrategy(name);
-                else if (archive) strategies.setArchived(name, true);
-                else strategies.setEnabled(name, false);
+                if (hardDelete) {
+                    strategies.deleteStrategy(name);
+                } else if (archive) {
+                    strategies.setArchived(name, true);
+                } else {
+                    strategies.setEnabled(name, false);
+                }
             }
         }
-        for (String name : kept)
+        for (String name : kept) {
             if (strategies.isStrategy(name)) {
                 strategies.setArchived(name, false);
                 strategies.setEnabled(name, true);
             }
+        }
 
         log.info("Prune: done — kept {}, {} {}, deleted {} runs", kept.size(), losers.size(), action, deletedRuns);
-        return new PruneResultDto(rankedBy, window, total, k, kept, losers, deletedRuns);
+        return new PruneResultDto(rankedBy, window, total, keepCount, kept, losers, deletedRuns);
     }
 
     public List<LeaderboardEntryDto> listRuns(String strategy) {
@@ -690,114 +903,189 @@ public class BacktestService {
     }
 
     private static final Map<String, String> SORT_COLS = Map.ofEntries(
-            Map.entry("runId", "id"), Map.entry("createdAt", "createdAt"), Map.entry("strategy", "strategyName"),
-            Map.entry("timeframe", "timeframe"), Map.entry("bars", "bars"),
-            Map.entry("totalReturnPct", "totalReturnPct"), Map.entry("cagrPct", "cagrPct"),
-            Map.entry("sharpe", "sharpe"), Map.entry("sortino", "sortino"), Map.entry("calmar", "calmar"),
-            Map.entry("maxDrawdownPct", "maxDrawdownPct"), Map.entry("annVolPct", "annVolPct"),
-            Map.entry("winRatePct", "winRatePct"), Map.entry("profitFactor", "profitFactor"),
-            Map.entry("exposurePct", "exposurePct"), Map.entry("trades", "trades"));
+            Map.entry("runId", "id"),
+            Map.entry("createdAt", "createdAt"),
+            Map.entry("strategy", "strategyName"),
+            Map.entry("timeframe", "timeframe"),
+            Map.entry("bars", "bars"),
+            Map.entry("totalReturnPct", "totalReturnPct"),
+            Map.entry("cagrPct", "cagrPct"),
+            Map.entry("sharpe", "sharpe"),
+            Map.entry("sortino", "sortino"),
+            Map.entry("calmar", "calmar"),
+            Map.entry("maxDrawdownPct", "maxDrawdownPct"),
+            Map.entry("annVolPct", "annVolPct"),
+            Map.entry("winRatePct", "winRatePct"),
+            Map.entry("profitFactor", "profitFactor"),
+            Map.entry("exposurePct", "exposurePct"),
+            Map.entry("trades", "trades"));
 
     /**
      * Run history with optional SQL-side filters and sort.
      * {@code maxDrawdownPct} is entered as a positive magnitude (e.g. 25 → keep runs no worse than -25%).
      */
-    public List<LeaderboardEntryDto> listRuns(String strategy, String symbol, Double minReturn, Double minCagr,
-                                              Double minSharpe, Double minProfitFactor, Double minWinRate,
-                                              Double maxDrawdownPct, Integer minTrades,
-                                              String sort, String dir, Integer limit) {
+    public List<LeaderboardEntryDto> listRuns(
+            String strategy,
+            String symbol,
+            Double minReturn,
+            Double minCagr,
+            Double minSharpe,
+            Double minProfitFactor,
+            Double minWinRate,
+            Double maxDrawdownPct,
+            Integer minTrades,
+            String sort,
+            String dir,
+            Integer limit) {
         String col = SORT_COLS.getOrDefault(sort == null ? "" : sort, "createdAt");
-        org.springframework.data.domain.Sort.Direction d =
-                "asc".equalsIgnoreCase(dir) ? org.springframework.data.domain.Sort.Direction.ASC
-                        : org.springframework.data.domain.Sort.Direction.DESC;
-        org.springframework.data.domain.Sort s =
-                org.springframework.data.domain.Sort.by(new org.springframework.data.domain.Sort.Order(d, col).nullsLast());
-        if (!"id".equals(col))
-            s = s.and(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id"));
+        Sort.Direction direction = "asc".equalsIgnoreCase(dir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Sort sortOrder = Sort.by(new Sort.Order(direction, col).nullsLast());
+        if (!"id".equals(col)) {
+            sortOrder = sortOrder.and(Sort.by(Sort.Direction.DESC, "id"));
+        }
         int lim = (limit == null || limit <= 0) ? 500 : Math.min(limit, 2000);
         Double ddFloor = maxDrawdownPct == null ? null : -Math.abs(maxDrawdownPct);
         String symbolLike = (symbol == null || symbol.isBlank())
-                ? null : "%," + symbol.trim().toUpperCase() + ",%";
+                ? null
+                : "%," + symbol.trim().toUpperCase() + ",%";
 
         List<BacktestRunEntity> runs = runRepo.filter(
-                (strategy == null || strategy.isBlank()) ? null : strategy, symbolLike,
-                minReturn, minCagr, minSharpe, minProfitFactor, minWinRate, ddFloor, minTrades,
-                org.springframework.data.domain.PageRequest.of(0, lim, s));
-        log.info("Run history: strategy={} symbol={} sort={} {} -> {} rows",
+                (strategy == null || strategy.isBlank()) ? null : strategy,
+                symbolLike,
+                minReturn,
+                minCagr,
+                minSharpe,
+                minProfitFactor,
+                minWinRate,
+                ddFloor,
+                minTrades,
+                org.springframework.data.domain.PageRequest.of(0, lim, sortOrder));
+        log.info(
+                "Run history: strategy={} symbol={} sort={} {} -> {} rows",
                 strategy == null || strategy.isBlank() ? "*" : strategy,
                 symbol == null || symbol.isBlank() ? "*" : symbol.trim().toUpperCase(),
-                col, d, runs.size());
+                col,
+                direction,
+                runs.size());
 
         List<LeaderboardEntryDto> out = new ArrayList<>();
-        for (BacktestRunEntity r : runs) {
-            Map<String, Double> metrics = resultRepo.findByRunId(r.getId())
-                    .map(res -> new LinkedHashMap<>(json.readMetrics(res.getMetricsJson())))
+        for (BacktestRunEntity run : runs) {
+            Map<String, Double> metrics = resultRepo
+                    .findByRunId(run.getId())
+                    .map(res -> new LinkedHashMap<>(json.readDoubleMap(res.getMetricsJson())))
                     .orElseGet(LinkedHashMap::new);
             // the denormalised run columns are the authoritative headline figures
             // (BacktestSummaryBackfill repairs legacy compounding-artifact values there),
             // so let them win over the stored JSON blob.
-            metrics.putAll(summaryMetrics(r));
-            List<String> syms = (r.getSymbolsCsv() == null || r.getSymbolsCsv().isBlank())
-                    ? List.of() : Arrays.asList(r.getSymbolsCsv().split(","));
-            out.add(new LeaderboardEntryDto(r.getId(), r.getStrategyName(),
-                    r.getTimeframe() != null ? r.getTimeframe() : Timeframe.NATIVE.name(),
-                    r.getBars(), syms, metrics));
+            metrics.putAll(summaryMetrics(run));
+            List<String> resolved =
+                    (run.getSymbolsCsv() == null || run.getSymbolsCsv().isBlank())
+                            ? List.of()
+                            : Arrays.asList(run.getSymbolsCsv().split(","));
+            out.add(new LeaderboardEntryDto(
+                    run.getId(),
+                    run.getStrategyName(),
+                    run.getTimeframe() != null ? run.getTimeframe() : Timeframe.NATIVE.name(),
+                    run.getBars(),
+                    resolved,
+                    metrics));
         }
         return out;
     }
 
     /** Headline metrics from the denormalised run columns (only non-null keys). */
-    private static Map<String, Double> summaryMetrics(BacktestRunEntity r) {
-        Map<String, Double> m = new LinkedHashMap<>();
-        if (r.getTotalReturnPct() != null) m.put("totalReturnPct", r.getTotalReturnPct());
-        if (r.getCagrPct() != null) m.put("cagrPct", r.getCagrPct());
-        if (r.getSharpe() != null) m.put("sharpe", r.getSharpe());
-        if (r.getSortino() != null) m.put("sortino", r.getSortino());
-        if (r.getCalmar() != null) m.put("calmar", r.getCalmar());
-        if (r.getMaxDrawdownPct() != null) m.put("maxDrawdownPct", r.getMaxDrawdownPct());
-        if (r.getAnnVolPct() != null) m.put("annVolPct", r.getAnnVolPct());
-        if (r.getWinRatePct() != null) m.put("winRatePct", r.getWinRatePct());
-        if (r.getProfitFactor() != null) m.put("profitFactor", r.getProfitFactor());
-        if (r.getExposurePct() != null) m.put("exposurePct", r.getExposurePct());
-        if (r.getTrades() != null) m.put("trades", (double) r.getTrades());
-        return m;
+    private static Map<String, Double> summaryMetrics(BacktestRunEntity run) {
+        Map<String, Double> metrics = new LinkedHashMap<>();
+        if (run.getTotalReturnPct() != null) {
+            metrics.put("totalReturnPct", run.getTotalReturnPct());
+        }
+        if (run.getCagrPct() != null) {
+            metrics.put("cagrPct", run.getCagrPct());
+        }
+        if (run.getSharpe() != null) {
+            metrics.put("sharpe", run.getSharpe());
+        }
+        if (run.getSortino() != null) {
+            metrics.put("sortino", run.getSortino());
+        }
+        if (run.getCalmar() != null) {
+            metrics.put("calmar", run.getCalmar());
+        }
+        if (run.getMaxDrawdownPct() != null) {
+            metrics.put("maxDrawdownPct", run.getMaxDrawdownPct());
+        }
+        if (run.getAnnVolPct() != null) {
+            metrics.put("annVolPct", run.getAnnVolPct());
+        }
+        if (run.getWinRatePct() != null) {
+            metrics.put("winRatePct", run.getWinRatePct());
+        }
+        if (run.getProfitFactor() != null) {
+            metrics.put("profitFactor", run.getProfitFactor());
+        }
+        if (run.getExposurePct() != null) {
+            metrics.put("exposurePct", run.getExposurePct());
+        }
+        if (run.getTrades() != null) {
+            metrics.put("trades", (double) run.getTrades());
+        }
+        return metrics;
     }
 
-    private BacktestResultDto toDto(Long runId, String timeframe, int bars, BacktestOutput o) {
-        return new BacktestResultDto(runId, o.strategy, o.symbols, o.startDate, o.endDate,
-                timeframe, bars, o.metrics, datesToStrings(o.dates), o.equity, o.benchmark, o.drawdown,
-                o.symbolReturnsPct, symbolResultDtos(o.symbolResults), o.yearlyReturnsPct, o.trades.size());
+    private BacktestResultDto toDto(Long runId, String timeframe, int bars, BacktestOutput output) {
+        return new BacktestResultDto(
+                runId,
+                output.strategy,
+                output.symbols,
+                output.startDate,
+                output.endDate,
+                timeframe,
+                bars,
+                output.metrics,
+                datesToStrings(output.dates),
+                output.equity,
+                output.benchmark,
+                output.drawdown,
+                output.symbolReturnsPct,
+                symbolResultDtos(output.symbolResults),
+                output.yearlyReturnsPct,
+                output.trades.size());
     }
 
     /** Copy the headline metrics from a metrics map onto the run row (for sort/filter in SQL). */
-    public static void applySummary(BacktestRunEntity run, Map<String, Double> m) {
-        if (m == null) return;
-        run.setTotalReturnPct(m.get("totalReturnPct"));
-        run.setCagrPct(m.get("cagrPct"));
-        run.setSharpe(m.get("sharpe"));
-        run.setSortino(m.get("sortino"));
-        run.setCalmar(m.get("calmar"));
-        run.setMaxDrawdownPct(m.get("maxDrawdownPct"));
-        run.setAnnVolPct(m.get("annVolPct"));
-        run.setWinRatePct(m.get("winRatePct"));
-        run.setProfitFactor(m.get("profitFactor"));
-        run.setExposurePct(m.get("exposurePct"));
-        Double t = m.get("trades");
-        run.setTrades(t == null ? null : (int) Math.round(t));
+    public static void applySummary(BacktestRunEntity run, Map<String, Double> metrics) {
+        if (metrics == null) {
+            return;
+        }
+        run.setTotalReturnPct(metrics.get("totalReturnPct"));
+        run.setCagrPct(metrics.get("cagrPct"));
+        run.setSharpe(metrics.get("sharpe"));
+        run.setSortino(metrics.get("sortino"));
+        run.setCalmar(metrics.get("calmar"));
+        run.setMaxDrawdownPct(metrics.get("maxDrawdownPct"));
+        run.setAnnVolPct(metrics.get("annVolPct"));
+        run.setWinRatePct(metrics.get("winRatePct"));
+        run.setProfitFactor(metrics.get("profitFactor"));
+        run.setExposurePct(metrics.get("exposurePct"));
+        Double trades = metrics.get("trades");
+        run.setTrades(trades == null ? null : (int) Math.round(trades));
     }
 
     private List<String> datesToStrings(Instant[] dates) {
         List<String> out = new ArrayList<>(dates.length);
-        for (Instant d : dates) out.add(d.toString());
+        for (Instant date : dates) {
+            out.add(date.toString());
+        }
         return out;
     }
 
     @SuppressWarnings("unchecked")
     private List<String> readStrings(String jsonStr) {
-        if (jsonStr == null || jsonStr.isBlank()) return List.of();
+        if (jsonStr == null || jsonStr.isBlank()) {
+            return List.of();
+        }
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                    .readValue(jsonStr, List.class);
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(jsonStr, List.class);
         } catch (Exception e) {
             return List.of();
         }

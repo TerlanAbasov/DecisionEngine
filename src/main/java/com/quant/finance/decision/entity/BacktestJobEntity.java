@@ -4,11 +4,10 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
 
 /** A background backtest: lifecycle, last progress snapshot and (once completed) the result shown in the UI. */
 @Entity
@@ -22,10 +21,10 @@ public class BacktestJobEntity {
     private String id;
 
     @Column(nullable = false, length = 16)
-    private String kind;          // RUN | RUN_ALL | PAIRS | ENSEMBLE
+    private String kind; // RUN | RUN_ALL | PAIRS | ENSEMBLE
 
     @Column(nullable = false, length = 16)
-    private String status;        // RUNNING | COMPLETED | FAILED | CANCELLED
+    private String status; // RUNNING | COMPLETED | FAILED | CANCELLED
 
     @Column(length = 400)
     private String title;

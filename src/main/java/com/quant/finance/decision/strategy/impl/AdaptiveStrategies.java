@@ -3,7 +3,6 @@ package com.quant.finance.decision.strategy.impl;
 import com.quant.finance.decision.strategy.AbstractStrategy;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.Indicators;
-
 import java.util.Map;
 
 /**
@@ -13,298 +12,548 @@ import java.util.Map;
 final class AdaptiveShared {
     private AdaptiveShared() {}
 
-    static double[] mid2(double[] a, double[] b) {
-        double[] o = new double[a.length];
-        for (int i = 0; i < a.length; i++)
-            o[i] = (Double.isNaN(a[i]) || Double.isNaN(b[i])) ? Double.NaN : (a[i] + b[i]) / 2;
-        return o;
+    /** The bar-by-bar average of two series (NaN where either is NaN). */
+    static double[] midpoint(double[] first, double[] second) {
+        double[] result = new double[first.length];
+        for (int i = 0; i < first.length; i++) {
+            result[i] = (Double.isNaN(first[i]) || Double.isNaN(second[i])) ? Double.NaN : (first[i] + second[i]) / 2;
+        }
+        return result;
     }
 
-    /** Shift a series forward by {@code k} bars (out[i] = a[i-k]); the leading k slots are NaN. */
-    static double[] shiftFwd(double[] a, int k) {
-        double[] o = new double[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = i >= k ? a[i - k] : Double.NaN;
-        return o;
+    /** Shift a series forward by {@code bars} bars (result[i] = series[i - bars]); the leading slots are NaN. */
+    static double[] shiftForward(double[] series, int bars) {
+        double[] result = new double[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = i >= bars ? series[i - bars] : Double.NaN;
+        }
+        return result;
     }
 
     /** Symmetric 4-tap weighted average (1,2,2,1)/6 — the RVI smoother. */
-    static double[] swma4(double[] a) {
-        double[] o = new double[a.length];
-        for (int i = 0; i < a.length; i++)
-            o[i] = i < 3 ? Double.NaN : (a[i] + 2 * a[i - 1] + 2 * a[i - 2] + a[i - 3]) / 6.0;
-        return o;
-    }
-
-    static double[] rollSum(double[] a, int n) {
-        double[] o = new double[a.length];
-        double s = 0;
-        for (int i = 0; i < a.length; i++) {
-            s += Double.isNaN(a[i]) ? 0 : a[i];
-            if (i >= n) s -= Double.isNaN(a[i - n]) ? 0 : a[i - n];
-            o[i] = i >= n - 1 ? s : Double.NaN;
+    static double[] symmetricWeightedAverage(double[] series) {
+        double[] result = new double[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = i < 3 ? Double.NaN : (series[i] + 2 * series[i - 1] + 2 * series[i - 2] + series[i - 3]) / 6.0;
         }
-        return o;
+        return result;
     }
 
-    static double[] median(BarSeries b) {
-        double[] o = new double[b.size()];
-        for (int i = 0; i < o.length; i++) o[i] = (b.high[i] + b.low[i]) / 2;
-        return o;
+    /** Sum of the last {@code period} values (NaN counted as 0); NaN until a full window exists. */
+    static double[] rollingSum(double[] series, int period) {
+        double[] result = new double[series.length];
+        double sum = 0;
+        for (int i = 0; i < series.length; i++) {
+            sum += Double.isNaN(series[i]) ? 0 : series[i];
+            if (i >= period) {
+                sum -= Double.isNaN(series[i - period]) ? 0 : series[i - period];
+            }
+            result[i] = i >= period - 1 ? sum : Double.NaN;
+        }
+        return result;
+    }
+
+    /** (high + low) / 2 for every bar. */
+    static double[] medianPrice(BarSeries bars) {
+        double[] result = new double[bars.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = (bars.high[i] + bars.low[i]) / 2;
+        }
+        return result;
     }
 }
 
 class IchimokuCloud extends AbstractStrategy {
-    public String name() { return "ichimoku_cloud"; }
-    public String category() { return "trend"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Ichimoku: Tenkan/Kijun cross confirmed by price on the same side of the cloud."; }
-    public Map<String, Double> defaultParams() { return Map.of("tenkan", 9.0, "kijun", 26.0, "senkouB", 52.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int t = pi(pr, "tenkan"), k = pi(pr, "kijun"), sb = pi(pr, "senkouB");
-        double[] tenkan = AdaptiveShared.mid2(Indicators.rollingMax(b.high, t), Indicators.rollingMin(b.low, t));
-        double[] kijun = AdaptiveShared.mid2(Indicators.rollingMax(b.high, k), Indicators.rollingMin(b.low, k));
-        double[] spanA = AdaptiveShared.mid2(tenkan, kijun);
-        double[] spanB = AdaptiveShared.mid2(Indicators.rollingMax(b.high, sb), Indicators.rollingMin(b.low, sb));
-        int n = b.size();
-        boolean[] up = new boolean[n], dn = new boolean[n];
-        for (int i = 0; i < n; i++) {
-            if (nan(spanA[i]) || nan(spanB[i]) || nan(tenkan[i]) || nan(kijun[i])) continue;
-            double top = Math.max(spanA[i], spanB[i]), bot = Math.min(spanA[i], spanB[i]);
-            up[i] = b.close[i] > top && tenkan[i] > kijun[i];
-            dn[i] = b.close[i] < bot && tenkan[i] < kijun[i];
+    public String name() {
+        return "ichimoku_cloud";
+    }
+
+    public String category() {
+        return "trend";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Ichimoku: Tenkan/Kijun cross confirmed by price on the same side of the cloud.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("tenkan", 9.0, "kijun", 26.0, "senkouB", 52.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int tenkanPeriod = intParam(params, "tenkan");
+        int kijunPeriod = intParam(params, "kijun");
+        int senkouBPeriod = intParam(params, "senkouB");
+        double[] tenkan = AdaptiveShared.midpoint(
+                Indicators.rollingMax(bars.high, tenkanPeriod), Indicators.rollingMin(bars.low, tenkanPeriod));
+        double[] kijun = AdaptiveShared.midpoint(
+                Indicators.rollingMax(bars.high, kijunPeriod), Indicators.rollingMin(bars.low, kijunPeriod));
+        double[] spanA = AdaptiveShared.midpoint(tenkan, kijun);
+        double[] spanB = AdaptiveShared.midpoint(
+                Indicators.rollingMax(bars.high, senkouBPeriod), Indicators.rollingMin(bars.low, senkouBPeriod));
+        int length = bars.size();
+        boolean[] longCondition = new boolean[length];
+        boolean[] shortCondition = new boolean[length];
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(spanA[i]) || Double.isNaN(spanB[i]) || Double.isNaN(tenkan[i]) || Double.isNaN(kijun[i])) {
+                continue;
+            }
+            double cloudTop = Math.max(spanA[i], spanB[i]);
+            double cloudBottom = Math.min(spanA[i], spanB[i]);
+            longCondition[i] = bars.close[i] > cloudTop && tenkan[i] > kijun[i];
+            shortCondition[i] = bars.close[i] < cloudBottom && tenkan[i] < kijun[i];
         }
-        return clean(regime(up, dn));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class HeikinAshiTrend extends AbstractStrategy {
-    public String name() { return "heikin_ashi_trend"; }
-    public String category() { return "trend"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Ride runs of same-colour Heikin-Ashi candles."; }
-    public Map<String, Double> defaultParams() { return Map.of("confirm", 2.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), confirm = Math.max(1, pi(pr, "confirm"));
-        double[] haC = new double[n], haO = new double[n];
-        for (int i = 0; i < n; i++) {
-            haC[i] = (b.open[i] + b.high[i] + b.low[i] + b.close[i]) / 4.0;
-            haO[i] = i == 0 ? (b.open[i] + b.close[i]) / 2.0 : (haO[i - 1] + haC[i - 1]) / 2.0;
+    public String name() {
+        return "heikin_ashi_trend";
+    }
+
+    public String category() {
+        return "trend";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Ride runs of same-colour Heikin-Ashi candles.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("confirm", 2.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int confirmBars = Math.max(1, intParam(params, "confirm"));
+        double[] haClose = new double[length];
+        double[] haOpen = new double[length];
+        for (int i = 0; i < length; i++) {
+            haClose[i] = (bars.open[i] + bars.high[i] + bars.low[i] + bars.close[i]) / 4.0;
+            haOpen[i] = i == 0 ? (bars.open[i] + bars.close[i]) / 2.0 : (haOpen[i - 1] + haClose[i - 1]) / 2.0;
         }
-        boolean[] up = new boolean[n], dn = new boolean[n];
-        for (int i = confirm - 1; i < n; i++) {
-            boolean allGreen = true, allRed = true;
-            for (int j = 0; j < confirm; j++) {
-                allGreen &= haC[i - j] > haO[i - j];
-                allRed &= haC[i - j] < haO[i - j];
+        boolean[] longCondition = new boolean[length];
+        boolean[] shortCondition = new boolean[length];
+        for (int i = confirmBars - 1; i < length; i++) {
+            boolean allGreen = true;
+            boolean allRed = true;
+            for (int j = 0; j < confirmBars; j++) {
+                allGreen &= haClose[i - j] > haOpen[i - j];
+                allRed &= haClose[i - j] < haOpen[i - j];
             }
-            up[i] = allGreen; dn[i] = allRed;
+            longCondition[i] = allGreen;
+            shortCondition[i] = allRed;
         }
-        return clean(regime(up, dn));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class ConnorsRsi extends AbstractStrategy {
-    public String name() { return "connors_rsi"; }
-    public String category() { return "mean_reversion"; }
-    public String direction() { return "long_only"; }
-    public String description() { return "ConnorsRSI (RSI + streak-RSI + %-rank): buy the oversold composite, exit on recovery."; }
+    public String name() {
+        return "connors_rsi";
+    }
+
+    public String category() {
+        return "mean_reversion";
+    }
+
+    public String direction() {
+        return "long_only";
+    }
+
+    public String description() {
+        return "ConnorsRSI (RSI + streak-RSI + %-rank): buy the oversold composite, exit on recovery.";
+    }
+
     public Map<String, Double> defaultParams() {
         return Map.of("rsiLen", 3.0, "streakLen", 2.0, "rankLen", 100.0, "entry", 10.0, "exit", 70.0);
     }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), rankLen = pi(pr, "rankLen");
-        double[] rsi = Indicators.rsi(b.close, pi(pr, "rsiLen"));
-        double[] streak = new double[n];
-        for (int i = 1; i < n; i++) {
-            if (b.close[i] > b.close[i - 1]) streak[i] = Math.max(1, streak[i - 1] + 1);
-            else if (b.close[i] < b.close[i - 1]) streak[i] = Math.min(-1, streak[i - 1] - 1);
-            else streak[i] = 0;
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int rankPeriod = intParam(params, "rankLen");
+        double[] rsi = Indicators.rsi(bars.close, intParam(params, "rsiLen"));
+        double[] streak = new double[length];
+        for (int i = 1; i < length; i++) {
+            if (bars.close[i] > bars.close[i - 1]) {
+                streak[i] = Math.max(1, streak[i - 1] + 1);
+            } else if (bars.close[i] < bars.close[i - 1]) {
+                streak[i] = Math.min(-1, streak[i - 1] - 1);
+            } else {
+                streak[i] = 0;
+            }
         }
-        double[] streakRsi = Indicators.rsi(streak, pi(pr, "streakLen"));
-        double[] roc1 = Indicators.roc(b.close, 1);
-        double[] crsi = new double[n];
-        for (int i = 0; i < n; i++) {
-            if (i < rankLen || nan(rsi[i]) || nan(streakRsi[i]) || nan(roc1[i])) { crsi[i] = Double.NaN; continue; }
-            int less = 0;
-            for (int j = i - rankLen; j < i; j++) if (!nan(roc1[j]) && roc1[j] < roc1[i]) less++;
-            double pctRank = 100.0 * less / rankLen;
-            crsi[i] = (rsi[i] + streakRsi[i] + pctRank) / 3.0;
+        double[] streakRsi = Indicators.rsi(streak, intParam(params, "streakLen"));
+        double[] dailyChange = Indicators.roc(bars.close, 1);
+        double[] connorsRsi = new double[length];
+        for (int i = 0; i < length; i++) {
+            if (i < rankPeriod || Double.isNaN(rsi[i]) || Double.isNaN(streakRsi[i]) || Double.isNaN(dailyChange[i])) {
+                connorsRsi[i] = Double.NaN;
+                continue;
+            }
+            int smallerChanges = 0;
+            for (int j = i - rankPeriod; j < i; j++) {
+                if (!Double.isNaN(dailyChange[j]) && dailyChange[j] < dailyChange[i]) {
+                    smallerChanges++;
+                }
+            }
+            double percentRank = 100.0 * smallerChanges / rankPeriod;
+            connorsRsi[i] = (rsi[i] + streakRsi[i] + percentRank) / 3.0;
         }
-        boolean[] li = lt(crsi, p(pr, "entry")), lo = gt(crsi, p(pr, "exit"));
-        return clean(hold(li, lo, null, null));
+        boolean[] longEntry = below(connorsRsi, param(params, "entry"));
+        boolean[] longExit = above(connorsRsi, param(params, "exit"));
+        return clean(hold(longEntry, longExit, null, null));
     }
 }
 
 class KamaTrend extends AbstractStrategy {
-    public String name() { return "kama_trend"; }
-    public String category() { return "trend"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Kaufman Adaptive MA: fast in trends, flat in noise — trade price vs KAMA and its slope."; }
-    public Map<String, Double> defaultParams() { return Map.of("er", 10.0, "fast", 2.0, "slow", 30.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), er = Math.max(2, pi(pr, "er"));
-        double scF = 2.0 / (pi(pr, "fast") + 1), scS = 2.0 / (pi(pr, "slow") + 1);
-        double[] kama = new double[n];
-        for (int i = 0; i < n; i++) {
-            if (i < er) { kama[i] = b.close[i]; continue; }
-            double change = Math.abs(b.close[i] - b.close[i - er]);
-            double vol = 0;
-            for (int j = i - er + 1; j <= i; j++) vol += Math.abs(b.close[j] - b.close[j - 1]);
-            double efRatio = vol > 0 ? change / vol : 0;
-            double sc = Math.pow(efRatio * (scF - scS) + scS, 2);
-            kama[i] = kama[i - 1] + sc * (b.close[i] - kama[i - 1]);
+    public String name() {
+        return "kama_trend";
+    }
+
+    public String category() {
+        return "trend";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Kaufman Adaptive MA: fast in trends, flat in noise — trade price vs KAMA and its slope.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("er", 10.0, "fast", 2.0, "slow", 30.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int efficiencyPeriod = Math.max(2, intParam(params, "er"));
+        double fastConstant = 2.0 / (intParam(params, "fast") + 1);
+        double slowConstant = 2.0 / (intParam(params, "slow") + 1);
+        double[] kama = new double[length];
+        for (int i = 0; i < length; i++) {
+            if (i < efficiencyPeriod) {
+                kama[i] = bars.close[i];
+                continue;
+            }
+            double change = Math.abs(bars.close[i] - bars.close[i - efficiencyPeriod]);
+            double volatility = 0;
+            for (int j = i - efficiencyPeriod + 1; j <= i; j++) {
+                volatility += Math.abs(bars.close[j] - bars.close[j - 1]);
+            }
+            double efficiencyRatio = volatility > 0 ? change / volatility : 0;
+            double smoothing = Math.pow(efficiencyRatio * (fastConstant - slowConstant) + slowConstant, 2);
+            kama[i] = kama[i - 1] + smoothing * (bars.close[i] - kama[i - 1]);
         }
-        boolean[] up = new boolean[n], dn = new boolean[n];
-        for (int i = er + 1; i < n; i++) {
+        boolean[] longCondition = new boolean[length];
+        boolean[] shortCondition = new boolean[length];
+        for (int i = efficiencyPeriod + 1; i < length; i++) {
             double slope = kama[i] - kama[i - 1];
-            up[i] = b.close[i] > kama[i] && slope > 0;
-            dn[i] = b.close[i] < kama[i] && slope < 0;
+            longCondition[i] = bars.close[i] > kama[i] && slope > 0;
+            shortCondition[i] = bars.close[i] < kama[i] && slope < 0;
         }
-        return clean(regime(up, dn));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class QqeSignal extends AbstractStrategy {
-    public String name() { return "qqe_signal"; }
-    public String category() { return "momentum"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "QQE: a smoothed RSI ridden with an ATR-of-RSI trailing stop."; }
-    public Map<String, Double> defaultParams() { return Map.of("rsiLen", 14.0, "smooth", 5.0, "factor", 4.236); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size();
-        double[] rsiMa = Indicators.ema(Indicators.rsi(b.close, pi(pr, "rsiLen")), pi(pr, "smooth"));
-        double[] delta = new double[n];
-        for (int i = 1; i < n; i++) delta[i] = nan(rsiMa[i]) || nan(rsiMa[i - 1]) ? 0 : Math.abs(rsiMa[i] - rsiMa[i - 1]);
-        double[] band = Indicators.ema(delta, pi(pr, "rsiLen") * 2 - 1);
-        double f = p(pr, "factor");
-        double[] ts = new double[n];
-        boolean[] up = new boolean[n], dn = new boolean[n];
-        double prevTs = Double.NaN;
-        for (int i = 0; i < n; i++) {
-            if (nan(rsiMa[i]) || nan(band[i])) { ts[i] = Double.NaN; continue; }
-            double d = band[i] * f;
-            if (nan(prevTs)) prevTs = rsiMa[i] - d;
-            double next = rsiMa[i] > prevTs ? Math.max(prevTs, rsiMa[i] - d) : Math.min(prevTs, rsiMa[i] + d);
-            ts[i] = next; prevTs = next;
-            up[i] = rsiMa[i] > next; dn[i] = rsiMa[i] < next;
+    public String name() {
+        return "qqe_signal";
+    }
+
+    public String category() {
+        return "momentum";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "QQE: a smoothed RSI ridden with an ATR-of-RSI trailing stop.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("rsiLen", 14.0, "smooth", 5.0, "factor", 4.236);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        double[] smoothedRsi =
+                Indicators.ema(Indicators.rsi(bars.close, intParam(params, "rsiLen")), intParam(params, "smooth"));
+        double[] rsiChange = new double[length];
+        for (int i = 1; i < length; i++) {
+            rsiChange[i] = Double.isNaN(smoothedRsi[i]) || Double.isNaN(smoothedRsi[i - 1])
+                    ? 0
+                    : Math.abs(smoothedRsi[i] - smoothedRsi[i - 1]);
         }
-        return clean(regime(up, dn));
+        double[] band = Indicators.ema(rsiChange, intParam(params, "rsiLen") * 2 - 1);
+        double factor = param(params, "factor");
+        boolean[] longCondition = new boolean[length];
+        boolean[] shortCondition = new boolean[length];
+        double trailingStop = Double.NaN;
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(smoothedRsi[i]) || Double.isNaN(band[i])) {
+                continue;
+            }
+            double stopDistance = band[i] * factor;
+            if (Double.isNaN(trailingStop)) {
+                trailingStop = smoothedRsi[i] - stopDistance;
+            }
+            trailingStop = smoothedRsi[i] > trailingStop
+                    ? Math.max(trailingStop, smoothedRsi[i] - stopDistance)
+                    : Math.min(trailingStop, smoothedRsi[i] + stopDistance);
+            longCondition[i] = smoothedRsi[i] > trailingStop;
+            shortCondition[i] = smoothedRsi[i] < trailingStop;
+        }
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class WilliamsAlligator extends AbstractStrategy {
-    public String name() { return "williams_alligator"; }
-    public String category() { return "trend"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Bill Williams Alligator: trade when the displaced SMMA lines (lips/teeth/jaw) fan out."; }
-    public Map<String, Double> defaultParams() { return Map.of("jaw", 13.0, "teeth", 8.0, "lips", 5.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        double[] med = AdaptiveShared.median(b);
-        double[] jaw = AdaptiveShared.shiftFwd(Indicators.wilder(med, pi(pr, "jaw")), 8);
-        double[] teeth = AdaptiveShared.shiftFwd(Indicators.wilder(med, pi(pr, "teeth")), 5);
-        double[] lips = AdaptiveShared.shiftFwd(Indicators.wilder(med, pi(pr, "lips")), 3);
-        return clean(regime(and(gt(lips, teeth), gt(teeth, jaw)), and(lt(lips, teeth), lt(teeth, jaw))));
+    public String name() {
+        return "williams_alligator";
+    }
+
+    public String category() {
+        return "trend";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Bill Williams Alligator: trade when the displaced SMMA lines (lips/teeth/jaw) fan out.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("jaw", 13.0, "teeth", 8.0, "lips", 5.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] medianPrice = AdaptiveShared.medianPrice(bars);
+        double[] jaw = AdaptiveShared.shiftForward(Indicators.wilder(medianPrice, intParam(params, "jaw")), 8);
+        double[] teeth = AdaptiveShared.shiftForward(Indicators.wilder(medianPrice, intParam(params, "teeth")), 5);
+        double[] lips = AdaptiveShared.shiftForward(Indicators.wilder(medianPrice, intParam(params, "lips")), 3);
+        boolean[] fannedUp = and(above(lips, teeth), above(teeth, jaw));
+        boolean[] fannedDown = and(below(lips, teeth), below(teeth, jaw));
+        return clean(regime(fannedUp, fannedDown));
     }
 }
 
 class TtmSqueeze extends AbstractStrategy {
-    public String name() { return "ttm_squeeze"; }
-    public String category() { return "breakout"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "TTM squeeze: Bollinger inside Keltner = coiled; fire on release in the momentum direction."; }
-    public Map<String, Double> defaultParams() { return Map.of("n", 20.0, "bbK", 2.0, "kcMult", 1.5); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), win = pi(pr, "n");
-        double[][] bb = Indicators.bollinger(b.close, win, p(pr, "bbK"));
-        double[][] kc = Indicators.keltner(b, win, p(pr, "kcMult"));
-        double[] slope = Indicators.linreg(b.close, win)[1];
-        boolean[] li = new boolean[n], si = new boolean[n], lo = new boolean[n], so = new boolean[n];
-        boolean prevSqueeze = false;
-        for (int i = 0; i < n; i++) {
-            if (nan(bb[0][i]) || nan(kc[0][i]) || nan(slope[i])) continue;
-            boolean squeeze = bb[0][i] > kc[0][i] && bb[2][i] < kc[2][i];
-            boolean released = prevSqueeze && !squeeze;
-            prevSqueeze = squeeze;
-            if (released && slope[i] > 0) li[i] = true;
-            if (released && slope[i] < 0) si[i] = true;
-            lo[i] = slope[i] < 0;   // exit long once momentum rolls over
-            so[i] = slope[i] > 0;
+    public String name() {
+        return "ttm_squeeze";
+    }
+
+    public String category() {
+        return "breakout";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "TTM squeeze: Bollinger inside Keltner = coiled; fire on release in the momentum direction.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("n", 20.0, "bbK", 2.0, "kcMult", 1.5);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int period = intParam(params, "n");
+        double[][] bollinger = Indicators.bollinger(bars.close, period, param(params, "bbK"));
+        double[][] keltner = Indicators.keltner(bars, period, param(params, "kcMult"));
+        double[] slope = Indicators.linreg(bars.close, period)[1];
+        boolean[] longEntry = new boolean[length];
+        boolean[] shortEntry = new boolean[length];
+        boolean[] longExit = new boolean[length];
+        boolean[] shortExit = new boolean[length];
+        boolean wasSqueezed = false;
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(bollinger[0][i]) || Double.isNaN(keltner[0][i]) || Double.isNaN(slope[i])) {
+                continue;
+            }
+            boolean bollingerInsideKeltner = bollinger[0][i] > keltner[0][i] && bollinger[2][i] < keltner[2][i];
+            boolean released = wasSqueezed && !bollingerInsideKeltner;
+            wasSqueezed = bollingerInsideKeltner;
+            if (released && slope[i] > 0) {
+                longEntry[i] = true;
+            }
+            if (released && slope[i] < 0) {
+                shortEntry[i] = true;
+            }
+            longExit[i] = slope[i] < 0; // exit long once momentum rolls over
+            shortExit[i] = slope[i] > 0;
         }
-        return clean(hold(li, lo, si, so));
+        return clean(hold(longEntry, longExit, shortEntry, shortExit));
     }
 }
 
 class FractalBreakout extends AbstractStrategy {
-    public String name() { return "fractal_breakout"; }
-    public String category() { return "breakout"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Trade breaks of the most recent Williams 5-bar fractal high / low."; }
-    public Map<String, Double> defaultParams() { return Map.of(); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size();
-        double[] pos = new double[n];
-        double lastUp = Double.NaN, lastDn = Double.NaN;
+    public String name() {
+        return "fractal_breakout";
+    }
+
+    public String category() {
+        return "breakout";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Trade breaks of the most recent Williams 5-bar fractal high / low.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of();
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        double[] position = new double[length];
+        double lastFractalHigh = Double.NaN;
+        double lastFractalLow = Double.NaN;
         int state = 0;
-        for (int i = 0; i < n; i++) {
-            int c = i - 2;   // fractal confirmed 2 bars back
-            if (c >= 2 && c + 2 < n) {
-                if (b.high[c] > b.high[c - 1] && b.high[c] > b.high[c - 2]
-                        && b.high[c] > b.high[c + 1] && b.high[c] > b.high[c + 2]) lastUp = b.high[c];
-                if (b.low[c] < b.low[c - 1] && b.low[c] < b.low[c - 2]
-                        && b.low[c] < b.low[c + 1] && b.low[c] < b.low[c + 2]) lastDn = b.low[c];
+        for (int i = 0; i < length; i++) {
+            int center = i - 2; // fractal confirmed 2 bars back
+            if (center >= 2 && center + 2 < length) {
+                if (bars.high[center] > bars.high[center - 1]
+                        && bars.high[center] > bars.high[center - 2]
+                        && bars.high[center] > bars.high[center + 1]
+                        && bars.high[center] > bars.high[center + 2]) {
+                    lastFractalHigh = bars.high[center];
+                }
+                if (bars.low[center] < bars.low[center - 1]
+                        && bars.low[center] < bars.low[center - 2]
+                        && bars.low[center] < bars.low[center + 1]
+                        && bars.low[center] < bars.low[center + 2]) {
+                    lastFractalLow = bars.low[center];
+                }
             }
-            if (!nan(lastUp) && b.close[i] > lastUp) state = 1;
-            else if (!nan(lastDn) && b.close[i] < lastDn) state = -1;
-            pos[i] = state;
+            if (!Double.isNaN(lastFractalHigh) && bars.close[i] > lastFractalHigh) {
+                state = 1;
+            } else if (!Double.isNaN(lastFractalLow) && bars.close[i] < lastFractalLow) {
+                state = -1;
+            }
+            position[i] = state;
         }
-        return clean(pos);
+        return clean(position);
     }
 }
 
 class ChoppinessTrend extends AbstractStrategy {
-    public String name() { return "choppiness_trend"; }
-    public String category() { return "hybrid"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Only take the EMA-cross trend when the Choppiness Index says the market is trending."; }
-    public Map<String, Double> defaultParams() { return Map.of("n", 14.0, "fast", 20.0, "slow", 50.0, "chopMax", 38.2); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), win = pi(pr, "n");
-        double[] tr = Indicators.trueRange(b);
-        double[] sumTr = AdaptiveShared.rollSum(tr, win);
-        double[] hi = Indicators.rollingMax(b.high, win), lo = Indicators.rollingMin(b.low, win);
-        double logN = Math.log10(win);
-        double[] ef = Indicators.ema(b.close, pi(pr, "fast")), es = Indicators.ema(b.close, pi(pr, "slow"));
-        double chopMax = p(pr, "chopMax");
-        boolean[] up = new boolean[n], dn = new boolean[n];
-        for (int i = 0; i < n; i++) {
-            if (nan(sumTr[i]) || nan(hi[i]) || nan(lo[i]) || nan(ef[i]) || nan(es[i])) continue;
-            double range = hi[i] - lo[i];
-            if (range <= 0) continue;
-            double ci = 100 * Math.log10(sumTr[i] / range) / logN;
-            if (ci >= chopMax) continue;   // too choppy — stay flat
-            up[i] = ef[i] > es[i];
-            dn[i] = ef[i] < es[i];
+    public String name() {
+        return "choppiness_trend";
+    }
+
+    public String category() {
+        return "hybrid";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Only take the EMA-cross trend when the Choppiness Index says the market is trending.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("n", 14.0, "fast", 20.0, "slow", 50.0, "chopMax", 38.2);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int period = intParam(params, "n");
+        double[] trueRangeSum = AdaptiveShared.rollingSum(Indicators.trueRange(bars), period);
+        double[] highestHigh = Indicators.rollingMax(bars.high, period);
+        double[] lowestLow = Indicators.rollingMin(bars.low, period);
+        double logPeriod = Math.log10(period);
+        double[] fastEma = Indicators.ema(bars.close, intParam(params, "fast"));
+        double[] slowEma = Indicators.ema(bars.close, intParam(params, "slow"));
+        double chopMax = param(params, "chopMax");
+        boolean[] longCondition = new boolean[length];
+        boolean[] shortCondition = new boolean[length];
+        for (int i = 0; i < length; i++) {
+            if (Double.isNaN(trueRangeSum[i])
+                    || Double.isNaN(highestHigh[i])
+                    || Double.isNaN(lowestLow[i])
+                    || Double.isNaN(fastEma[i])
+                    || Double.isNaN(slowEma[i])) {
+                continue;
+            }
+            double range = highestHigh[i] - lowestLow[i];
+            if (range <= 0) {
+                continue;
+            }
+            double choppiness = 100 * Math.log10(trueRangeSum[i] / range) / logPeriod;
+            if (choppiness >= chopMax) {
+                continue; // too choppy — stay flat
+            }
+            longCondition[i] = fastEma[i] > slowEma[i];
+            shortCondition[i] = fastEma[i] < slowEma[i];
         }
-        return clean(regime(up, dn));
+        return clean(regime(longCondition, shortCondition));
     }
 }
 
 class RviSignal extends AbstractStrategy {
-    public String name() { return "rvi_signal"; }
-    public String category() { return "momentum"; }
-    public String direction() { return "long_short"; }
-    public String description() { return "Relative Vigor Index: close-vs-open strength normalised by range, traded against its signal line."; }
-    public Map<String, Double> defaultParams() { return Map.of("n", 10.0); }
-    public double[] generateSignals(BarSeries b, Map<String, Double> pr) {
-        int n = b.size(), win = pi(pr, "n");
-        double[] num0 = new double[n], den0 = new double[n];
-        for (int i = 0; i < n; i++) { num0[i] = b.close[i] - b.open[i]; den0[i] = b.high[i] - b.low[i]; }
-        double[] numS = AdaptiveShared.rollSum(AdaptiveShared.swma4(num0), win);
-        double[] denS = AdaptiveShared.rollSum(AdaptiveShared.swma4(den0), win);
-        double[] rvi = new double[n];
-        for (int i = 0; i < n; i++)
-            rvi[i] = (nan(numS[i]) || nan(denS[i]) || denS[i] == 0) ? Double.NaN : numS[i] / denS[i];
-        double[] sig = AdaptiveShared.swma4(rvi);
-        return clean(regime(gt(rvi, sig), lt(rvi, sig)));
+    public String name() {
+        return "rvi_signal";
+    }
+
+    public String category() {
+        return "momentum";
+    }
+
+    public String direction() {
+        return "long_short";
+    }
+
+    public String description() {
+        return "Relative Vigor Index: close-vs-open strength normalised by range, traded against its signal line.";
+    }
+
+    public Map<String, Double> defaultParams() {
+        return Map.of("n", 10.0);
+    }
+
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        int length = bars.size();
+        int period = intParam(params, "n");
+        double[] closeMinusOpen = new double[length];
+        double[] highMinusLow = new double[length];
+        for (int i = 0; i < length; i++) {
+            closeMinusOpen[i] = bars.close[i] - bars.open[i];
+            highMinusLow[i] = bars.high[i] - bars.low[i];
+        }
+        double[] numerator = AdaptiveShared.rollingSum(AdaptiveShared.symmetricWeightedAverage(closeMinusOpen), period);
+        double[] denominator = AdaptiveShared.rollingSum(AdaptiveShared.symmetricWeightedAverage(highMinusLow), period);
+        double[] rvi = new double[length];
+        for (int i = 0; i < length; i++) {
+            rvi[i] = (Double.isNaN(numerator[i]) || Double.isNaN(denominator[i]) || denominator[i] == 0)
+                    ? Double.NaN
+                    : numerator[i] / denominator[i];
+        }
+        double[] signalLine = AdaptiveShared.symmetricWeightedAverage(rvi);
+        return clean(regime(above(rvi, signalLine), below(rvi, signalLine)));
     }
 }

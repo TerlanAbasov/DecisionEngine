@@ -10,37 +10,68 @@ public final class ConfiguredStrategy implements TradingStrategy {
 
     private final TradingStrategy delegate;
     private final boolean invert;
-    private final String direction;   // effective direction after any override
+    private final String direction; // effective direction after any override
 
     public ConfiguredStrategy(TradingStrategy delegate, boolean invert, String directionOverride) {
         this.delegate = delegate;
         this.invert = invert;
-        this.direction = (directionOverride == null || directionOverride.isBlank())
-                ? delegate.direction() : directionOverride;
+        this.direction =
+                (directionOverride == null || directionOverride.isBlank()) ? delegate.direction() : directionOverride;
     }
 
-    public TradingStrategy delegate() { return delegate; }
-
-    @Override public String name() { return delegate.name(); }
-    @Override public String category() { return delegate.category(); }
-    @Override public String direction() { return direction; }
-    @Override public String description() { return delegate.description(); }
-    @Override public Map<String, Double> defaultParams() { return delegate.defaultParams(); }
+    public TradingStrategy delegate() {
+        return delegate;
+    }
 
     @Override
-    public double[] generateSignals(BarSeries b, Map<String, Double> params) {
-        double[] sig = delegate.generateSignals(b, params);
+    public String name() {
+        return delegate.name();
+    }
+
+    @Override
+    public String category() {
+        return delegate.category();
+    }
+
+    @Override
+    public String direction() {
+        return direction;
+    }
+
+    @Override
+    public String description() {
+        return delegate.description();
+    }
+
+    @Override
+    public Map<String, Double> defaultParams() {
+        return delegate.defaultParams();
+    }
+
+    @Override
+    public double[] generateSignals(BarSeries bars, Map<String, Double> params) {
+        double[] signal = delegate.generateSignals(bars, params);
         boolean longOnly = "long_only".equals(direction);
         boolean shortOnly = "short_only".equals(direction);
-        for (int i = 0; i < sig.length; i++) {
-            double v = Double.isNaN(sig[i]) ? 0 : sig[i];
-            if (invert) v = -v;
-            if (v > 1) v = 1;
-            if (v < -1) v = -1;
-            if (longOnly && v < 0) v = 0;
-            if (shortOnly && v > 0) v = 0;
-            sig[i] = v;
+        for (int i = 0; i < signal.length; i++) {
+            double value = Double.isNaN(signal[i]) ? 0 : signal[i];
+            if (invert) {
+                value = -value;
+            }
+            if (value > 1) {
+                value = 1;
+            }
+            if (value < -1) {
+                value = -1;
+            }
+            if (longOnly && value < 0) {
+                value = 0;
+            }
+            if (shortOnly && value > 0) {
+                value = 0;
+            }
+            signal[i] = value;
         }
-        return sig;
+        return signal;
     }
 }

@@ -1,13 +1,12 @@
 package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.autotrade.CommandSender.SendResult;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
 /**
  * Sends the commands for a run's flips, one at a time. Before each one it checks the job is still switched on and that the bar has no command yet,
@@ -26,8 +25,14 @@ class CommandForwarder {
     private final CommandSender sender;
 
     Outcome forward(List<Flip> flips) {
-        int sent = 0, rejected = 0, failed = 0, skipped = 0, attempts = 0;
-        List<Flip> ordered = flips.stream().sorted(Comparator.comparing(Flip::symbol).thenComparing(Flip::strategy)).toList();
+        int sent = 0;
+        int rejected = 0;
+        int failed = 0;
+        int skipped = 0;
+        int attempts = 0;
+        List<Flip> ordered = flips.stream()
+                .sorted(Comparator.comparing(Flip::symbol).thenComparing(Flip::strategy))
+                .toList();
         for (int i = 0; i < ordered.size(); i++) {
             Flip flip = ordered.get(i);
             AutoTradeSettings settings = config.current();
@@ -37,11 +42,16 @@ class CommandForwarder {
             }
             if (attempts >= settings.maxCommandsPerRun()) {
                 String reason = "Over the limit of " + settings.maxCommandsPerRun() + " commands per run";
-                if (commands.record(flip, settings, CommandStatus.SKIPPED, reason).isPresent()) skipped++;
+                if (commands.record(flip, settings, CommandStatus.SKIPPED, reason)
+                        .isPresent()) {
+                    skipped++;
+                }
                 continue;
             }
             Optional<AutoTradeCommandEntity> row = commands.record(flip, settings, CommandStatus.PENDING, null);
-            if (row.isEmpty()) continue;                                 // this bar already has its command
+            if (row.isEmpty()) {
+                continue; // this bar already has its command
+            }
             attempts++;
 
             SendResult result = sender.send(TradeCommand.of(flip, settings));

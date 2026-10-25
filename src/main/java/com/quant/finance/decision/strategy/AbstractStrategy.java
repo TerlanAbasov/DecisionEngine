@@ -5,93 +5,146 @@ import java.util.Map;
 /** Shared helpers so each concrete strategy stays a few lines. */
 public abstract class AbstractStrategy implements TradingStrategy {
 
-    protected double p(Map<String, Double> params, String key) {
-        if (params != null && params.containsKey(key)) return params.get(key);
+    /** The value of {@code key} in {@code params}, falling back to this strategy's default. */
+    protected double param(Map<String, Double> params, String key) {
+        if (params != null && params.containsKey(key)) {
+            return params.get(key);
+        }
         return defaultParams().get(key);
     }
 
-    protected int pi(Map<String, Double> params, String key) {
-        return (int) Math.round(p(params, key));
+    /** {@link #param} rounded to a whole number, for lengths and periods. */
+    protected int intParam(Map<String, Double> params, String key) {
+        return (int) Math.round(param(params, key));
     }
 
     /** Normalise a raw signal: NaN->0, clamp to [-1,1], drop shorts for long-only. */
-    protected double[] clean(double[] sig) {
+    protected double[] clean(double[] signal) {
         boolean longOnly = "long_only".equals(direction());
-        for (int i = 0; i < sig.length; i++) {
-            double v = Double.isNaN(sig[i]) ? 0 : sig[i];
-            if (v > 1) v = 1;
-            if (v < -1) v = -1;
-            if (longOnly && v < 0) v = 0;
-            sig[i] = v;
+        for (int i = 0; i < signal.length; i++) {
+            double value = Double.isNaN(signal[i]) ? 0 : signal[i];
+            if (value > 1) {
+                value = 1;
+            }
+            if (value < -1) {
+                value = -1;
+            }
+            if (longOnly && value < 0) {
+                value = 0;
+            }
+            signal[i] = value;
         }
-        return sig;
+        return signal;
     }
 
     // ---- stateless regime -------------------------------------------------
-    protected static double[] regime(boolean[] longC, boolean[] shortC) {
-        double[] out = new double[longC.length];
-        for (int i = 0; i < out.length; i++)
-            out[i] = longC[i] ? 1 : (shortC != null && shortC[i] ? -1 : 0);
-        return out;
+
+    /** Long (1) on every bar where {@code longCondition} holds, short (-1) where {@code shortCondition} does, else flat. */
+    protected static double[] regime(boolean[] longCondition, boolean[] shortCondition) {
+        double[] position = new double[longCondition.length];
+        for (int i = 0; i < position.length; i++) {
+            if (longCondition[i]) {
+                position[i] = 1;
+            } else if (shortCondition != null && shortCondition[i]) {
+                position[i] = -1;
+            } else {
+                position[i] = 0;
+            }
+        }
+        return position;
     }
 
     // ---- held / stateful position -----------------------------------------
-    protected static double[] hold(boolean[] li, boolean[] lo, boolean[] si, boolean[] so) {
-        int n = li.length;
-        double[] pos = new double[n];
+
+    /**
+     * A position that is entered on an entry condition and held until its exit condition (or the opposite entry).
+     * Any of the conditions except {@code longEntry} may be null.
+     */
+    protected static double[] hold(boolean[] longEntry, boolean[] longExit, boolean[] shortEntry, boolean[] shortExit) {
+        int barCount = longEntry.length;
+        double[] position = new double[barCount];
         int state = 0;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < barCount; i++) {
             if (state == 0) {
-                if (li[i]) state = 1;
-                else if (si != null && si[i]) state = -1;
+                if (longEntry[i]) {
+                    state = 1;
+                } else if (shortEntry != null && shortEntry[i]) {
+                    state = -1;
+                }
             } else if (state == 1) {
-                if (si != null && si[i]) state = -1;
-                else if (lo != null && lo[i]) state = 0;
+                if (shortEntry != null && shortEntry[i]) {
+                    state = -1;
+                } else if (longExit != null && longExit[i]) {
+                    state = 0;
+                }
             } else {
-                if (li[i]) state = 1;
-                else if (so != null && so[i]) state = 0;
+                if (longEntry[i]) {
+                    state = 1;
+                } else if (shortExit != null && shortExit[i]) {
+                    state = 0;
+                }
             }
-            pos[i] = state;
+            position[i] = state;
         }
-        return pos;
+        return position;
     }
 
     // ---- vectorised boolean ops (NaN-safe: comparisons with NaN are false) -
-    protected static boolean[] gt(double[] a, double[] b) {
-        boolean[] o = new boolean[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = !nan(a[i]) && !nan(b[i]) && a[i] > b[i];
-        return o;
+
+    protected static boolean[] above(double[] series, double[] other) {
+        boolean[] result = new boolean[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = !Double.isNaN(series[i]) && !Double.isNaN(other[i]) && series[i] > other[i];
+        }
+        return result;
     }
-    protected static boolean[] lt(double[] a, double[] b) {
-        boolean[] o = new boolean[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = !nan(a[i]) && !nan(b[i]) && a[i] < b[i];
-        return o;
+
+    protected static boolean[] below(double[] series, double[] other) {
+        boolean[] result = new boolean[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = !Double.isNaN(series[i]) && !Double.isNaN(other[i]) && series[i] < other[i];
+        }
+        return result;
     }
-    protected static boolean[] gt(double[] a, double v) {
-        boolean[] o = new boolean[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = !nan(a[i]) && a[i] > v;
-        return o;
+
+    protected static boolean[] above(double[] series, double level) {
+        boolean[] result = new boolean[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = !Double.isNaN(series[i]) && series[i] > level;
+        }
+        return result;
     }
-    protected static boolean[] lt(double[] a, double v) {
-        boolean[] o = new boolean[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = !nan(a[i]) && a[i] < v;
-        return o;
+
+    protected static boolean[] below(double[] series, double level) {
+        boolean[] result = new boolean[series.length];
+        for (int i = 0; i < series.length; i++) {
+            result[i] = !Double.isNaN(series[i]) && series[i] < level;
+        }
+        return result;
     }
-    protected static boolean[] and(boolean[] a, boolean[] b) {
-        boolean[] o = new boolean[a.length];
-        for (int i = 0; i < a.length; i++) o[i] = a[i] && b[i];
-        return o;
+
+    protected static boolean[] and(boolean[] first, boolean[] second) {
+        boolean[] result = new boolean[first.length];
+        for (int i = 0; i < first.length; i++) {
+            result[i] = first[i] && second[i];
+        }
+        return result;
     }
-    protected static boolean[] shift1(boolean[] a) {   // yesterday's condition
-        boolean[] o = new boolean[a.length];
-        for (int i = 1; i < a.length; i++) o[i] = a[i - 1];
-        return o;
+
+    /** The condition as it stood on the previous bar (false on the first bar). */
+    protected static boolean[] previous(boolean[] condition) {
+        boolean[] result = new boolean[condition.length];
+        for (int i = 1; i < condition.length; i++) {
+            result[i] = condition[i - 1];
+        }
+        return result;
     }
-    protected static double[] shift1(double[] a) {
-        double[] o = new double[a.length];
-        o[0] = Double.NaN;
-        System.arraycopy(a, 0, o, 1, a.length - 1);
-        return o;
+
+    /** The series shifted one bar later, so index i holds the previous bar's value (NaN on the first bar). */
+    protected static double[] previous(double[] series) {
+        double[] result = new double[series.length];
+        result[0] = Double.NaN;
+        System.arraycopy(series, 0, result, 1, series.length - 1);
+        return result;
     }
-    protected static boolean nan(double v) { return Double.isNaN(v); }
 }

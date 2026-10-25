@@ -1,12 +1,25 @@
 package com.quant.finance.decision.controller;
 
-import com.quant.finance.decision.dto.Dtos.*;
+import com.quant.finance.decision.dto.Dtos.OptimizeRequest;
+import com.quant.finance.decision.dto.Dtos.OptimizeResultDto;
+import com.quant.finance.decision.dto.Dtos.RiskOptimizeBulkResultDto;
+import com.quant.finance.decision.dto.Dtos.RiskOptimizeRequest;
+import com.quant.finance.decision.dto.Dtos.RiskOptimizeResultDto;
+import com.quant.finance.decision.dto.Dtos.StrategyControlsUpdate;
+import com.quant.finance.decision.dto.Dtos.StrategyDto;
 import com.quant.finance.decision.service.OptimizerService;
 import com.quant.finance.decision.service.StrategyService;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/strategies")
@@ -57,21 +70,35 @@ public class StrategyController {
     }
 
     @PostMapping("/{name}/optimize")
-    public OptimizeResultDto optimize(@PathVariable String name, @RequestBody OptimizeRequest req) {
-        return optimizer.optimize(name, req);
+    public OptimizeResultDto optimize(@PathVariable String name, @RequestBody OptimizeRequest request) {
+        return optimizer.optimize(name, request);
     }
 
     /** Finds the best timeframe/stop-loss%/take-profit% for one strategy; does not save it. */
     @PostMapping("/{name}/optimize-risk-defaults")
-    public RiskOptimizeResultDto optimizeRiskDefaults(@PathVariable String name, @RequestBody RiskOptimizeRequest req) {
-        return optimizer.optimizeRiskDefaults(name, req.symbols(), req.start(), req.end(),
-                req.capital(), req.commissionBps(), req.slippageBps(), req.allowShort());
+    public RiskOptimizeResultDto optimizeRiskDefaults(
+            @PathVariable String name, @RequestBody RiskOptimizeRequest request) {
+        return optimizer.optimizeRiskDefaults(
+                name,
+                request.symbols(),
+                request.start(),
+                request.end(),
+                request.capital(),
+                request.commissionBps(),
+                request.slippageBps(),
+                request.allowShort());
     }
 
     /** Runs the risk-default sweep for every enabled strategy and saves each winner. */
     @PostMapping("/optimize-risk-defaults/bulk")
-    public RiskOptimizeBulkResultDto optimizeRiskDefaultsBulk(@RequestBody RiskOptimizeRequest req) {
-        return optimizer.optimizeRiskDefaultsBulk(req.symbols(), req.start(), req.end(),
-                req.capital(), req.commissionBps(), req.slippageBps(), req.allowShort());
+    public RiskOptimizeBulkResultDto optimizeRiskDefaultsBulk(@RequestBody RiskOptimizeRequest request) {
+        return optimizer.optimizeRiskDefaultsBulk(
+                request.symbols(),
+                request.start(),
+                request.end(),
+                request.capital(),
+                request.commissionBps(),
+                request.slippageBps(),
+                request.allowShort());
     }
 }

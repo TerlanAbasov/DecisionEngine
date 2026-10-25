@@ -1,30 +1,31 @@
 package com.quant.finance.decision.repository;
 
 import com.quant.finance.decision.entity.BacktestRunEntity;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
-
 public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, Long> {
     List<BacktestRunEntity> findByStrategyNameOrderByCreatedAtDesc(String strategyName);
+
     List<BacktestRunEntity> findAllByOrderByCreatedAtDesc();
 
     /** Best score per strategy across its run history, for ranking. */
     interface StrategyScore {
         String getStrategyName();
+
         Double getScore();
     }
 
-    @Query("select r.strategyName as strategyName, max(r.sharpe) as score " +
-           "from BacktestRunEntity r where r.strategyName is not null group by r.strategyName")
+    @Query("select r.strategyName as strategyName, max(r.sharpe) as score "
+            + "from BacktestRunEntity r where r.strategyName is not null group by r.strategyName")
     List<StrategyScore> bestSharpePerStrategy();
 
-    @Query("select r.strategyName as strategyName, max(r.totalReturnPct) as score " +
-           "from BacktestRunEntity r where r.strategyName is not null group by r.strategyName")
+    @Query("select r.strategyName as strategyName, max(r.totalReturnPct) as score "
+            + "from BacktestRunEntity r where r.strategyName is not null group by r.strategyName")
     List<StrategyScore> bestReturnPerStrategy();
 
     @Query("select distinct r.strategyName from BacktestRunEntity r where r.strategyName is not null")
@@ -50,14 +51,15 @@ public interface BacktestRunRepository extends JpaRepository<BacktestRunEntity, 
               and (:minDrawdownPct is null or r.maxDrawdownPct >= :minDrawdownPct)
               and (:minTrades is null or r.trades >= :minTrades)
             """)
-    List<BacktestRunEntity> filter(@Param("strategy") String strategy,
-                                   @Param("symbolLike") String symbolLike,
-                                   @Param("minReturn") Double minReturn,
-                                   @Param("minCagr") Double minCagr,
-                                   @Param("minSharpe") Double minSharpe,
-                                   @Param("minProfitFactor") Double minProfitFactor,
-                                   @Param("minWinRate") Double minWinRate,
-                                   @Param("minDrawdownPct") Double minDrawdownPct,
-                                   @Param("minTrades") Integer minTrades,
-                                   Pageable pageable);
+    List<BacktestRunEntity> filter(
+            @Param("strategy") String strategy,
+            @Param("symbolLike") String symbolLike,
+            @Param("minReturn") Double minReturn,
+            @Param("minCagr") Double minCagr,
+            @Param("minSharpe") Double minSharpe,
+            @Param("minProfitFactor") Double minProfitFactor,
+            @Param("minWinRate") Double minWinRate,
+            @Param("minDrawdownPct") Double minDrawdownPct,
+            @Param("minTrades") Integer minTrades,
+            Pageable pageable);
 }

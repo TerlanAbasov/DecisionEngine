@@ -7,8 +7,8 @@ public final class AlpacaJson {
     private AlpacaJson() {}
 
     /** The field's text, or null when it is missing, blank or JSON null. */
-    public static String text(JsonNode n, String field) {
-        String s = n.path(field).asText("");
-        return s.isBlank() || "null".equals(s) ? null : s;
+    public static String text(JsonNode node, String field) {
+        String value = node.path(field).asText("");
+        return value.isBlank() || "null".equals(value) ? null : value;
     }
 }

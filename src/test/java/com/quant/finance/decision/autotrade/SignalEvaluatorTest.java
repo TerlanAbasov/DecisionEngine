@@ -1,40 +1,57 @@
 package com.quant.finance.decision.autotrade;
 
-import com.quant.finance.decision.engine.Timeframe;
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.quant.finance.decision.autotrade.LiveDataSource.Base;
+import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.strategy.BarSeries;
 import com.quant.finance.decision.strategy.TradingStrategy;
-import org.junit.jupiter.api.Test;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class SignalEvaluatorTest {
     private static final Instant NOW = Instant.parse("2026-09-21T15:07:00Z");
 
-    private static BarSeries minutes(int n, Instant lastBar) {
-        Instant[] d = new Instant[n];
-        double[] px = new double[n];
-        for (int i = 0; i < n; i++) { d[i] = lastBar.minus(Duration.ofMinutes(n - 1 - i)); px[i] = 100 + i; }
-        return new BarSeries("X", d, px, px, px, px, px);
+    private static BarSeries minutes(int count, Instant lastBar) {
+        Instant[] dates = new Instant[count];
+        double[] px = new double[count];
+        for (int i = 0; i < count; i++) {
+            dates[i] = lastBar.minus(Duration.ofMinutes(count - 1 - i));
+            px[i] = 100 + i;
+        }
+        return new BarSeries("X", dates, px, px, px, px, px);
     }
 
-    private static TradingStrategy lastIs(double v) {
+    private static TradingStrategy lastIs(double lastValue) {
         return new TradingStrategy() {
-            public String name() { return "t"; }
-            public String category() { return "t"; }
-            public String direction() { return "long_short"; }
-            public String description() { return ""; }
-            public Map<String, Double> defaultParams() { return Map.of(); }
-            public double[] generateSignals(BarSeries b, Map<String, Double> p) {
-                double[] s = new double[b.size()];
-                Arrays.fill(s, 0);
-                s[s.length - 1] = v;
-                return s;
+            public String name() {
+                return "t";
+            }
+
+            public String category() {
+                return "t";
+            }
+
+            public String direction() {
+                return "long_short";
+            }
+
+            public String description() {
+                return "";
+            }
+
+            public Map<String, Double> defaultParams() {
+                return Map.of();
+            }
+
+            public double[] generateSignals(BarSeries series, Map<String, Double> params) {
+                double[] signal = new double[series.size()];
+                Arrays.fill(signal, 0);
+                signal[signal.length - 1] = lastValue;
+                return signal;
             }
         };
     }
@@ -61,28 +78,36 @@ class SignalEvaluatorTest {
 
     @Test
     void theBarStillFormingIsDroppedAndACompletedOneIsKept() {
-        BarSeries b = minutes(600, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
-        BarSeries m15 = com.quant.finance.decision.engine.BarResampler.resample(b, Timeframe.M15);
-        BarSeries done = SignalEvaluator.completedOnly(m15, Timeframe.M15, NOW);            // 15:07: the 15:00 bar is forming
+        BarSeries series = minutes(600, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
+        BarSeries m15 = com.quant.finance.decision.engine.BarResampler.resample(series, Timeframe.M15);
+        BarSeries done = SignalEvaluator.completedOnly(m15, Timeframe.M15, NOW); // 15:07: the 15:00 bar is forming
         assertEquals(m15.size() - 1, done.size());
         assertEquals(Instant.parse("2026-09-21T14:45:00Z"), done.date[done.size() - 1]);
-        BarSeries later = SignalEvaluator.completedOnly(m15, Timeframe.M15, NOW.plusSeconds(15 * 60));   // 15:22: 15:00 is complete
+        BarSeries later =
+                SignalEvaluator.completedOnly(m15, Timeframe.M15, NOW.plusSeconds(15 * 60)); // 15:22: 15:00 is complete
         assertEquals(m15.size(), later.size());
-        assertEquals(0, SignalEvaluator.completedOnly(minutes(0, NOW), Timeframe.M15, NOW).size());
+        assertEquals(
+                0,
+                SignalEvaluator.completedOnly(minutes(0, NOW), Timeframe.M15, NOW)
+                        .size());
     }
 
     @Test
     void theLastSignalIsTheTargetAfterTheLastCompletedBar() {
-        BarSeries b = minutes(900, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
-        assertEquals(1.0, SignalEvaluator.lastSignal(lastIs(1), Map.of(), b, Timeframe.M15, NOW));
-        assertEquals(-1.0, SignalEvaluator.lastSignal(lastIs(-1), Map.of(), b, Timeframe.M15, NOW));
-        assertEquals(1.0, SignalEvaluator.lastSignal(lastIs(5), Map.of(), b, Timeframe.M15, NOW), "clamped to full size");
-        assertEquals(0.0, SignalEvaluator.lastSignal(lastIs(Double.NaN), Map.of(), b, Timeframe.M15, NOW));
+        BarSeries series = minutes(900, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
+        assertEquals(1.0, SignalEvaluator.lastSignal(lastIs(1), Map.of(), series, Timeframe.M15, NOW));
+        assertEquals(-1.0, SignalEvaluator.lastSignal(lastIs(-1), Map.of(), series, Timeframe.M15, NOW));
+        assertEquals(
+                1.0,
+                SignalEvaluator.lastSignal(lastIs(5), Map.of(), series, Timeframe.M15, NOW),
+                "clamped to full size");
+        assertEquals(0.0, SignalEvaluator.lastSignal(lastIs(Double.NaN), Map.of(), series, Timeframe.M15, NOW));
     }
 
     @Test
     void tooLittleHistoryMeansNoSignalRatherThanAGuess() {
-        BarSeries few = minutes(200, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));   // ~13 completed 15-min bars
+        BarSeries few =
+                minutes(200, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES)); // ~13 completed 15-min bars
         assertNull(SignalEvaluator.lastSignal(lastIs(1), Map.of(), few, Timeframe.M15, NOW));
         assertNull(SignalEvaluator.lastSignal(lastIs(1), Map.of(), minutes(0, NOW), Timeframe.M15, NOW));
     }
@@ -90,14 +115,33 @@ class SignalEvaluatorTest {
     @Test
     void aStrategyReturningTheWrongNumberOfSignalsIsAnError() {
         TradingStrategy broken = new TradingStrategy() {
-            public String name() { return "broken"; }
-            public String category() { return "t"; }
-            public String direction() { return "long_short"; }
-            public String description() { return ""; }
-            public Map<String, Double> defaultParams() { return Map.of(); }
-            public double[] generateSignals(BarSeries b, Map<String, Double> p) { return new double[3]; }
+            public String name() {
+                return "broken";
+            }
+
+            public String category() {
+                return "t";
+            }
+
+            public String direction() {
+                return "long_short";
+            }
+
+            public String description() {
+                return "";
+            }
+
+            public Map<String, Double> defaultParams() {
+                return Map.of();
+            }
+
+            public double[] generateSignals(BarSeries series, Map<String, Double> params) {
+                return new double[3];
+            }
         };
-        BarSeries b = minutes(900, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
-        assertThrows(IllegalStateException.class, () -> SignalEvaluator.lastSignal(broken, Map.of(), b, Timeframe.M15, NOW));
+        BarSeries series = minutes(900, NOW.truncatedTo(java.time.temporal.ChronoUnit.MINUTES));
+        assertThrows(
+                IllegalStateException.class,
+                () -> SignalEvaluator.lastSignal(broken, Map.of(), series, Timeframe.M15, NOW));
     }
 }

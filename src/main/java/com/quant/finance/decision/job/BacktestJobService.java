@@ -3,30 +3,30 @@ package com.quant.finance.decision.job;
 import com.quant.finance.decision.config.ExecutorConfig;
 import com.quant.finance.decision.domain.JobKind;
 import com.quant.finance.decision.domain.JobStatus;
-import com.quant.finance.decision.entity.BacktestJobEntity;
 import com.quant.finance.decision.dto.Dtos.JobDto;
+import com.quant.finance.decision.entity.BacktestJobEntity;
 import com.quant.finance.decision.error.JobCancelledException;
 import com.quant.finance.decision.error.JobConflictException;
 import com.quant.finance.decision.repository.BacktestJobRepository;
 import com.quant.finance.decision.service.JsonCodec;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Service;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
-import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Service;
 
 /**
  * Runs backtests in the background so the UI can leave and come back, one job at a time (a second start is refused with the active job);
@@ -67,8 +67,10 @@ public class BacktestJobService {
     private final Object submitLock = new Object();
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
 
-    public BacktestJobService(BacktestJobRepository repo, JsonCodec json,
-                              @Qualifier(ExecutorConfig.BACKTEST_JOB_EXECUTOR) ExecutorService jobExecutor) {
+    public BacktestJobService(
+            BacktestJobRepository repo,
+            JsonCodec json,
+            @Qualifier(ExecutorConfig.BACKTEST_JOB_EXECUTOR) ExecutorService jobExecutor) {
         this.repo = repo;
         this.json = json;
         this.jobExecutor = jobExecutor;
@@ -82,11 +84,13 @@ public class BacktestJobService {
         Job job = new Job(kind, title);
         synchronized (submitLock) {
             Job active = activeJob();
-            if (active != null) throw new JobConflictException(toDto(active));
+            if (active != null) {
+                throw new JobConflictException(toDto(active));
+            }
             jobs.put(job.id, job);
             try {
                 jobExecutor.execute(() -> execute(job, request, work));
-            } catch (RuntimeException e) {          // e.g. the executor is shutting down
+            } catch (RuntimeException e) { // e.g. the executor is shutting down
                 jobs.remove(job.id);
                 throw e;
             }
@@ -98,15 +102,19 @@ public class BacktestJobService {
     /** The job's current state; the result is included once it COMPLETED. */
     public JobDto get(String id) {
         Job job = jobs.get(id);
-        if (job != null) return toDto(job);
-        return repo.findById(id).map(this::toDto)
+        if (job != null) {
+            return toDto(job);
+        }
+        return repo.findById(id)
+                .map(this::toDto)
                 .orElseThrow(() -> new NoSuchElementException("No backtest job " + id));
     }
 
     /** Jobs still running (without results), newest first — at most one, by construction. */
     public List<JobDto> active() {
         List<JobDto> out = new ArrayList<>();
-        jobs.values().stream().filter(j -> j.status == JobStatus.RUNNING)
+        jobs.values().stream()
+                .filter(j -> j.status == JobStatus.RUNNING)
                 .sorted(Comparator.comparing((Job j) -> j.createdAt).reversed())
                 .forEach(j -> out.add(toDto(j, false)));
         return out;
@@ -129,7 +137,7 @@ public class BacktestJobService {
 
     private void execute(Job job, Object request, Function<JobProgress, Object> work) {
         job.startedAt = Instant.now();
-        insertRow(job, request);    // same thread as updateRow below, so the two writes cannot overtake each other
+        insertRow(job, request); // same thread as updateRow below, so the two writes cannot overtake each other
         JobStatus outcome;
         try {
             job.result = work.apply(job.progress);
@@ -147,7 +155,11 @@ public class BacktestJobService {
         job.finalSnapshot = job.progress.finalSnapshot(outcome);
         job.finishedAt = Instant.now();
         job.status = outcome;
-        log.info("Job {} ({}) {} in {} ms", job.id, job.kind, outcome,
+        log.info(
+                "Job {} ({}) {} in {} ms",
+                job.id,
+                job.kind,
+                outcome,
                 Duration.between(job.startedAt, job.finishedAt).toMillis());
         try {
             updateRow(job);
@@ -156,99 +168,141 @@ public class BacktestJobService {
         }
     }
 
-    private static Throwable unwrap(Throwable t) {
-        Throwable root = t;
-        while ((root instanceof CompletionException || root instanceof java.util.concurrent.ExecutionException)
-                && root.getCause() != null) root = root.getCause();
+    private static Throwable unwrap(Throwable throwable) {
+        Throwable root = throwable;
+        while ((root instanceof CompletionException || root instanceof ExecutionException) && root.getCause() != null) {
+            root = root.getCause();
+        }
         return root;
     }
 
     /** What the user sees: the message of an expected input error, otherwise the exception's type as well. */
-    private static String describe(Throwable t) {
-        if (t instanceof OutOfMemoryError)
+    private static String describe(Throwable throwable) {
+        if (throwable instanceof OutOfMemoryError) {
             return "Out of memory — try fewer symbols or strategies, or a shorter date range.";
-        String msg = t.getMessage();
-        if (t instanceof IllegalStateException || t instanceof IllegalArgumentException
-                || t instanceof NoSuchElementException) return msg == null ? t.getClass().getSimpleName() : msg;
-        return t.getClass().getSimpleName() + (msg == null ? "" : ": " + msg);
+        }
+        String msg = throwable.getMessage();
+        if (throwable instanceof IllegalStateException
+                || throwable instanceof IllegalArgumentException
+                || throwable instanceof NoSuchElementException) {
+            return msg == null ? throwable.getClass().getSimpleName() : msg;
+        }
+        return throwable.getClass().getSimpleName() + (msg == null ? "" : ": " + msg);
     }
 
     private Job activeJob() {
-        for (Job j : jobs.values()) if (j.status == JobStatus.RUNNING) return j;
+        for (Job job : jobs.values()) {
+            if (job.status == JobStatus.RUNNING) {
+                return job;
+            }
+        }
         return null;
     }
 
     /** Finished jobs live in the database; keep only the most recent few in memory. */
     private void trimMemory() {
-        List<Job> finished = jobs.values().stream().filter(j -> j.status.isTerminal())
-                .sorted(Comparator.comparing((Job j) -> j.finishedAt).reversed()).toList();
-        for (int i = KEEP_IN_MEMORY; i < finished.size(); i++) jobs.remove(finished.get(i).id);
+        List<Job> finished = jobs.values().stream()
+                .filter(j -> j.status.isTerminal())
+                .sorted(Comparator.comparing((Job j) -> j.finishedAt).reversed())
+                .toList();
+        for (int i = KEEP_IN_MEMORY; i < finished.size(); i++) {
+            jobs.remove(finished.get(i).id);
+        }
     }
 
     // ---- DTO mapping ---------------------------------------------------------------------------
 
-    private JobDto toDto(Job j) { return toDto(j, true); }
-
-    private JobDto toDto(Job j, boolean withResult) {
-        JobStatus status = j.status;                       // read first: terminal implies the fields below are set
-        JobProgress.Snapshot snap = status.isTerminal() && j.finalSnapshot != null ? j.finalSnapshot : j.progress.snapshot();
-        Instant from = j.startedAt != null ? j.startedAt : j.createdAt;
-        Instant to = j.finishedAt != null ? j.finishedAt : Instant.now();
-        return new JobDto(j.id, j.kind.name(), status.name(), j.title, j.createdAt, j.startedAt, j.finishedAt,
-                Math.max(0, Duration.between(from, to).toMillis()), snap.percent(), snap.steps(), snap.symbols(),
-                snap.strategies(), snap.running(), j.progress.isCancelled() && status == JobStatus.RUNNING,
-                j.error, withResult && status == JobStatus.COMPLETED ? j.result : null);
+    private JobDto toDto(Job job) {
+        return toDto(job, true);
     }
 
-    private JobDto toDto(BacktestJobEntity e) {
-        JobStatus status = JobStatus.valueOf(e.getStatus());
-        JobProgress.Snapshot snap = json.read(e.getProgressJson(), JobProgress.Snapshot.class);
-        Instant from = e.getStartedAt() != null ? e.getStartedAt() : e.getCreatedAt();
-        Instant to = e.getFinishedAt() != null ? e.getFinishedAt() : Instant.now();
-        Object result = status == JobStatus.COMPLETED ? json.read(e.getResultJson(), Object.class) : null;
-        return new JobDto(e.getId(), e.getKind(), status.name(), e.getTitle(), e.getCreatedAt(), e.getStartedAt(),
-                e.getFinishedAt(), Math.max(0, Duration.between(from, to).toMillis()),
+    private JobDto toDto(Job job, boolean withResult) {
+        JobStatus status = job.status; // read first: terminal implies the fields below are set
+        JobProgress.Snapshot snap =
+                status.isTerminal() && job.finalSnapshot != null ? job.finalSnapshot : job.progress.snapshot();
+        Instant from = job.startedAt != null ? job.startedAt : job.createdAt;
+        Instant to = job.finishedAt != null ? job.finishedAt : Instant.now();
+        return new JobDto(
+                job.id,
+                job.kind.name(),
+                status.name(),
+                job.title,
+                job.createdAt,
+                job.startedAt,
+                job.finishedAt,
+                Math.max(0, Duration.between(from, to).toMillis()),
+                snap.percent(),
+                snap.steps(),
+                snap.symbols(),
+                snap.strategies(),
+                snap.running(),
+                job.progress.isCancelled() && status == JobStatus.RUNNING,
+                job.error,
+                withResult && status == JobStatus.COMPLETED ? job.result : null);
+    }
+
+    private JobDto toDto(BacktestJobEntity entity) {
+        JobStatus status = JobStatus.valueOf(entity.getStatus());
+        JobProgress.Snapshot snap = json.read(entity.getProgressJson(), JobProgress.Snapshot.class);
+        Instant from = entity.getStartedAt() != null ? entity.getStartedAt() : entity.getCreatedAt();
+        Instant to = entity.getFinishedAt() != null ? entity.getFinishedAt() : Instant.now();
+        Object result = status == JobStatus.COMPLETED ? json.read(entity.getResultJson(), Object.class) : null;
+        return new JobDto(
+                entity.getId(),
+                entity.getKind(),
+                status.name(),
+                entity.getTitle(),
+                entity.getCreatedAt(),
+                entity.getStartedAt(),
+                entity.getFinishedAt(),
+                Math.max(0, Duration.between(from, to).toMillis()),
                 status == JobStatus.COMPLETED ? 100 : snap == null ? 0 : snap.percent(),
-                snap == null ? List.of() : snap.steps(), snap == null ? List.of() : snap.symbols(),
-                snap == null ? List.of() : snap.strategies(), List.of(), false, e.getError(), result);
+                snap == null ? List.of() : snap.steps(),
+                snap == null ? List.of() : snap.symbols(),
+                snap == null ? List.of() : snap.strategies(),
+                List.of(),
+                false,
+                entity.getError(),
+                result);
     }
 
     // ---- persistence (best effort: a database hiccup must not fail or lose a running backtest) --
 
-    private void insertRow(Job j, Object request) {
+    private void insertRow(Job job, Object request) {
         try {
-            BacktestJobEntity e = new BacktestJobEntity();
-            e.setId(j.id);
-            e.setKind(j.kind.name());
-            e.setStatus(JobStatus.RUNNING.name());
-            e.setTitle(j.title);
-            e.setRequestJson(request == null ? null : json.write(request));
-            e.setCreatedAt(j.createdAt);
-            repo.save(e);
+            BacktestJobEntity entity = new BacktestJobEntity();
+            entity.setId(job.id);
+            entity.setKind(job.kind.name());
+            entity.setStatus(JobStatus.RUNNING.name());
+            entity.setTitle(job.title);
+            entity.setRequestJson(request == null ? null : json.write(request));
+            entity.setCreatedAt(job.createdAt);
+            repo.save(entity);
         } catch (RuntimeException ex) {
-            log.warn("Job {}: could not store it ({}); it will still run", j.id, ex.toString());
+            log.warn("Job {}: could not store it ({}); it will still run", job.id, ex.toString());
         }
     }
 
-    private void updateRow(Job j) {
+    private void updateRow(Job job) {
         try {
-            BacktestJobEntity e = repo.findById(j.id).orElseGet(() -> {
-                BacktestJobEntity n = new BacktestJobEntity();
-                n.setId(j.id);
-                n.setKind(j.kind.name());
-                n.setTitle(j.title);
-                n.setCreatedAt(j.createdAt);
-                return n;
+            BacktestJobEntity entity = repo.findById(job.id).orElseGet(() -> {
+                BacktestJobEntity created = new BacktestJobEntity();
+                created.setId(job.id);
+                created.setKind(job.kind.name());
+                created.setTitle(job.title);
+                created.setCreatedAt(job.createdAt);
+                return created;
             });
-            e.setStatus(j.status.name());
-            e.setStartedAt(j.startedAt);
-            e.setFinishedAt(j.finishedAt);
-            e.setError(j.error);
-            e.setProgressJson(json.write(j.finalSnapshot));
-            e.setResultJson(j.status == JobStatus.COMPLETED && j.result != null ? json.write(j.result) : null);
-            repo.save(e);
+            entity.setStatus(job.status.name());
+            entity.setStartedAt(job.startedAt);
+            entity.setFinishedAt(job.finishedAt);
+            entity.setError(job.error);
+            entity.setProgressJson(json.write(job.finalSnapshot));
+            entity.setResultJson(
+                    job.status == JobStatus.COMPLETED && job.result != null ? json.write(job.result) : null);
+            repo.save(entity);
         } catch (RuntimeException ex) {
-            log.warn("Job {}: could not store its outcome ({}); it stays readable from memory", j.id, ex.toString());
+            log.warn("Job {}: could not store its outcome ({}); it stays readable from memory", job.id, ex.toString());
         }
     }
 
@@ -258,17 +312,19 @@ public class BacktestJobService {
         try {
             Instant now = Instant.now();
             List<BacktestJobEntity> orphans = repo.findByStatus(JobStatus.RUNNING.name());
-            for (BacktestJobEntity e : orphans) {
-                e.setStatus(JobStatus.FAILED.name());
-                e.setError(INTERRUPTED);
-                e.setFinishedAt(now);
+            for (BacktestJobEntity orphan : orphans) {
+                orphan.setStatus(JobStatus.FAILED.name());
+                orphan.setError(INTERRUPTED);
+                orphan.setFinishedAt(now);
             }
             if (!orphans.isEmpty()) {
                 repo.saveAll(orphans);
                 log.warn("Backtest jobs: marked {} job(s) left running by the last shutdown as failed", orphans.size());
             }
             long pruned = repo.deleteByCreatedAtBefore(now.minus(RETENTION));
-            if (pruned > 0) log.info("Backtest jobs: pruned {} job(s) older than {} days", pruned, RETENTION.toDays());
+            if (pruned > 0) {
+                log.info("Backtest jobs: pruned {} job(s) older than {} days", pruned, RETENTION.toDays());
+            }
         } catch (RuntimeException ex) {
             log.warn("Backtest jobs: startup cleanup failed: {}", ex.toString());
         }

@@ -17,10 +17,10 @@ public enum Timeframe {
     H8("8 Hour", 28_800),
     H12("12 Hour", 43_200),
     D1("1 Day", 86_400),
-    W1("1 Week", 0),           // calendar week (ISO, Monday-anchored)
-    MN("1 Month", 0),          // calendar month
-    Q1("1 Quarter", 0),        // calendar quarter
-    Y1("1 Year", 0);           // calendar year
+    W1("1 Week", 0), // calendar week (ISO, Monday-anchored)
+    MN("1 Month", 0), // calendar month
+    Q1("1 Quarter", 0), // calendar quarter
+    Y1("1 Year", 0); // calendar year
 
     public final String label;
     /** Bucket width in seconds for fixed-width frames; 0 for NATIVE and calendar frames. */
@@ -32,10 +32,12 @@ public enum Timeframe {
     }
 
     /** Lenient parse: accepts enum names and common aliases ("1D", "daily", "1Day", "1H", "weekly"…). */
-    public static Timeframe from(String s) {
-        if (s == null || s.isBlank()) return NATIVE;
-        String k = s.trim().toUpperCase().replace(" ", "").replace("-", "").replace("_", "");
-        return switch (k) {
+    public static Timeframe from(String text) {
+        if (text == null || text.isBlank()) {
+            return NATIVE;
+        }
+        String key = text.trim().toUpperCase().replace(" ", "").replace("-", "").replace("_", "");
+        return switch (key) {
             case "", "NATIVE", "RAW", "ASIS" -> NATIVE;
             case "M5", "5M", "5MIN", "5MINUTE" -> M5;
             case "M15", "15M", "15MIN", "15MINUTE" -> M15;
@@ -56,17 +58,21 @@ public enum Timeframe {
         };
     }
 
-    public boolean isNative() { return this == NATIVE; }
+    public boolean isNative() {
+        return this == NATIVE;
+    }
 
     /** True when the caller left the timeframe unset / asked for "auto" (per-strategy default). */
-    public static boolean isAuto(String s) {
-        if (s == null || s.isBlank()) return true;
-        String k = s.trim().toUpperCase();
-        return k.equals("AUTO") || k.equals("DEFAULT") || k.equals("PER_STRATEGY");
+    public static boolean isAuto(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String key = text.trim().toUpperCase();
+        return key.equals("AUTO") || key.equals("DEFAULT") || key.equals("PER_STRATEGY");
     }
 
     /** {@link #from(String)}, but an unset / "auto" value yields {@code fallback} instead of NATIVE. */
-    public static Timeframe resolve(String s, Timeframe fallback) {
-        return isAuto(s) ? fallback : from(s);
+    public static Timeframe resolve(String text, Timeframe fallback) {
+        return isAuto(text) ? fallback : from(text);
     }
 }

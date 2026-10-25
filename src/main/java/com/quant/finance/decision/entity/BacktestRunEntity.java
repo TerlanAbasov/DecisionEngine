@@ -1,11 +1,17 @@
 package com.quant.finance.decision.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
 
 @Entity
 @Table(name = "backtest_run", indexes = @Index(name = "ix_run_strategy", columnList = "strategy_name"))
@@ -32,14 +38,14 @@ public class BacktestRunEntity {
     private boolean allowShort;
 
     // execution / risk controls (nullable — older rows predate them)
-    private String timeframe;          // NATIVE | H1 | H4 | D1 | W1 | MN
+    private String timeframe; // NATIVE | H1 | H4 | D1 | W1 | MN
     private Integer execLag;
     private Double positionSize;
     private Double riskFreePct;
     private Integer warmupBars;
     private Double stopLossPct;
     private Double takeProfitPct;
-    private Integer bars;              // bar count actually backtested (post-resample)
+    private Integer bars; // bar count actually backtested (post-resample)
 
     // headline result metrics, denormalised from BacktestResult.metricsJson so run
     // history can be sorted / filtered in SQL (nullable — backfilled for older rows)
@@ -55,11 +61,13 @@ public class BacktestRunEntity {
     private Double exposurePct;
     private Integer trades;
 
-    private String status;     // COMPLETED | FAILED
+    private String status; // COMPLETED | FAILED
     private Instant createdAt;
 
     @PrePersist
     void onCreate() {
-        if (createdAt == null) createdAt = Instant.now();
+        if (createdAt == null) {
+            createdAt = Instant.now();
+        }
     }
 }

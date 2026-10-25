@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * On boot, drops cached bars whose interval differs from {@code decision.alpaca.timeframe} (legacy rows without one included),
+ * On boot, drops cached bars whose interval differs from {@code application.alpaca.timeframe} (legacy rows without one included),
  * so changing e.g. 1Day to 1Min takes effect instead of serving the old bars. Idempotent.
  */
 @Component
@@ -28,10 +28,13 @@ public class MarketDataTimeframeGuard implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        String tf = client.configuredTimeframe();
-        int dropped = repo.deleteByTimeframeNot(tf);
-        if (dropped > 0)
-            log.warn("Cleared {} cached price bars fetched at a different interval; they will refetch at '{}'.",
-                    dropped, tf);
+        String frame = client.configuredTimeframe();
+        int dropped = repo.deleteByTimeframeNot(frame);
+        if (dropped > 0) {
+            log.warn(
+                    "Cleared {} cached price bars fetched at a different interval; they will refetch at '{}'.",
+                    dropped,
+                    frame);
+        }
     }
 }
