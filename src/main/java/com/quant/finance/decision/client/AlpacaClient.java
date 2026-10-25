@@ -1,6 +1,7 @@
 package com.quant.finance.decision.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.error.AlpacaApiException;
 import feign.Logger;
 import feign.Request;
@@ -48,8 +49,8 @@ public interface AlpacaClient {
         }
 
         @Bean
-        RequestInterceptor alpacaAuthInterceptor(AlpacaCredentials creds) {
-            return AlpacaFeign.authInterceptor(creds);
+        RequestInterceptor alpacaAuthInterceptor(ApplicationProperties properties) {
+            return AlpacaFeign.authInterceptor(properties);
         }
 
         @Bean

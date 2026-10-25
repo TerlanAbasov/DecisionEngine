@@ -1,5 +1,6 @@
 package com.quant.finance.decision.client;
 
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.error.AlpacaApiException;
 import feign.Request;
 import feign.RequestInterceptor;
@@ -8,6 +9,7 @@ import feign.Util;
 import feign.codec.ErrorDecoder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -35,13 +37,15 @@ public final class AlpacaFeign {
     }
 
     /** Adds the Alpaca key headers; refuses to send anything when no credentials are configured. */
-    public static RequestInterceptor authInterceptor(AlpacaCredentials creds) {
+    public static RequestInterceptor authInterceptor(ApplicationProperties properties) {
         return template -> {
-            if (!creds.configured())
+            String keyId = StringUtils.trimToEmpty(properties.getAlpaca().getApiKeyId());
+            String secret = StringUtils.trimToEmpty(properties.getAlpaca().getApiSecretKey());
+            if (keyId.isEmpty() || secret.isEmpty())
                 throw new IllegalStateException("Alpaca credentials are not configured: set application.alpaca.api-key-id / "
                         + "api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
-            template.header("APCA-API-KEY-ID", creds.keyId());
-            template.header("APCA-API-SECRET-KEY", creds.secret());
+            template.header("APCA-API-KEY-ID", keyId);
+            template.header("APCA-API-SECRET-KEY", secret);
         };
     }
 

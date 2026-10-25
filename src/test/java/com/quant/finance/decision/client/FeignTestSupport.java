@@ -4,10 +4,10 @@ import com.quant.finance.decision.config.ApplicationProperties;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.cloud.openfeign.FeignAutoConfiguration;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 
@@ -19,12 +19,8 @@ final class FeignTestSupport implements AutoCloseable {
     @Configuration
     @EnableFeignClients(clients = {AlpacaClient.class})
     @ImportAutoConfiguration({HttpMessageConvertersAutoConfiguration.class, JacksonAutoConfiguration.class, FeignAutoConfiguration.class})
+    @EnableConfigurationProperties(ApplicationProperties.class)
     static class Config {
-        @Bean
-        AlpacaCredentials alpacaCredentials(org.springframework.core.env.Environment env) {
-            return new AlpacaCredentials(properties(null, env.getProperty("application.alpaca.api-key-id", ""),
-                    env.getProperty("application.alpaca.api-secret-key", "")));
-        }
     }
 
     private final AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();

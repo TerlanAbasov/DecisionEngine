@@ -2,13 +2,13 @@ package com.quant.finance.decision.autotrade;
 
 import com.quant.finance.decision.client.AlpacaCalls;
 import com.quant.finance.decision.client.AlpacaClient;
-import com.quant.finance.decision.client.AlpacaCredentials;
 import com.quant.finance.decision.client.AlpacaJson;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.strategy.BarSeries;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -30,7 +30,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AlpacaLiveData implements LiveDataSource {
 
     private final AlpacaClient client;
-    private final AlpacaCredentials creds;
     private final ApplicationProperties properties;
     private final Map<String, BarWindow> windows = new ConcurrentHashMap<>();
 
@@ -50,7 +49,7 @@ public class AlpacaLiveData implements LiveDataSource {
         do {
             String token = pageToken;
             JsonNode page = AlpacaCalls.read(() -> client.bars(dataUrl, symbol, base.alpacaTimeframe, from.toString(), to.toString(),
-                    10_000, "split", creds.feed(), token));
+                    10_000, "split", feed(), token));
             for (JsonNode b : page.path("bars"))
                 out.put(Instant.parse(b.path("t").asText()),
                         new BarWindow.Bar(b.path("o").asDouble(), b.path("h").asDouble(), b.path("l").asDouble(),
@@ -64,7 +63,7 @@ public class AlpacaLiveData implements LiveDataSource {
     public Map<String, Double> latestPrices(Collection<String> symbols) {
         Map<String, Double> out = new HashMap<>();
         if (symbols.isEmpty()) return out;
-        JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl(), String.join(",", symbols), creds.feed()));
+        JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl(), String.join(",", symbols), feed()));
         JsonNode snaps = root.has("snapshots") ? root.path("snapshots") : root;   // both response shapes exist
         for (String symbol : symbols) {
             double price = priceOf(snaps.path(symbol));
@@ -82,4 +81,6 @@ public class AlpacaLiveData implements LiveDataSource {
     }
 
     private URI dataUrl() { return URI.create(properties.getAlpaca().getDataBaseUrl().trim()); }
+
+    private String feed() { return StringUtils.defaultIfBlank(StringUtils.trim(properties.getAlpaca().getFeed()), "iex"); }
 }
