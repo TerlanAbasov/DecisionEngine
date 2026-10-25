@@ -1,21 +1,22 @@
 package com.quant.finance.decision.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.entity.BacktestResultEntity;
 import com.quant.finance.decision.entity.BacktestRunEntity;
-import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.repository.BacktestResultRepository;
 import com.quant.finance.decision.repository.BacktestRunRepository;
 import com.quant.finance.decision.repository.TradeRepository;
 import com.quant.finance.decision.service.BacktestService;
 import com.quant.finance.decision.service.JsonCodec;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Duration;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * Boot-time, idempotent repair of legacy backtest runs: fills the denormalised metric columns and rebuilds totals that old multiplicative
@@ -32,8 +33,11 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
     private final TradeRepository tradeRepo;
     private final JsonCodec json;
 
-    public BacktestSummaryBackfill(BacktestRunRepository runRepo, BacktestResultRepository resultRepo,
-                                   TradeRepository tradeRepo, JsonCodec json) {
+    public BacktestSummaryBackfill(
+            BacktestRunRepository runRepo,
+            BacktestResultRepository resultRepo,
+            TradeRepository tradeRepo,
+            JsonCodec json) {
         this.runRepo = runRepo;
         this.resultRepo = resultRepo;
         this.tradeRepo = tradeRepo;
@@ -45,23 +49,26 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
     public void run(String... args) {
         for (BacktestRunEntity r : runRepo.findAll()) {
             boolean changed = false;
-            BacktestResultEntity res = resultRepo.findByRunId(r.getId()).orElse(null);
+            BacktestResultEntity result = resultRepo.findByRunId(r.getId()).orElse(null);
 
-            if (r.getTotalReturnPct() == null && res != null) {
-                BacktestService.applySummary(r, json.readMetrics(res.getMetricsJson()));
+            if (r.getTotalReturnPct() == null && result != null) {
+                BacktestService.applySummary(r, json.readDoubleMap(result.getMetricsJson()));
                 changed = true;
             }
 
             // legacy portfolio runs stored one trade row per symbol unweighted, so Σ trade.returnPct
             // is ~N× the (equal-weight) portfolio return — divide by the symbol count to reconcile
-            int symbolCount = Math.max(1, r.getSymbolsCsv() == null || r.getSymbolsCsv().isBlank()
-                    ? 1 : r.getSymbolsCsv().split(",").length);
+            int symbolCount = Math.max(
+                    1,
+                    r.getSymbolsCsv() == null || r.getSymbolsCsv().isBlank()
+                            ? 1
+                            : r.getSymbolsCsv().split(",").length);
             double tradeSumPct = tradeRepo.sumReturnPctByRunId(r.getId()) * 100.0 / symbolCount;
             Double stored = r.getTotalReturnPct();
             boolean artifact = stored == null || Math.abs(stored) > 20 * Math.abs(tradeSumPct) + 500;
             if (artifact) {
-                if (res != null && repairFromEquity(r, res)) {
-                    resultRepo.save(res);
+                if (result != null && repairFromEquity(r, result)) {
+                    resultRepo.save(result);
                 } else {
                     // no usable equity curve — fall back to realised trade P&L
                     r.setTotalReturnPct(round2(tradeSumPct));
@@ -72,7 +79,9 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
                 changed = true;
             }
 
-            if (changed) runRepo.save(r);
+            if (changed) {
+                runRepo.save(r);
+            }
         }
     }
 
@@ -80,62 +89,72 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
      * Recover the per-bar net returns from the stored (multiplicative) equity curve, clamp
      * them, and rebuild the run additively. Returns false if there is no curve to work from.
      */
-    private boolean repairFromEquity(BacktestRunEntity r, BacktestResultEntity res) {
-        double[] eqOld = json.readDoubles(res.getEquityJson());
-        if (eqOld.length < 2) return false;
-        double cap = r.getCapital() > 0 ? r.getCapital() : 100_000;
-        double rf = r.getRiskFreePct() == null ? 0 : r.getRiskFreePct();
+    private boolean repairFromEquity(BacktestRunEntity run, BacktestResultEntity result) {
+        double[] storedEquity = json.readDoubles(result.getEquityJson());
+        if (storedEquity.length < 2) {
+            return false;
+        }
+        double capital = run.getCapital() > 0 ? run.getCapital() : 100_000;
+        double riskFreePct = run.getRiskFreePct() == null ? 0 : run.getRiskFreePct();
 
-        double[] net = new double[eqOld.length];
-        double prev = cap;
-        for (int i = 0; i < eqOld.length; i++) {
-            double e = eqOld[i];
-            double x = prev > 0 && Double.isFinite(e) ? e / prev - 1 : 0;
-            if (!Double.isFinite(x)) x = 0;
-            net[i] = Math.max(-MAX_BAR_RETURN, Math.min(MAX_BAR_RETURN, x));
-            prev = e;
+        double[] net = new double[storedEquity.length];
+        double previousEquity = capital;
+        for (int i = 0; i < storedEquity.length; i++) {
+            double equity = storedEquity[i];
+            double barReturn = previousEquity > 0 && Double.isFinite(equity) ? equity / previousEquity - 1 : 0;
+            if (!Double.isFinite(barReturn)) {
+                barReturn = 0;
+            }
+            net[i] = Math.max(-MAX_BAR_RETURN, Math.min(MAX_BAR_RETURN, barReturn));
+            previousEquity = equity;
         }
 
-        Map<String, Double> rm = PerformanceMetrics.returnMetrics(net, cap, rf, parseDates(res.getDatesJson()));
-        double[] eqNew = PerformanceMetrics.equityCurve(net, cap);
-        double[] ddNew = PerformanceMetrics.drawdown(eqNew);
+        Map<String, Double> repairedMetrics =
+                PerformanceMetrics.returnMetrics(net, capital, riskFreePct, parseDates(result.getDatesJson()));
+        double[] repairedEquity = PerformanceMetrics.equityCurve(net, capital);
+        double[] repairedDrawdown = PerformanceMetrics.drawdown(repairedEquity);
 
-        res.setEquityJson(json.write(eqNew));
-        res.setDrawdownJson(json.write(ddNew));
-        Map<String, Double> merged = new LinkedHashMap<>(json.readMetrics(res.getMetricsJson()));
-        merged.putAll(rm);                        // overlay repaired headline keys
-        res.setMetricsJson(json.write(merged));
+        result.setEquityJson(json.write(repairedEquity));
+        result.setDrawdownJson(json.write(repairedDrawdown));
+        Map<String, Double> merged = new LinkedHashMap<>(json.readDoubleMap(result.getMetricsJson()));
+        merged.putAll(repairedMetrics); // overlay repaired headline keys
+        result.setMetricsJson(json.write(merged));
 
-        r.setTotalReturnPct(rm.get("totalReturnPct"));
-        r.setCagrPct(rm.get("cagrPct"));
-        r.setMaxDrawdownPct(rm.get("maxDrawdownPct"));
-        r.setCalmar(rm.get("calmar"));
-        r.setAnnVolPct(rm.get("annVolPct"));
-        r.setSharpe(rm.get("sharpe"));
-        r.setSortino(rm.get("sortino"));
+        run.setTotalReturnPct(repairedMetrics.get("totalReturnPct"));
+        run.setCagrPct(repairedMetrics.get("cagrPct"));
+        run.setMaxDrawdownPct(repairedMetrics.get("maxDrawdownPct"));
+        run.setCalmar(repairedMetrics.get("calmar"));
+        run.setAnnVolPct(repairedMetrics.get("annVolPct"));
+        run.setSharpe(repairedMetrics.get("sharpe"));
+        run.setSortino(repairedMetrics.get("sortino"));
         return true;
     }
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
-            new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Parse a stored JSON array of ISO-8601 instants into {@code Instant[]} (null on any problem). */
-    private static java.time.Instant[] parseDates(String datesJson) {
-        if (datesJson == null || datesJson.isBlank()) return null;
+    private static Instant[] parseDates(String datesJson) {
+        if (datesJson == null || datesJson.isBlank()) {
+            return null;
+        }
         try {
             String[] iso = MAPPER.readValue(datesJson, String[].class);
-            java.time.Instant[] out = new java.time.Instant[iso.length];
-            for (int i = 0; i < iso.length; i++) out[i] = java.time.Instant.parse(iso[i]);
+            Instant[] out = new Instant[iso.length];
+            for (int i = 0; i < iso.length; i++) {
+                out[i] = Instant.parse(iso[i]);
+            }
             return out;
         } catch (Exception e) {
             return null;
         }
     }
 
-    private static double yearsOf(BacktestRunEntity r) {
-        if (r.getBars() != null && r.getBars() > 0) return r.getBars() / 252.0;
-        if (r.getStartDate() != null && r.getEndDate() != null) {
-            long days = Duration.between(r.getStartDate(), r.getEndDate()).toDays();
+    private static double yearsOf(BacktestRunEntity run) {
+        if (run.getBars() != null && run.getBars() > 0) {
+            return run.getBars() / 252.0;
+        }
+        if (run.getStartDate() != null && run.getEndDate() != null) {
+            long days = Duration.between(run.getStartDate(), run.getEndDate()).toDays();
             return Math.max(1e-6, days / 365.25);
         }
         return 1.0;
@@ -143,13 +162,17 @@ public class BacktestSummaryBackfill implements CommandLineRunner {
 
     private static double annualisePct(double totalPct, double years) {
         double total = totalPct / 100.0;
-        if (years <= 0) return 0;
+        if (years <= 0) {
+            return 0;
+        }
         double cagr = total <= -1 ? -1 : Math.pow(1 + total, 1 / years) - 1;
         return cagr * 100.0;
     }
 
-    private static double round2(double v) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) return 0;
-        return Math.round(v * 100.0) / 100.0;
+    private static double round2(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return 0;
+        }
+        return Math.round(value * 100.0) / 100.0;
     }
 }

@@ -14,8 +14,12 @@ public class AlpacaApiException extends RuntimeException {
         this.status = 0;
     }
 
-    public int status() { return status; }
+    public int status() {
+        return status;
+    }
 
     /** Worth retrying a read: rate limited, server error, or no answer at all. */
-    public boolean transientFailure() { return status == 0 || status == 429 || status >= 500; }
+    public boolean transientFailure() {
+        return status == 0 || status == 429 || status >= 500;
+    }
 }

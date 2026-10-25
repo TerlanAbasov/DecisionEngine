@@ -6,11 +6,10 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
 
 /**
  * One command the job decided to send for a strategy's change of position on one bar, and how it went. A command is written before it is sent, and
@@ -44,7 +43,7 @@ public class AutoTradeCommandEntity {
     private Instant barOpen;
 
     @Column(nullable = false, length = 8)
-    private String side;                // BUY | SELL
+    private String side; // BUY | SELL
 
     private double quantity;
 
@@ -54,8 +53,8 @@ public class AutoTradeCommandEntity {
     private Double limitPrice;
 
     @Column(nullable = false, length = 12)
-    private String status;              // PENDING | SENT | REJECTED | FAILED | SKIPPED
+    private String status; // PENDING | SENT | REJECTED | FAILED | SKIPPED
 
     @Column(length = RESPONSE_LENGTH)
-    private String response;            // ExecutionEngine's reply, or why it was not sent
+    private String response; // ExecutionEngine's reply, or why it was not sent
 }

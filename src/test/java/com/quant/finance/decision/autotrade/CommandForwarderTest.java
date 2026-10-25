@@ -1,15 +1,15 @@
 package com.quant.finance.decision.autotrade;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.quant.finance.decision.autotrade.AutoTradeSettings.OrderType;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.autotrade.CommandForwarder.Outcome;
 import com.quant.finance.decision.autotrade.CommandSender.SendResult;
 import com.quant.finance.decision.autotrade.TradeCommand.Side;
 import com.quant.finance.decision.engine.Timeframe;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.dao.DataIntegrityViolationException;
-
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -17,10 +17,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 class CommandForwarderTest {
 
@@ -37,7 +36,15 @@ class CommandForwarderTest {
     private final List<String> events = new ArrayList<>();
 
     private static AutoTradeSettings settings(boolean enabled, int max) {
-        return new AutoTradeSettings(enabled, Instant.parse("2026-09-21T14:00:00Z"), 5, OrderType.MKT, TimeInForce.DAY, List.of(), List.of(), max);
+        return new AutoTradeSettings(
+                enabled,
+                Instant.parse("2026-09-21T14:00:00Z"),
+                5,
+                OrderType.MKT,
+                TimeInForce.DAY,
+                List.of(),
+                List.of(),
+                max);
     }
 
     private static Flip flip(String symbol, String strategy) {
@@ -51,8 +58,10 @@ class CommandForwarderTest {
         repo = mock(AutoTradeCommandRepository.class);
         when(repo.saveAndFlush(any())).thenAnswer(i -> {
             AutoTradeCommandEntity row = i.getArgument(0);
-            if (!keys.add(row.getStrategy() + "|" + row.getSymbol() + "|" + row.getTimeframe() + "|" + row.getBarOpen()))
+            if (!keys.add(
+                    row.getStrategy() + "|" + row.getSymbol() + "|" + row.getTimeframe() + "|" + row.getBarOpen())) {
                 throw new DataIntegrityViolationException("uk_auto_trade_command_bar");
+            }
             row.setId((long) (saved.size() + 1));
             saved.add(row);
             events.add("recorded " + row.getStatus());
@@ -72,9 +81,15 @@ class CommandForwarderTest {
         Outcome outcome = forwarder.forward(List.of(flip("MSFT", "rsi"), flip("AAPL", "rsi"), flip("AAPL", "macd")));
 
         assertEquals(new Outcome(3, 0, 0, 0), outcome);
-        assertEquals(List.of("AAPL", "AAPL", "MSFT"), sent.stream().map(TradeCommand::identifier).toList());
-        assertEquals(List.of("macd", "rsi"), sent.subList(0, 2).stream().map(TradeCommand::strategy).toList(), "sorted by symbol, then strategy");
-        assertTrue(saved.stream().allMatch(r -> r.getStatus().equals("SENT") && "📊 Symbol will be bought".equals(r.getResponse())));
+        assertEquals(
+                List.of("AAPL", "AAPL", "MSFT"),
+                sent.stream().map(TradeCommand::identifier).toList());
+        assertEquals(
+                List.of("macd", "rsi"),
+                sent.subList(0, 2).stream().map(TradeCommand::strategy).toList(),
+                "sorted by symbol, then strategy");
+        assertTrue(saved.stream()
+                .allMatch(r -> r.getStatus().equals("SENT") && "📊 Symbol will be bought".equals(r.getResponse())));
         assertEquals(5, sent.get(0).quantity());
     }
 
@@ -98,7 +113,8 @@ class CommandForwarderTest {
     @Test
     void theSameStrategyOnALaterBarIsANewCommand() {
         forwarder.forward(List.of(flip("AAPL", "rsi")));
-        forwarder.forward(List.of(new Flip("rsi", "AAPL", Timeframe.M15, Side.SELL, BAR.plusSeconds(900), 97, 100, 96, 99)));
+        forwarder.forward(
+                List.of(new Flip("rsi", "AAPL", Timeframe.M15, Side.SELL, BAR.plusSeconds(900), 97, 100, 96, 99)));
         assertEquals(2, sent.size());
     }
 
@@ -108,7 +124,8 @@ class CommandForwarderTest {
         Outcome outcome = forwarder.forward(List.of(flip("AAPL", "rsi"), flip("MSFT", "rsi"), flip("TSLA", "rsi")));
 
         assertEquals(new Outcome(1, 0, 0, 0), outcome);
-        assertEquals(List.of("AAPL"), sent.stream().map(TradeCommand::identifier).toList());
+        assertEquals(
+                List.of("AAPL"), sent.stream().map(TradeCommand::identifier).toList());
         assertEquals(1, saved.size(), "nothing is recorded for commands that were never sent");
     }
 
@@ -127,8 +144,11 @@ class CommandForwarderTest {
 
         assertEquals(new Outcome(2, 0, 0, 2), outcome);
         assertEquals(2, sent.size());
-        List<AutoTradeCommandEntity> skipped = saved.stream().filter(r -> r.getStatus().equals("SKIPPED")).toList();
-        assertEquals(List.of("C", "D"), skipped.stream().map(AutoTradeCommandEntity::getSymbol).toList());
+        List<AutoTradeCommandEntity> skipped =
+                saved.stream().filter(r -> r.getStatus().equals("SKIPPED")).toList();
+        assertEquals(
+                List.of("C", "D"),
+                skipped.stream().map(AutoTradeCommandEntity::getSymbol).toList());
         assertTrue(skipped.get(0).getResponse().contains("limit of 2"));
 
         forwarder.forward(List.of(flip("C", "s")));
@@ -137,13 +157,18 @@ class CommandForwarderTest {
 
     @Test
     void whatExecutionEngineAnsweredIsWhatGetsRecorded() {
-        when(sender.send(any())).thenReturn(new SendResult(CommandStatus.REJECTED, "❌ Error while executing command: x"),
-                new SendResult(CommandStatus.FAILED, "No answer from ExecutionEngine"), new SendResult(CommandStatus.SENT, "ok"));
+        when(sender.send(any()))
+                .thenReturn(
+                        new SendResult(CommandStatus.REJECTED, "❌ Error while executing command: x"),
+                        new SendResult(CommandStatus.FAILED, "No answer from ExecutionEngine"),
+                        new SendResult(CommandStatus.SENT, "ok"));
 
         Outcome outcome = forwarder.forward(List.of(flip("A", "s"), flip("B", "s"), flip("C", "s")));
 
         assertEquals(new Outcome(1, 1, 1, 0), outcome);
-        assertEquals(List.of("REJECTED", "FAILED", "SENT"), saved.stream().map(AutoTradeCommandEntity::getStatus).toList());
+        assertEquals(
+                List.of("REJECTED", "FAILED", "SENT"),
+                saved.stream().map(AutoTradeCommandEntity::getStatus).toList());
         assertEquals("No answer from ExecutionEngine", saved.get(1).getResponse());
     }
 
@@ -166,7 +191,9 @@ class CommandForwarderTest {
     void overlongRepliesAreTruncatedToWhatTheColumnHolds() {
         when(sender.send(any())).thenReturn(new SendResult(CommandStatus.REJECTED, "x".repeat(2000)));
         forwarder.forward(List.of(flip("A", "s")));
-        assertEquals(AutoTradeCommandEntity.RESPONSE_LENGTH, saved.get(0).getResponse().length());
+        assertEquals(
+                AutoTradeCommandEntity.RESPONSE_LENGTH,
+                saved.get(0).getResponse().length());
         assertTrue(saved.get(0).getResponse().endsWith("…"));
     }
 }

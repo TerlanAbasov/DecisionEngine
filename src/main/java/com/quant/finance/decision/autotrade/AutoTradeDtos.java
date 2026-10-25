@@ -12,12 +12,34 @@ public final class AutoTradeDtos {
     /** {@code configured}: ExecutionEngine's url is set; {@code running}: a pass is under way; {@code lastRun}: the last pass that had anything to look at. */
     public record StatusDto(AutoTradeSettings settings, boolean running, RunSummary lastRun, int checkEverySeconds) {}
 
-    public record CommandDto(Long id, Instant createdAt, String strategy, String symbol, String timeframe, Instant barOpen, String side,
-                             double quantity, String orderType, Double limitPrice, String status, String response) {
+    public record CommandDto(
+            Long id,
+            Instant createdAt,
+            String strategy,
+            String symbol,
+            String timeframe,
+            Instant barOpen,
+            String side,
+            double quantity,
+            String orderType,
+            Double limitPrice,
+            String status,
+            String response) {
 
-        static CommandDto of(AutoTradeCommandEntity c) {
-            return new CommandDto(c.getId(), c.getCreatedAt(), c.getStrategy(), c.getSymbol(), c.getTimeframe(), c.getBarOpen(), c.getSide(),
-                    c.getQuantity(), c.getOrderType(), c.getLimitPrice(), c.getStatus(), c.getResponse());
+        static CommandDto of(AutoTradeCommandEntity command) {
+            return new CommandDto(
+                    command.getId(),
+                    command.getCreatedAt(),
+                    command.getStrategy(),
+                    command.getSymbol(),
+                    command.getTimeframe(),
+                    command.getBarOpen(),
+                    command.getSide(),
+                    command.getQuantity(),
+                    command.getOrderType(),
+                    command.getLimitPrice(),
+                    command.getStatus(),
+                    command.getResponse());
         }
     }
 }

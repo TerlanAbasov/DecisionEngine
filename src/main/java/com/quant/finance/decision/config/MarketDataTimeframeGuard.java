@@ -28,10 +28,13 @@ public class MarketDataTimeframeGuard implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        String tf = client.configuredTimeframe();
-        int dropped = repo.deleteByTimeframeNot(tf);
-        if (dropped > 0)
-            log.warn("Cleared {} cached price bars fetched at a different interval; they will refetch at '{}'.",
-                    dropped, tf);
+        String frame = client.configuredTimeframe();
+        int dropped = repo.deleteByTimeframeNot(frame);
+        if (dropped > 0) {
+            log.warn(
+                    "Cleared {} cached price bars fetched at a different interval; they will refetch at '{}'.",
+                    dropped,
+                    frame);
+        }
     }
 }

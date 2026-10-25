@@ -1,13 +1,18 @@
 package com.quant.finance.decision.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "strategy_config",
-        uniqueConstraints = @UniqueConstraint(name = "uk_strategy_name", columnNames = "name"))
+@Table(name = "strategy_config", uniqueConstraints = @UniqueConstraint(name = "uk_strategy_name", columnNames = "name"))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -60,6 +65,7 @@ public class StrategyConfigEntity {
 
     /** Default stop-loss / take-profit %, found by the risk-default optimizer. Null => off (0). */
     private Double defaultStopLossPct;
+
     private Double defaultTakeProfitPct;
 
     /** Whether the strategy is appropriate for intraday day-trading (false e.g. for seasonal effects). */

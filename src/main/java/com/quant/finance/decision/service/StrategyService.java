@@ -1,18 +1,25 @@
 package com.quant.finance.decision.service;
 
-import com.quant.finance.decision.entity.StrategyConfigEntity;
 import com.quant.finance.decision.dto.Dtos.StrategyControlsUpdate;
 import com.quant.finance.decision.dto.Dtos.StrategyDto;
 import com.quant.finance.decision.engine.Timeframe;
+import com.quant.finance.decision.entity.StrategyConfigEntity;
 import com.quant.finance.decision.repository.StrategyConfigRepository;
 import com.quant.finance.decision.strategy.ConfiguredStrategy;
 import com.quant.finance.decision.strategy.TradingStrategy;
 import com.quant.finance.decision.strategy.impl.StrategyCatalog;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.*;
 
 @Service
 @Slf4j
@@ -22,9 +29,22 @@ public class StrategyService {
 
     /** Default bar interval per category — the frame each family of strategies is usually run on for day trading. */
     private static final Map<String, String> DEFAULT_TF = Map.of(
-            "trend", "H1", "momentum", "H1", "hybrid", "H1",
-            "mean_reversion", "M15", "breakout", "M15", "volume", "M15", "pattern", "M15",
-            "seasonal", "D1");
+            "trend",
+            "H1",
+            "momentum",
+            "H1",
+            "hybrid",
+            "H1",
+            "mean_reversion",
+            "M15",
+            "breakout",
+            "M15",
+            "volume",
+            "M15",
+            "pattern",
+            "M15",
+            "seasonal",
+            "D1");
 
     /** Categories that are not day-trading strategies (calendar / multi-day effects). */
     private static final Set<String> NON_INTRADAY_CATEGORIES = Set.of("seasonal");
@@ -44,41 +64,52 @@ public class StrategyService {
     public StrategyService(StrategyConfigRepository repo, JsonCodec json) {
         this.repo = repo;
         this.json = json;
-        for (TradingStrategy s : StrategyCatalog.all()) catalog.put(s.name(), s);
+        for (TradingStrategy strategy : StrategyCatalog.all()) {
+            catalog.put(strategy.name(), strategy);
+        }
     }
 
     /** Seed strategy_config from the catalog on first startup, and backfill day-trading metadata. */
     @Transactional
     public void seed() {
-        int inserted = 0, backfilled = 0;
-        for (TradingStrategy s : catalog.values()) {
-            Optional<StrategyConfigEntity> existing = repo.findByName(s.name());
+        int inserted = 0;
+        int backfilled = 0;
+        for (TradingStrategy strategy : catalog.values()) {
+            Optional<StrategyConfigEntity> existing = repo.findByName(strategy.name());
             if (existing.isEmpty()) {
-                StrategyConfigEntity e = new StrategyConfigEntity();
-                e.setName(s.name());
-                e.setCategory(s.category());
-                e.setDirection(s.direction());
-                e.setDescription(s.description());
-                e.setEnabled(true);
-                e.setRecommendedTimeframe(defaultTimeframe(s.category()));
-                e.setIntraday(defaultIntraday(s.category()));
-                repo.save(e);
+                StrategyConfigEntity config = new StrategyConfigEntity();
+                config.setName(strategy.name());
+                config.setCategory(strategy.category());
+                config.setDirection(strategy.direction());
+                config.setDescription(strategy.description());
+                config.setEnabled(true);
+                config.setRecommendedTimeframe(defaultTimeframe(strategy.category()));
+                config.setIntraday(defaultIntraday(strategy.category()));
+                repo.save(config);
                 inserted++;
             } else {
                 // rows created before this column existed -> fill the per-category default once
-                StrategyConfigEntity e = existing.get();
+                StrategyConfigEntity config = existing.get();
                 boolean dirty = false;
-                if (e.getRecommendedTimeframe() == null) {
-                    e.setRecommendedTimeframe(defaultTimeframe(s.category())); dirty = true;
+                if (config.getRecommendedTimeframe() == null) {
+                    config.setRecommendedTimeframe(defaultTimeframe(strategy.category()));
+                    dirty = true;
                 }
-                if (e.getIntraday() == null) {
-                    e.setIntraday(defaultIntraday(s.category())); dirty = true;
+                if (config.getIntraday() == null) {
+                    config.setIntraday(defaultIntraday(strategy.category()));
+                    dirty = true;
                 }
-                if (dirty) { repo.save(e); backfilled++; }
+                if (dirty) {
+                    repo.save(config);
+                    backfilled++;
+                }
             }
         }
-        log.info("Strategies: seed done — catalog {} ({} inserted, {} metadata-backfilled)",
-                catalog.size(), inserted, backfilled);
+        log.info(
+                "Strategies: seed done — catalog {} ({} inserted, {} metadata-backfilled)",
+                catalog.size(),
+                inserted,
+                backfilled);
     }
 
     public List<StrategyDto> list() {
@@ -88,9 +119,12 @@ public class StrategyService {
     /** Catalog strategies; archived ones are excluded unless {@code includeArchived}. */
     public List<StrategyDto> list(boolean includeArchived) {
         List<StrategyDto> out = new ArrayList<>();
-        for (StrategyConfigEntity e : repo.findAll())
-            if (catalog.containsKey(e.getName()) && (includeArchived || !Boolean.TRUE.equals(e.getArchived())))
-                out.add(dto(e));
+        for (StrategyConfigEntity config : repo.findAll()) {
+            if (catalog.containsKey(config.getName())
+                    && (includeArchived || !Boolean.TRUE.equals(config.getArchived()))) {
+                out.add(dto(config));
+            }
+        }
         out.sort(Comparator.comparing(StrategyDto::name));
         return out;
     }
@@ -100,23 +134,27 @@ public class StrategyService {
     }
 
     public void setEnabled(String name, boolean enabled) {
-        StrategyConfigEntity e = entity(name);
-        e.setEnabled(enabled);
-        repo.save(e);
+        StrategyConfigEntity config = entity(name);
+        config.setEnabled(enabled);
+        repo.save(config);
         log.info("Strategy '{}' {}", name, enabled ? "enabled" : "disabled");
     }
 
     @Transactional
     public void setArchived(String name, boolean archived) {
-        StrategyConfigEntity e = entity(name);
-        e.setArchived(archived);
-        if (archived) e.setEnabled(false);       // archived strategies never run
-        repo.save(e);
+        StrategyConfigEntity config = entity(name);
+        config.setArchived(archived);
+        if (archived) {
+            config.setEnabled(false); // archived strategies never run
+        }
+        repo.save(config);
         log.info("Strategy '{}' {}", name, archived ? "archived" : "un-archived");
     }
 
     public boolean isArchived(String name) {
-        return repo.findByName(name).map(e -> Boolean.TRUE.equals(e.getArchived())).orElse(false);
+        return repo.findByName(name)
+                .map(e -> Boolean.TRUE.equals(e.getArchived()))
+                .orElse(false);
     }
 
     /** Permanently removes the strategy's config row. Irreversible — unlike archiving. */
@@ -129,93 +167,128 @@ public class StrategyService {
     /** Un-archive every archived strategy (leaves the enabled flag as-is). Returns how many. */
     @Transactional
     public int unarchiveAll() {
-        int n = 0;
-        for (StrategyConfigEntity e : repo.findAll()) {
-            if (Boolean.TRUE.equals(e.getArchived())) {
-                e.setArchived(false);
-                repo.save(e);
-                n++;
+        int count = 0;
+        for (StrategyConfigEntity config : repo.findAll()) {
+            if (Boolean.TRUE.equals(config.getArchived())) {
+                config.setArchived(false);
+                repo.save(config);
+                count++;
             }
         }
-        log.info("Strategies: un-archived {} strategies", n);
-        return n;
+        log.info("Strategies: un-archived {} strategies", count);
+        return count;
     }
 
     @Transactional
-    public StrategyDto updateControls(String name, StrategyControlsUpdate u) {
-        StrategyConfigEntity e = entity(name);
-        if (u.weight() != null) e.setWeight(Math.max(0, u.weight()));
-        if (u.invert() != null) e.setInvert(u.invert());
-        if (u.directionOverride() != null) {
-            String d = u.directionOverride().isBlank() ? null : u.directionOverride().trim();
-            if (d != null && !DIRECTIONS.contains(d))
+    public StrategyDto updateControls(String name, StrategyControlsUpdate update) {
+        StrategyConfigEntity config = entity(name);
+        if (update.weight() != null) {
+            config.setWeight(Math.max(0, update.weight()));
+        }
+        if (update.invert() != null) {
+            config.setInvert(update.invert());
+        }
+        if (update.directionOverride() != null) {
+            String direction = update.directionOverride().isBlank()
+                    ? null
+                    : update.directionOverride().trim();
+            if (direction != null && !DIRECTIONS.contains(direction)) {
                 throw new IllegalArgumentException("directionOverride must be one of " + DIRECTIONS + " or empty");
-            e.setDirectionOverride(d);
+            }
+            config.setDirectionOverride(direction);
         }
-        if (u.tags() != null) e.setTags(String.join(",", u.tags().stream().map(String::trim)
-                .filter(s -> !s.isEmpty()).distinct().toList()));
-        if (u.favorite() != null) e.setFavorite(u.favorite());
-        if (u.notes() != null) e.setNotes(u.notes().isBlank() ? null : u.notes());
-        if (u.recommendedTimeframe() != null) {
+        if (update.tags() != null) {
+            config.setTags(String.join(
+                    ",",
+                    update.tags().stream()
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .distinct()
+                            .toList()));
+        }
+        if (update.favorite() != null) {
+            config.setFavorite(update.favorite());
+        }
+        if (update.notes() != null) {
+            config.setNotes(update.notes().isBlank() ? null : update.notes());
+        }
+        if (update.recommendedTimeframe() != null) {
             // blank / "auto" -> null, meaning "use the category default"
-            String raw = u.recommendedTimeframe().trim();
-            String tf = Timeframe.isAuto(raw) ? null : raw.toUpperCase();
-            if (tf != null && !isKnownTimeframe(tf))
+            String raw = update.recommendedTimeframe().trim();
+            String frame = Timeframe.isAuto(raw) ? null : raw.toUpperCase();
+            if (frame != null && !isKnownTimeframe(frame)) {
                 throw new IllegalArgumentException("recommendedTimeframe must be a Timeframe name (e.g. M15, H1, D1)");
-            e.setRecommendedTimeframe(tf);
+            }
+            config.setRecommendedTimeframe(frame);
         }
-        if (u.intraday() != null) e.setIntraday(u.intraday());
-        if (u.defaultStopLossPct() != null) e.setDefaultStopLossPct(Math.max(0, u.defaultStopLossPct()));
-        if (u.defaultTakeProfitPct() != null) e.setDefaultTakeProfitPct(Math.max(0, u.defaultTakeProfitPct()));
-        if (u.archived() != null) {
-            e.setArchived(u.archived());
-            if (u.archived()) e.setEnabled(false);
+        if (update.intraday() != null) {
+            config.setIntraday(update.intraday());
+        }
+        if (update.defaultStopLossPct() != null) {
+            config.setDefaultStopLossPct(Math.max(0, update.defaultStopLossPct()));
+        }
+        if (update.defaultTakeProfitPct() != null) {
+            config.setDefaultTakeProfitPct(Math.max(0, update.defaultTakeProfitPct()));
+        }
+        if (update.archived() != null) {
+            config.setArchived(update.archived());
+            if (update.archived()) {
+                config.setEnabled(false);
+            }
         }
         log.info("Strategy '{}' controls updated", name);
-        return dto(repo.save(e));
+        return dto(repo.save(config));
     }
 
     @Transactional
     public StrategyDto updateParams(String name, Map<String, Double> params) {
-        StrategyConfigEntity e = entity(name);
+        StrategyConfigEntity config = entity(name);
         Set<String> valid = catalog.get(name).defaultParams().keySet();
         Map<String, Double> clean = new LinkedHashMap<>();
-        for (Map.Entry<String, Double> p : params.entrySet()) {
-            if (!valid.contains(p.getKey()))
-                throw new IllegalArgumentException("Unknown param '" + p.getKey() + "' for " + name + "; valid: " + valid);
-            if (p.getValue() != null && !p.getValue().isNaN()) clean.put(p.getKey(), p.getValue());
+        for (Map.Entry<String, Double> entry : params.entrySet()) {
+            if (!valid.contains(entry.getKey())) {
+                throw new IllegalArgumentException(
+                        "Unknown param '" + entry.getKey() + "' for " + name + "; valid: " + valid);
+            }
+            if (entry.getValue() != null && !entry.getValue().isNaN()) {
+                clean.put(entry.getKey(), entry.getValue());
+            }
         }
-        e.setParamsJson(clean.isEmpty() ? null : json.write(clean));
+        config.setParamsJson(clean.isEmpty() ? null : json.write(clean));
         log.info("Strategy '{}' params set: {}", name, clean);
-        return dto(repo.save(e));
+        return dto(repo.save(config));
     }
 
     @Transactional
     public StrategyDto resetParams(String name) {
-        StrategyConfigEntity e = entity(name);
-        e.setParamsJson(null);
+        StrategyConfigEntity config = entity(name);
+        config.setParamsJson(null);
         log.info("Strategy '{}' params reset to defaults", name);
-        return dto(repo.save(e));
+        return dto(repo.save(config));
     }
 
     /** The catalog strategy wrapped with this strategy's invert / direction-override controls. */
     public TradingStrategy getStrategy(String name) {
-        StrategyConfigEntity e = entity(name);
-        return wrap(e, catalog.get(name));
+        StrategyConfigEntity config = entity(name);
+        return wrap(config, catalog.get(name));
     }
 
     /** Effective params: catalog defaults with the user's overrides merged on top. */
     public Map<String, Double> getParams(String name) {
-        TradingStrategy s = catalog.get(name);
-        if (s == null) return Map.of();
-        Map<String, Double> merged = new LinkedHashMap<>(s.defaultParams());
+        TradingStrategy strategy = catalog.get(name);
+        if (strategy == null) {
+            return Map.of();
+        }
+        Map<String, Double> merged = new LinkedHashMap<>(strategy.defaultParams());
         merged.putAll(overrides(name));
         return merged;
     }
 
     /** Just the keys the user has overridden (empty if none). */
     public Map<String, Double> overrides(String name) {
-        return repo.findByName(name).map(e -> json.readParams(e.getParamsJson())).orElse(Map.of());
+        return repo.findByName(name)
+                .map(e -> json.readDoubleMap(e.getParamsJson()))
+                .orElse(Map.of());
     }
 
     /** name -> wrapped strategy for all enabled strategies. */
@@ -232,10 +305,13 @@ public class StrategyService {
     public Map<String, TradingStrategy> getStrategies(java.util.Collection<String> names) {
         Map<String, TradingStrategy> out = new LinkedHashMap<>();
         for (String name : names) {
-            if (name == null || name.isBlank() || out.containsKey(name) || !catalog.containsKey(name)) continue;
+            if (name == null || name.isBlank() || out.containsKey(name) || !catalog.containsKey(name)) {
+                continue;
+            }
             repo.findByName(name).ifPresent(e -> {
-                if (!Boolean.TRUE.equals(e.getArchived()))
+                if (!Boolean.TRUE.equals(e.getArchived())) {
                     out.put(name, wrap(e, catalog.get(name)));
+                }
             });
         }
         return out;
@@ -243,101 +319,136 @@ public class StrategyService {
 
     private Map<String, TradingStrategy> strategyMap(boolean includeDisabled) {
         Map<String, TradingStrategy> out = new LinkedHashMap<>();
-        for (StrategyConfigEntity e : repo.findAll())
-            if ((includeDisabled || e.isEnabled()) && !Boolean.TRUE.equals(e.getArchived())
-                    && catalog.containsKey(e.getName()))
-                out.put(e.getName(), wrap(e, catalog.get(e.getName())));
+        for (StrategyConfigEntity config : repo.findAll()) {
+            if ((includeDisabled || config.isEnabled())
+                    && !Boolean.TRUE.equals(config.getArchived())
+                    && catalog.containsKey(config.getName())) {
+                out.put(config.getName(), wrap(config, catalog.get(config.getName())));
+            }
+        }
         return out;
     }
 
     public double weightOf(String name) {
-        return repo.findByName(name).map(e -> e.getWeight() == null ? 1.0 : e.getWeight()).orElse(1.0);
+        return repo.findByName(name)
+                .map(e -> e.getWeight() == null ? 1.0 : e.getWeight())
+                .orElse(1.0);
     }
 
     /** The bar interval a strategy is tuned for: stored value, else the category default. */
     public Timeframe recommendedTimeframe(String name) {
-        String stored = repo.findByName(name).map(StrategyConfigEntity::getRecommendedTimeframe).orElse(null);
-        if (stored != null && isKnownTimeframe(stored)) return Timeframe.from(stored);
+        String stored = repo.findByName(name)
+                .map(StrategyConfigEntity::getRecommendedTimeframe)
+                .orElse(null);
+        if (stored != null && isKnownTimeframe(stored)) {
+            return Timeframe.from(stored);
+        }
         String category = categoryOf(name);
         return Timeframe.from(defaultTimeframe(category));
     }
 
     /** This strategy's default stop-loss %, or null if none saved (engine default: off). */
     public Double defaultStopLossPct(String name) {
-        return repo.findByName(name).map(StrategyConfigEntity::getDefaultStopLossPct).orElse(null);
+        return repo.findByName(name)
+                .map(StrategyConfigEntity::getDefaultStopLossPct)
+                .orElse(null);
     }
 
     /** This strategy's default take-profit %, or null if none saved (engine default: off). */
     public Double defaultTakeProfitPct(String name) {
-        return repo.findByName(name).map(StrategyConfigEntity::getDefaultTakeProfitPct).orElse(null);
+        return repo.findByName(name)
+                .map(StrategyConfigEntity::getDefaultTakeProfitPct)
+                .orElse(null);
     }
 
     /** Persists the risk-default optimizer's winning (timeframe, stopLoss%, takeProfit%) combo. */
     @Transactional
     public void saveRiskDefaults(String name, String timeframe, double stopLossPct, double takeProfitPct) {
-        StrategyConfigEntity e = entity(name);
-        e.setRecommendedTimeframe(timeframe);
-        e.setDefaultStopLossPct(stopLossPct);
-        e.setDefaultTakeProfitPct(takeProfitPct);
-        repo.save(e);
+        StrategyConfigEntity config = entity(name);
+        config.setRecommendedTimeframe(timeframe);
+        config.setDefaultStopLossPct(stopLossPct);
+        config.setDefaultTakeProfitPct(takeProfitPct);
+        repo.save(config);
         log.info("Strategy '{}' risk defaults saved: tf={} SL={}% TP={}%", name, timeframe, stopLossPct, takeProfitPct);
     }
 
-    private static boolean isKnownTimeframe(String s) {
-        try { Timeframe.valueOf(s.trim().toUpperCase()); return true; }
-        catch (IllegalArgumentException ex) { return false; }
+    private static boolean isKnownTimeframe(String value) {
+        try {
+            Timeframe.valueOf(value.trim().toUpperCase());
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     /** Catalog defaults for a strategy (throws if unknown). */
     public Map<String, Double> defaultParams(String name) {
-        TradingStrategy s = catalog.get(name);
-        if (s == null) throw new NoSuchElementException("Unknown strategy: " + name);
-        return new LinkedHashMap<>(s.defaultParams());
+        TradingStrategy strategy = catalog.get(name);
+        if (strategy == null) {
+            throw new NoSuchElementException("Unknown strategy: " + name);
+        }
+        return new LinkedHashMap<>(strategy.defaultParams());
     }
 
     public String categoryOf(String name) {
-        TradingStrategy s = catalog.get(name);
-        return s == null ? "?" : s.category();
+        TradingStrategy strategy = catalog.get(name);
+        return strategy == null ? "?" : strategy.category();
     }
 
-    public boolean isStrategy(String name) { return catalog.containsKey(name); }
+    public boolean isStrategy(String name) {
+        return catalog.containsKey(name);
+    }
 
     // ---- internals -------------------------------------------------------
 
     private StrategyConfigEntity entity(String name) {
-        return repo.findByName(name)
-                .orElseThrow(() -> new NoSuchElementException("Unknown strategy: " + name));
+        return repo.findByName(name).orElseThrow(() -> new NoSuchElementException("Unknown strategy: " + name));
     }
 
-    private TradingStrategy wrap(StrategyConfigEntity e, TradingStrategy s) {
-        boolean inv = Boolean.TRUE.equals(e.getInvert());
-        String dir = e.getDirectionOverride();
-        return (inv || (dir != null && !dir.isBlank())) ? new ConfiguredStrategy(s, inv, dir) : s;
+    private TradingStrategy wrap(StrategyConfigEntity config, TradingStrategy strategy) {
+        boolean inverted = Boolean.TRUE.equals(config.getInvert());
+        String directionOverride = config.getDirectionOverride();
+        return (inverted || (directionOverride != null && !directionOverride.isBlank()))
+                ? new ConfiguredStrategy(strategy, inverted, directionOverride)
+                : strategy;
     }
 
-    private StrategyDto dto(StrategyConfigEntity e) {
-        TradingStrategy s = catalog.get(e.getName());
-        Map<String, Double> defaults = s.defaultParams();
-        Map<String, Double> ov = json.readParams(e.getParamsJson());
+    private StrategyDto dto(StrategyConfigEntity config) {
+        TradingStrategy strategy = catalog.get(config.getName());
+        Map<String, Double> defaults = strategy.defaultParams();
+        Map<String, Double> overriddenParams = json.readDoubleMap(config.getParamsJson());
         Map<String, Double> effective = new LinkedHashMap<>(defaults);
-        effective.putAll(ov);
-        String override = e.getDirectionOverride();
-        String effectiveDir = (override == null || override.isBlank()) ? s.direction() : override;
-        List<String> tags = (e.getTags() == null || e.getTags().isBlank())
-                ? List.of() : Arrays.asList(e.getTags().split(","));
-        String recTf = (e.getRecommendedTimeframe() != null && isKnownTimeframe(e.getRecommendedTimeframe()))
-                ? e.getRecommendedTimeframe().toUpperCase()
-                : defaultTimeframe(e.getCategory());
-        boolean intraday = e.getIntraday() != null ? e.getIntraday() : defaultIntraday(e.getCategory());
-        return new StrategyDto(e.getName(), e.getCategory(), effectiveDir, s.direction(),
-                e.getDescription(), e.isEnabled(), Boolean.TRUE.equals(e.getArchived()),
-                e.getWeight() == null ? 1.0 : e.getWeight(),
-                Boolean.TRUE.equals(e.getInvert()),
+        effective.putAll(overriddenParams);
+        String override = config.getDirectionOverride();
+        String effectiveDir = (override == null || override.isBlank()) ? strategy.direction() : override;
+        List<String> tags = (config.getTags() == null || config.getTags().isBlank())
+                ? List.of()
+                : Arrays.asList(config.getTags().split(","));
+        String recommendedFrame =
+                (config.getRecommendedTimeframe() != null && isKnownTimeframe(config.getRecommendedTimeframe()))
+                        ? config.getRecommendedTimeframe().toUpperCase()
+                        : defaultTimeframe(config.getCategory());
+        boolean intraday = config.getIntraday() != null ? config.getIntraday() : defaultIntraday(config.getCategory());
+        return new StrategyDto(
+                config.getName(),
+                config.getCategory(),
+                effectiveDir,
+                strategy.direction(),
+                config.getDescription(),
+                config.isEnabled(),
+                Boolean.TRUE.equals(config.getArchived()),
+                config.getWeight() == null ? 1.0 : config.getWeight(),
+                Boolean.TRUE.equals(config.getInvert()),
                 override == null ? "" : override,
-                tags, Boolean.TRUE.equals(e.getFavorite()),
-                e.getNotes() == null ? "" : e.getNotes(),
-                recTf, intraday,
-                e.getDefaultStopLossPct(), e.getDefaultTakeProfitPct(),
-                effective, defaults, new ArrayList<>(ov.keySet()));
+                tags,
+                Boolean.TRUE.equals(config.getFavorite()),
+                config.getNotes() == null ? "" : config.getNotes(),
+                recommendedFrame,
+                intraday,
+                config.getDefaultStopLossPct(),
+                config.getDefaultTakeProfitPct(),
+                effective,
+                defaults,
+                new ArrayList<>(overriddenParams.keySet()));
     }
 }

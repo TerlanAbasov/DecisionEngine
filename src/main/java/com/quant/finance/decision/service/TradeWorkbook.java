@@ -3,9 +3,6 @@ package com.quant.finance.decision.service;
 import com.quant.finance.decision.dto.Dtos.TradeDetailDto;
 import com.quant.finance.decision.dto.Dtos.TradeSummaryDto;
 import com.quant.finance.decision.entity.BacktestRunEntity;
-import org.dhatim.fastexcel.Workbook;
-import org.dhatim.fastexcel.Worksheet;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -15,6 +12,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
+import org.apache.commons.lang3.StringUtils;
+import org.dhatim.fastexcel.Workbook;
+import org.dhatim.fastexcel.Worksheet;
 
 /**
  * A run's trades as an .xlsx workbook for analysis in Excel: a "Trades" sheet with one row per trade and the same figures as the trades table
@@ -68,80 +68,98 @@ final class TradeWorkbook {
             sheet.value(0, c, COLUMNS.get(c).header());
             sheet.style(0, c).bold().fillColor(HEADER_FILL).set();
         }
-        for (int r = 0; r < rows.size(); r++) {
+        for (int row = 0; row < rows.size(); row++) {
             for (int c = 0; c < COLUMNS.size(); c++) {
                 Column column = COLUMNS.get(c);
-                write(sheet, r + 1, c, column.value().apply(rows.get(r)), column.format());
+                write(sheet, row + 1, c, column.value().apply(rows.get(row)), column.format());
             }
         }
-        sheet.freezePane(0, 1);                                        // keep the header in view
+        sheet.freezePane(0, 1); // keep the header in view
         sheet.setAutoFilter(0, 0, rows.size(), COLUMNS.size() - 1);
     }
 
-    private static void writeSummary(Worksheet sheet, BacktestRunEntity run, String symbol, String side, List<TradeDetailDto> rows) {
-        TradeSummaryDto s = TradeDetails.summarize(rows);
+    private static void writeSummary(
+            Worksheet sheet, BacktestRunEntity run, String symbol, String side, List<TradeDetailDto> rows) {
+        TradeSummaryDto summary = TradeDetails.summarize(rows);
         sheet.width(0, 22);
         sheet.width(1, 24);
-        int r = 0;
-        r = section(sheet, r, "Run");
-        r = line(sheet, r, "Run id", run.getId(), null);
-        r = line(sheet, r, "Strategy", run.getStrategyName(), null);
-        r = line(sheet, r, "Timeframe", run.getTimeframe(), null);
-        r = line(sheet, r, "From", utc(run.getStartDate()), DATE_TIME);
-        r = line(sheet, r, "To", utc(run.getEndDate()), DATE_TIME);
-        r = line(sheet, r, "Starting capital $", run.getCapital(), MONEY);
-        r = line(sheet, r, "Commission (bps)", run.getCommissionBps(), PCT);
-        r = line(sheet, r, "Slippage (bps)", run.getSlippageBps(), PCT);
-        r = line(sheet, r, "Position size", run.getPositionSize(), PCT);
+        int row = 0;
+        row = section(sheet, row, "Run");
+        row = line(sheet, row, "Run id", run.getId(), null);
+        row = line(sheet, row, "Strategy", run.getStrategyName(), null);
+        row = line(sheet, row, "Timeframe", run.getTimeframe(), null);
+        row = line(sheet, row, "From", utc(run.getStartDate()), DATE_TIME);
+        row = line(sheet, row, "To", utc(run.getEndDate()), DATE_TIME);
+        row = line(sheet, row, "Starting capital $", run.getCapital(), MONEY);
+        row = line(sheet, row, "Commission (bps)", run.getCommissionBps(), PCT);
+        row = line(sheet, row, "Slippage (bps)", run.getSlippageBps(), PCT);
+        row = line(sheet, row, "Position size", run.getPositionSize(), PCT);
 
-        r = section(sheet, r + 1, "Filter");
-        r = line(sheet, r, "Symbol", isBlank(symbol) ? "All" : symbol.trim().toUpperCase(Locale.ROOT), null);
-        r = line(sheet, r, "Side", isBlank(side) ? "Long & short" : side.trim().toUpperCase(Locale.ROOT), null);
+        row = section(sheet, row + 1, "Filter");
+        row = line(
+                sheet,
+                row,
+                "Symbol",
+                StringUtils.isBlank(symbol) ? "All" : symbol.trim().toUpperCase(Locale.ROOT),
+                null);
+        row = line(
+                sheet,
+                row,
+                "Side",
+                StringUtils.isBlank(side) ? "Long & short" : side.trim().toUpperCase(Locale.ROOT),
+                null);
 
-        r = section(sheet, r + 1, "Totals over the exported trades");
-        r = line(sheet, r, "Trades", s.trades(), "#,##0");
-        r = line(sheet, r, "Long", s.longs(), "#,##0");
-        r = line(sheet, r, "Short", s.shorts(), "#,##0");
-        r = line(sheet, r, "Win rate %", s.winRatePct(), PCT);
-        r = line(sheet, r, "Gross P&L $", s.grossPnl(), MONEY);
-        r = line(sheet, r, "Commission $", s.commission(), MONEY);
-        r = line(sheet, r, "Slippage $", s.slippage(), MONEY);
-        r = line(sheet, r, "Net P&L $", s.netPnl(), MONEY);
-        r = line(sheet, r, "Average net %", s.avgNetPct(), PCT);
-        r = line(sheet, r, "Best net %", s.bestNetPct(), PCT);
-        line(sheet, r, "Worst net %", s.worstNetPct(), PCT);
+        row = section(sheet, row + 1, "Totals over the exported trades");
+        row = line(sheet, row, "Trades", summary.trades(), "#,##0");
+        row = line(sheet, row, "Long", summary.longs(), "#,##0");
+        row = line(sheet, row, "Short", summary.shorts(), "#,##0");
+        row = line(sheet, row, "Win rate %", summary.winRatePct(), PCT);
+        row = line(sheet, row, "Gross P&L $", summary.grossPnl(), MONEY);
+        row = line(sheet, row, "Commission $", summary.commission(), MONEY);
+        row = line(sheet, row, "Slippage $", summary.slippage(), MONEY);
+        row = line(sheet, row, "Net P&L $", summary.netPnl(), MONEY);
+        row = line(sheet, row, "Average net %", summary.avgNetPct(), PCT);
+        row = line(sheet, row, "Best net %", summary.bestNetPct(), PCT);
+        line(sheet, row, "Worst net %", summary.worstNetPct(), PCT);
     }
 
     /** A bold heading on row {@code r}; returns the next row. */
-    private static int section(Worksheet sheet, int r, String title) {
-        sheet.value(r, 0, title);
-        sheet.style(r, 0).bold().fillColor(HEADER_FILL).set();
-        sheet.style(r, 1).fillColor(HEADER_FILL).set();
-        return r + 1;
+    private static int section(Worksheet sheet, int row, String title) {
+        sheet.value(row, 0, title);
+        sheet.style(row, 0).bold().fillColor(HEADER_FILL).set();
+        sheet.style(row, 1).fillColor(HEADER_FILL).set();
+        return row + 1;
     }
 
     /** A label and its value on row {@code r}; returns the next row. */
-    private static int line(Worksheet sheet, int r, String label, Object value, String format) {
-        sheet.value(r, 0, label);
-        write(sheet, r, 1, value, format);
-        return r + 1;
+    private static int line(Worksheet sheet, int row, String label, Object value, String format) {
+        sheet.value(row, 0, label);
+        write(sheet, row, 1, value, format);
+        return row + 1;
     }
 
     /** Writes one cell; an empty or non-finite value (which Excel cannot store) leaves it blank. */
     private static void write(Worksheet sheet, int row, int col, Object value, String format) {
         switch (value) {
-            case null -> { return; }
-            case Number n when !Double.isFinite(n.doubleValue()) -> { return; }
-            case Number n -> sheet.value(row, col, n);
-            case String s -> sheet.value(row, col, s);
-            case LocalDateTime d -> sheet.value(row, col, d);
+            case null -> {
+                return;
+            }
+            case Number number
+            when !Double.isFinite(number.doubleValue()) -> {
+                return;
+            }
+            case Number number -> sheet.value(row, col, number);
+            case String text -> sheet.value(row, col, text);
+            case LocalDateTime dateTime -> sheet.value(row, col, dateTime);
             default -> throw new IllegalArgumentException("Unsupported cell value: " + value.getClass());
         }
-        if (format != null) sheet.style(row, col).format(format).set();
+        if (format != null) {
+            sheet.style(row, col).format(format).set();
+        }
     }
 
     /** Excel has no time zones: dates are written as UTC, which is how the trades table shows them. */
-    private static LocalDateTime utc(Instant t) { return t == null ? null : LocalDateTime.ofInstant(t, ZoneOffset.UTC); }
-
-    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
+    private static LocalDateTime utc(Instant time) {
+        return time == null ? null : LocalDateTime.ofInstant(time, ZoneOffset.UTC);
+    }
 }

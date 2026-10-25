@@ -1,14 +1,13 @@
 package com.quant.finance.decision.repository;
 
 import com.quant.finance.decision.entity.PriceBarEntity;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
 
 public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> {
     /*
@@ -17,15 +16,19 @@ public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> 
      * query in the same transaction (a backtest run is one) auto-flushes and walks all of them, which cost
      * roughly a second per query — even loaded read-only, since the flush still visits every managed entity.
      */
-    @Query("select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
-            + "from PriceBarEntity b where b.symbol = :symbol order by b.barTime")
+    @Query(
+            "select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
+                    + "from PriceBarEntity b where b.symbol = :symbol order by b.barTime")
     List<BarRow> findBarsBySymbol(@Param("symbol") String symbol);
 
-    @Query("select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
-            + "from PriceBarEntity b where b.symbol = :symbol and b.barTime between :from and :to order by b.barTime")
-    List<BarRow> findBarsBySymbolBetween(@Param("symbol") String symbol, @Param("from") Instant from, @Param("to") Instant to);
+    @Query(
+            "select new com.quant.finance.decision.repository.BarRow(b.barTime, b.open, b.high, b.low, b.close, b.volume) "
+                    + "from PriceBarEntity b where b.symbol = :symbol and b.barTime between :from and :to order by b.barTime")
+    List<BarRow> findBarsBySymbolBetween(
+            @Param("symbol") String symbol, @Param("from") Instant from, @Param("to") Instant to);
 
     Optional<PriceBarEntity> findTopBySymbolOrderByBarTimeDesc(String symbol);
+
     boolean existsBySymbol(String symbol);
 
     /**
@@ -57,9 +60,13 @@ public interface PriceBarRepository extends JpaRepository<PriceBarEntity, Long> 
     /** Projection for {@link #findSymbolCoverage()}. */
     interface SymbolCoverageRow {
         String getSymbol();
+
         Instant getFirstBar();
+
         Instant getLastBar();
+
         long getBars();
+
         String getTimeframe();
     }
 }

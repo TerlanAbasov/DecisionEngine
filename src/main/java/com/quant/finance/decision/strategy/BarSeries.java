@@ -10,10 +10,20 @@ import java.util.Arrays;
 public final class BarSeries {
     public final String symbol;
     public final Instant[] date;
-    public final double[] open, high, low, close, volume;
+    public final double[] open;
+    public final double[] high;
+    public final double[] low;
+    public final double[] close;
+    public final double[] volume;
 
-    public BarSeries(String symbol, Instant[] date, double[] open, double[] high,
-                     double[] low, double[] close, double[] volume) {
+    public BarSeries(
+            String symbol,
+            Instant[] date,
+            double[] open,
+            double[] high,
+            double[] low,
+            double[] close,
+            double[] volume) {
         this.symbol = symbol;
         this.date = date;
         this.open = open;
@@ -32,15 +42,19 @@ public final class BarSeries {
      * Index-based, which is a close enough proxy for a time-based split since bars are regularly spaced.
      */
     public BarSeries[] trainTestSplit(double trainFraction) {
-        int n = size();
-        int cut = Math.max(0, Math.min(n, (int) Math.round(n * trainFraction)));
-        return new BarSeries[] { slice(0, cut), slice(cut, n) };
+        int length = size();
+        int cut = Math.max(0, Math.min(length, (int) Math.round(length * trainFraction)));
+        return new BarSeries[] {slice(0, cut), slice(cut, length)};
     }
 
     private BarSeries slice(int from, int to) {
-        return new BarSeries(symbol,
-                Arrays.copyOfRange(date, from, to), Arrays.copyOfRange(open, from, to),
-                Arrays.copyOfRange(high, from, to), Arrays.copyOfRange(low, from, to),
-                Arrays.copyOfRange(close, from, to), Arrays.copyOfRange(volume, from, to));
+        return new BarSeries(
+                symbol,
+                Arrays.copyOfRange(date, from, to),
+                Arrays.copyOfRange(open, from, to),
+                Arrays.copyOfRange(high, from, to),
+                Arrays.copyOfRange(low, from, to),
+                Arrays.copyOfRange(close, from, to),
+                Arrays.copyOfRange(volume, from, to));
     }
 }

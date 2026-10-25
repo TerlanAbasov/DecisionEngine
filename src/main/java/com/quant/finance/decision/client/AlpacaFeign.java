@@ -1,5 +1,7 @@
 package com.quant.finance.decision.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.error.AlpacaApiException;
 import feign.Request;
@@ -7,15 +9,12 @@ import feign.RequestInterceptor;
 import feign.Response;
 import feign.Util;
 import feign.codec.ErrorDecoder;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.lang3.StringUtils;
-
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.lang3.StringUtils;
 
 /** What the Alpaca Feign client needs: authentication, the data-host guard, error decoding and timeouts. */
 public final class AlpacaFeign {
@@ -23,6 +22,7 @@ public final class AlpacaFeign {
 
     /** Alpaca's market-data host — the only real host a market-data request may go to. */
     public static final String DATA_HOST = "data.alpaca.markets";
+
     private static final Set<String> LOCAL_HOSTS = Set.of("localhost", "127.0.0.1");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -41,9 +41,11 @@ public final class AlpacaFeign {
         return template -> {
             String keyId = StringUtils.trimToEmpty(properties.getAlpaca().getApiKeyId());
             String secret = StringUtils.trimToEmpty(properties.getAlpaca().getApiSecretKey());
-            if (keyId.isEmpty() || secret.isEmpty())
-                throw new IllegalStateException("Alpaca credentials are not configured: set application.alpaca.api-key-id / "
-                        + "api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+            if (keyId.isEmpty() || secret.isEmpty()) {
+                throw new IllegalStateException(
+                        "Alpaca credentials are not configured: set application.alpaca.api-key-id / "
+                                + "api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+            }
             template.header("APCA-API-KEY-ID", keyId);
             template.header("APCA-API-SECRET-KEY", secret);
         };
@@ -53,21 +55,32 @@ public final class AlpacaFeign {
     public static RequestInterceptor hostGuardInterceptor() {
         return template -> {
             String path = template.path() == null ? "" : template.path();
-            boolean overridden = path.startsWith("http://") || path.startsWith("https://");   // a per-call base URL
-            String base = overridden ? path : template.feignTarget() == null ? "" : template.feignTarget().url();
-            if (!isDataUrl(base))
+            boolean overridden = path.startsWith("http://") || path.startsWith("https://"); // a per-call base URL
+            String base = overridden
+                    ? path
+                    : template.feignTarget() == null
+                            ? ""
+                            : template.feignTarget().url();
+            if (!isDataUrl(base)) {
                 throw new IllegalStateException("Refusing to send a market-data request to '" + hostOf(base)
                         + "': it is not Alpaca's market-data host (https://" + DATA_HOST + ").");
+            }
         };
     }
 
     private static String hostOf(String url) {
-        try { String h = URI.create(url).getHost(); return h == null ? url : h; } catch (IllegalArgumentException e) { return url; }
+        try {
+            String host = URI.create(url).getHost();
+            return host == null ? url : host;
+        } catch (IllegalArgumentException e) {
+            return url;
+        }
     }
 
     /** Turns an HTTP error into {@link AlpacaApiException} carrying Alpaca's own message. */
     public static ErrorDecoder errorDecoder() {
-        return (methodKey, response) -> new AlpacaApiException(response.status(), errorText(response.status(), bodyOf(response)));
+        return (methodKey, response) ->
+                new AlpacaApiException(response.status(), errorText(response.status(), bodyOf(response)));
     }
 
     /** Connect and read timeouts. */
@@ -78,15 +91,22 @@ public final class AlpacaFeign {
     /** Alpaca's errors are {"code":40310000,"message":"insufficient buying power"}. */
     static String errorText(int status, String body) {
         try {
-            JsonNode n = MAPPER.readTree(body == null ? "" : body);
-            String m = n.path("message").asText("");
-            if (!m.isBlank()) return m;
-        } catch (Exception ignored) { /* not JSON */ }
-        return "HTTP " + status + (body == null || body.isBlank() ? "" : ": " + body.substring(0, Math.min(200, body.length())));
+            JsonNode root = MAPPER.readTree(body == null ? "" : body);
+            String message = root.path("message").asText("");
+            if (!message.isBlank()) {
+                return message;
+            }
+        } catch (Exception ignored) {
+            /* not JSON */
+        }
+        return "HTTP " + status
+                + (body == null || body.isBlank() ? "" : ": " + body.substring(0, Math.min(200, body.length())));
     }
 
     private static String bodyOf(Response response) {
-        if (response.body() == null) return "";
+        if (response.body() == null) {
+            return "";
+        }
         try {
             return new String(Util.toByteArray(response.body().asInputStream()), StandardCharsets.UTF_8);
         } catch (IOException e) {

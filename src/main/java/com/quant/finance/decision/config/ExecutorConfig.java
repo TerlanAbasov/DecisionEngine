@@ -1,13 +1,12 @@
 package com.quant.finance.decision.config;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * Fixed pool for CPU-bound backtest work — one task per strategy, symbol, grid cell or ensemble leg.
@@ -29,24 +28,25 @@ public class ExecutorConfig {
     @Bean(name = BACKTEST_JOB_EXECUTOR, destroyMethod = "shutdownNow")
     public ExecutorService backtestJobExecutor() {
         return Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "bt-job");
-            t.setDaemon(true);
-            return t;
+            Thread thread = new Thread(r, "bt-job");
+            thread.setDaemon(true);
+            return thread;
         });
     }
 
     @Bean(name = BACKTEST_EXECUTOR, destroyMethod = "shutdown")
     public ExecutorService backtestExecutor() {
-        int n = Math.max(1, properties.getBacktest().getThreads());
-        ThreadFactory tf = new ThreadFactory() {
+        int threadCount = Math.max(1, properties.getBacktest().getThreads());
+        ThreadFactory threadFactory = new ThreadFactory() {
             private final AtomicInteger seq = new AtomicInteger();
+
             @Override
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "bt-" + seq.getAndIncrement());
-                t.setDaemon(true);
-                return t;
+            public Thread newThread(Runnable task) {
+                Thread thread = new Thread(task, "bt-" + seq.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
             }
         };
-        return Executors.newFixedThreadPool(n, tf);
+        return Executors.newFixedThreadPool(threadCount, threadFactory);
     }
 }

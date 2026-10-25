@@ -10,5 +10,7 @@ public class JobConflictException extends RuntimeException {
         this.active = active;
     }
 
-    public JobDto active() { return active; }
+    public JobDto active() {
+        return active;
+    }
 }

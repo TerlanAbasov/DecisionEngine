@@ -38,16 +38,17 @@ public class DecisionEngineApplication {
         } catch (UnknownHostException e) {
             log.warn("The host name could not be determined, using `localhost` as fallback");
         }
-        log.info("Application '{}' is running! Access URLs: Local={}://localhost:{}{} " +
-                "External: {}://{}:{}{} Profile(s): {}",
-            env.getProperty("spring.application.name"),
-            protocol,
-            serverPort,
-            contextPath,
-            protocol,
-            hostAddress,
-            serverPort,
-            contextPath,
-            env.getActiveProfiles());
+        log.info(
+                "Application '{}' is running! Access URLs: Local={}://localhost:{}{} "
+                        + "External: {}://{}:{}{} Profile(s): {}",
+                env.getProperty("spring.application.name"),
+                protocol,
+                serverPort,
+                contextPath,
+                protocol,
+                hostAddress,
+                serverPort,
+                contextPath,
+                env.getActiveProfiles());
     }
 }

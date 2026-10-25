@@ -3,10 +3,14 @@ package com.quant.finance.decision.controller;
 import com.quant.finance.decision.dto.Dtos.SignalDto;
 import com.quant.finance.decision.dto.Dtos.SignalOverlayDto;
 import com.quant.finance.decision.service.ScannerService;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.Arrays;
 import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api")
@@ -19,9 +23,10 @@ public class ScannerController {
     }
 
     @PostMapping("/scan")
-    public List<SignalDto> scan(@RequestBody(required = false) List<String> symbols,
-                                @RequestParam(defaultValue = "false") boolean includeFlat,
-                                @RequestParam(required = false) String timeframe) {
+    public List<SignalDto> scan(
+            @RequestBody(required = false) List<String> symbols,
+            @RequestParam(defaultValue = "false") boolean includeFlat,
+            @RequestParam(required = false) String timeframe) {
         return service.scan(symbols, includeFlat, timeframe);
     }
 
@@ -35,11 +40,14 @@ public class ScannerController {
      * strategy names; {@code timeframe} blank or "AUTO" runs each on its own recommended frame.
      */
     @GetMapping("/signals/chart")
-    public SignalOverlayDto chartSignals(@RequestParam String symbol,
-                                         @RequestParam(required = false) String timeframe,
-                                         @RequestParam String strategies,
-                                         @RequestParam(defaultValue = "1500") int limit) {
-        List<String> names = Arrays.stream(strategies.split("[,\\s]+")).filter(s -> !s.isBlank()).toList();
+    public SignalOverlayDto chartSignals(
+            @RequestParam String symbol,
+            @RequestParam(required = false) String timeframe,
+            @RequestParam String strategies,
+            @RequestParam(defaultValue = "1500") int limit) {
+        List<String> names = Arrays.stream(strategies.split("[,\\s]+"))
+                .filter(s -> !s.isBlank())
+                .toList();
         return service.chartSignals(symbol, timeframe, names, Math.min(Math.max(limit, 50), 5000));
     }
 }

@@ -4,7 +4,6 @@ import com.quant.finance.decision.domain.JobKind;
 import com.quant.finance.decision.domain.JobStatus;
 import com.quant.finance.decision.dto.Dtos.JobItemDto;
 import com.quant.finance.decision.dto.Dtos.JobStepDto;
-
 import com.quant.finance.decision.error.JobCancelledException;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -20,11 +19,26 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class JobProgress {
 
-    public enum Step { PREPARE, LOAD, COMPUTE, SAVE }
+    public enum Step {
+        PREPARE,
+        LOAD,
+        COMPUTE,
+        SAVE
+    }
 
-    enum State { PENDING, ACTIVE, DONE }
+    enum State {
+        PENDING,
+        ACTIVE,
+        DONE
+    }
 
-    private enum ItemState { PENDING, RUNNING, DONE, FAILED, NODATA }
+    private enum ItemState {
+        PENDING,
+        RUNNING,
+        DONE,
+        FAILED,
+        NODATA
+    }
 
     private static final class StepState {
         final String label;
@@ -34,7 +48,10 @@ public final class JobProgress {
         volatile int total;
         volatile String detail;
 
-        StepState(String label, int weight) { this.label = label; this.weight = weight; }
+        StepState(String label, int weight) {
+            this.label = label;
+            this.weight = weight;
+        }
     }
 
     private static final class Item {
@@ -42,12 +59,18 @@ public final class JobProgress {
         volatile ItemState state = ItemState.PENDING;
         final AtomicInteger done = new AtomicInteger();
 
-        Item(String name) { this.name = name; }
+        Item(String name) {
+            this.name = name;
+        }
     }
 
     /** Immutable view handed to the API layer. */
-    public record Snapshot(int percent, List<JobStepDto> steps, List<JobItemDto> symbols,
-                           List<JobItemDto> strategies, List<String> running) {}
+    public record Snapshot(
+            int percent,
+            List<JobStepDto> steps,
+            List<JobItemDto> symbols,
+            List<JobItemDto> strategies,
+            List<String> running) {}
 
     private final Map<Step, StepState> steps = new EnumMap<>(Step.class);
     private final AtomicBoolean cancelled = new AtomicBoolean();
@@ -62,71 +85,103 @@ public final class JobProgress {
         String[] labels;
         int[] weights;
         switch (kind) {
-            case RUN_ALL -> { labels = new String[] {"Prepare batch", "Load market data", "Run strategies", "Save results"};
-                              weights = new int[] {2, 8, 15, 75}; }
-            case ENSEMBLE -> { labels = new String[] {"Prepare legs", "Load market data", "Run strategy legs", "Blend legs"};
-                               weights = new int[] {3, 40, 50, 7}; }
-            case PAIRS -> { labels = new String[] {"Prepare pair", "Load market data", "Run backtest", "Save results"};
-                            weights = new int[] {3, 30, 30, 37}; }
-            default -> { labels = new String[] {"Prepare run", "Load market data", "Run backtest", "Save results"};
-                         weights = new int[] {3, 30, 30, 37}; }
+            case RUN_ALL -> {
+                labels = new String[] {"Prepare batch", "Load market data", "Run strategies", "Save results"};
+                weights = new int[] {2, 8, 15, 75};
+            }
+            case ENSEMBLE -> {
+                labels = new String[] {"Prepare legs", "Load market data", "Run strategy legs", "Blend legs"};
+                weights = new int[] {3, 40, 50, 7};
+            }
+            case PAIRS -> {
+                labels = new String[] {"Prepare pair", "Load market data", "Run backtest", "Save results"};
+                weights = new int[] {3, 30, 30, 37};
+            }
+            default -> {
+                labels = new String[] {"Prepare run", "Load market data", "Run backtest", "Save results"};
+                weights = new int[] {3, 30, 30, 37};
+            }
         }
-        for (Step s : Step.values()) steps.put(s, new StepState(labels[s.ordinal()], weights[s.ordinal()]));
+        for (Step step : Step.values()) {
+            steps.put(step, new StepState(labels[step.ordinal()], weights[step.ordinal()]));
+        }
     }
 
     // ---- cancellation ---------------------------------------------------------------------------
 
-    public void requestCancel() { cancelled.set(true); }
+    public void requestCancel() {
+        cancelled.set(true);
+    }
 
-    public boolean isCancelled() { return cancelled.get(); }
+    public boolean isCancelled() {
+        return cancelled.get();
+    }
 
     /** Call at safe points; aborts the job (and rolls its transaction back) once a stop was requested. */
     public void checkCancelled() {
-        if (cancelled.get()) throw new JobCancelledException();
+        if (cancelled.get()) {
+            throw new JobCancelledException();
+        }
     }
 
     // ---- steps ----------------------------------------------------------------------------------
 
     /** Starts a step expecting {@code total} units of work (0 = a single instantaneous unit). */
     public void begin(Step step, int total, String detail) {
-        StepState s = steps.get(step);
-        s.total = Math.max(0, total);
-        s.detail = detail;
-        s.done.set(0);
-        s.state = State.ACTIVE;
+        StepState stepState = steps.get(step);
+        stepState.total = Math.max(0, total);
+        stepState.detail = detail;
+        stepState.done.set(0);
+        stepState.state = State.ACTIVE;
     }
 
     public void advance(Step step, String detail) {
-        StepState s = steps.get(step);
-        s.done.incrementAndGet();
-        if (detail != null) s.detail = detail;
+        StepState stepState = steps.get(step);
+        stepState.done.incrementAndGet();
+        if (detail != null) {
+            stepState.detail = detail;
+        }
     }
 
-    public void detail(Step step, String detail) { steps.get(step).detail = detail; }
+    public void detail(Step step, String detail) {
+        steps.get(step).detail = detail;
+    }
 
     public void complete(Step step) {
-        StepState s = steps.get(step);
-        s.done.set(s.total);
-        s.state = State.DONE;
+        StepState stepState = steps.get(step);
+        stepState.done.set(stepState.total);
+        stepState.state = State.DONE;
     }
 
     /** The job ended successfully: no step may be left looking half-done. */
     public void finishAll() {
-        for (StepState s : steps.values()) { s.done.set(s.total); s.state = State.DONE; }
-        for (Item i : strategies.values()) if (i.state == ItemState.PENDING || i.state == ItemState.RUNNING) i.state = ItemState.DONE;
+        for (StepState stepState : steps.values()) {
+            stepState.done.set(stepState.total);
+            stepState.state = State.DONE;
+        }
+        for (Item item : strategies.values()) {
+            if (item.state == ItemState.PENDING || item.state == ItemState.RUNNING) {
+                item.state = ItemState.DONE;
+            }
+        }
     }
 
     // ---- symbols --------------------------------------------------------------------------------
 
-    public void planSymbols(List<String> names) { symbols = plan(names); }
+    public void planSymbols(List<String> names) {
+        symbols = plan(names);
+    }
 
     /** A symbol's bars were loaded ({@code hasData} false: nothing cached for it); advances the load step. */
     public void symbolLoaded(String symbol, boolean hasData) {
-        Item i = symbols.get(symbol);
-        if (i != null) i.state = hasData ? ItemState.DONE : ItemState.NODATA;
-        StepState s = steps.get(Step.LOAD);
-        int n = s.done.incrementAndGet();
-        s.detail = symbol + " (" + (s.total > 0 ? Math.min(n, s.total) : n) + "/" + s.total + ")";
+        Item item = symbols.get(symbol);
+        if (item != null) {
+            item.state = hasData ? ItemState.DONE : ItemState.NODATA;
+        }
+        StepState loadStep = steps.get(Step.LOAD);
+        int loadedCount = loadStep.done.incrementAndGet();
+        loadStep.detail = symbol + " (" + (loadStep.total > 0 ? Math.min(loadedCount, loadStep.total) : loadedCount)
+                + "/" + loadStep.total + ")";
     }
 
     /** Starts the compute step; every loaded symbol will be computed {@code unitsPerSymbol} times (once per strategy). */
@@ -137,63 +192,84 @@ public final class JobProgress {
 
     /** One (strategy, symbol) unit finished computing. */
     public void symbolComputed(String symbol) {
-        Item i = symbols.get(symbol);
-        if (i != null) i.done.incrementAndGet();
-        StepState s = steps.get(Step.COMPUTE);
-        s.done.incrementAndGet();
+        Item item = symbols.get(symbol);
+        if (item != null) {
+            item.done.incrementAndGet();
+        }
+        StepState computeStep = steps.get(Step.COMPUTE);
+        computeStep.done.incrementAndGet();
     }
 
     // ---- strategies -----------------------------------------------------------------------------
 
-    public void planStrategies(List<String> names) { strategies = plan(names); }
+    public void planStrategies(List<String> names) {
+        strategies = plan(names);
+    }
 
     public void strategyStarted(String name) {
-        Item i = strategies.get(name);
-        if (i != null) i.state = ItemState.RUNNING;
+        Item item = strategies.get(name);
+        if (item != null) {
+            item.state = ItemState.RUNNING;
+        }
     }
 
     public void strategyFinished(String name, boolean ok) {
-        Item i = strategies.get(name);
-        if (i != null) i.state = ok ? ItemState.DONE : ItemState.FAILED;
+        Item item = strategies.get(name);
+        if (item != null) {
+            item.state = ok ? ItemState.DONE : ItemState.FAILED;
+        }
     }
 
     private static Map<String, Item> plan(List<String> names) {
-        Map<String, Item> m = new LinkedHashMap<>();
-        for (String n : names) m.putIfAbsent(n, new Item(n));
-        return m;
+        Map<String, Item> items = new LinkedHashMap<>();
+        for (String name : names) {
+            items.putIfAbsent(name, new Item(name));
+        }
+        return items;
     }
 
     // ---- reading --------------------------------------------------------------------------------
 
     public Snapshot snapshot() {
         List<JobStepDto> stepDtos = new ArrayList<>();
-        double weighted = 0, weightSum = 0;
+        double weighted = 0;
+        double weightSum = 0;
         for (Step key : Step.values()) {
-            StepState s = steps.get(key);
-            State state = s.state;
-            int total = s.total;
-            int done = Math.min(s.done.get(), total);
-            weightSum += s.weight;
-            weighted += s.weight * (state == State.DONE ? 1.0
-                    : state == State.ACTIVE && total > 0 ? (double) done / total : 0.0);
-            stepDtos.add(new JobStepDto(key.name().toLowerCase(), s.label, state.name().toLowerCase(),
-                    state == State.DONE ? total : done, total, s.detail));
+            StepState stepState = steps.get(key);
+            State state = stepState.state;
+            int total = stepState.total;
+            int done = Math.min(stepState.done.get(), total);
+            weightSum += stepState.weight;
+            weighted += stepState.weight
+                    * (state == State.DONE ? 1.0 : state == State.ACTIVE && total > 0 ? (double) done / total : 0.0);
+            stepDtos.add(new JobStepDto(
+                    key.name().toLowerCase(),
+                    stepState.label,
+                    state.name().toLowerCase(),
+                    state == State.DONE ? total : done,
+                    total,
+                    stepState.detail));
         }
         int percent = (int) Math.floor(100 * weighted / weightSum);
 
         int unitsPerSymbol = perSymbolTotal;
         List<JobItemDto> symbolDtos = new ArrayList<>();
-        for (Item i : symbols.values()) {
-            boolean loaded = i.state == ItemState.DONE;
-            symbolDtos.add(new JobItemDto(i.name, i.state.name().toLowerCase(),
-                    loaded ? Math.min(i.done.get(), unitsPerSymbol) : 0, loaded ? unitsPerSymbol : 0));
+        for (Item item : symbols.values()) {
+            boolean loaded = item.state == ItemState.DONE;
+            symbolDtos.add(new JobItemDto(
+                    item.name,
+                    item.state.name().toLowerCase(),
+                    loaded ? Math.min(item.done.get(), unitsPerSymbol) : 0,
+                    loaded ? unitsPerSymbol : 0));
         }
         List<JobItemDto> strategyDtos = new ArrayList<>();
         List<String> running = new ArrayList<>();
-        for (Item i : strategies.values()) {
-            ItemState st = i.state;
-            strategyDtos.add(new JobItemDto(i.name, st.name().toLowerCase(), 0, 0));
-            if (st == ItemState.RUNNING) running.add(i.name);
+        for (Item item : strategies.values()) {
+            ItemState st = item.state;
+            strategyDtos.add(new JobItemDto(item.name, st.name().toLowerCase(), 0, 0));
+            if (st == ItemState.RUNNING) {
+                running.add(item.name);
+            }
         }
         return new Snapshot(percent, stepDtos, symbolDtos, strategyDtos, running);
     }
@@ -205,12 +281,16 @@ public final class JobProgress {
     public Snapshot finalSnapshot(JobStatus status) {
         if (status == JobStatus.COMPLETED) {
             finishAll();
-            Snapshot s = snapshot();
-            return new Snapshot(100, s.steps(), s.symbols(), s.strategies(), s.running());
+            Snapshot completed = snapshot();
+            return new Snapshot(
+                    100, completed.steps(), completed.symbols(), completed.strategies(), completed.running());
         }
-        for (Item i : strategies.values())
-            if (i.state == ItemState.RUNNING) i.state = status == JobStatus.FAILED ? ItemState.FAILED : ItemState.PENDING;
-        Snapshot s = snapshot();
-        return new Snapshot(s.percent(), s.steps(), s.symbols(), s.strategies(), List.of());
+        for (Item item : strategies.values()) {
+            if (item.state == ItemState.RUNNING) {
+                item.state = status == JobStatus.FAILED ? ItemState.FAILED : ItemState.PENDING;
+            }
+        }
+        Snapshot current = snapshot();
+        return new Snapshot(current.percent(), current.steps(), current.symbols(), current.strategies(), List.of());
     }
 }

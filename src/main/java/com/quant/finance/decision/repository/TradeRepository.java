@@ -1,15 +1,15 @@
 package com.quant.finance.decision.repository;
 
 import com.quant.finance.decision.entity.TradeEntity;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
-
 public interface TradeRepository extends JpaRepository<TradeEntity, Long> {
     List<TradeEntity> findByRunId(Long runId);
+
     long countByRunId(Long runId);
 
     @Modifying
@@ -17,8 +17,8 @@ public interface TradeRepository extends JpaRepository<TradeEntity, Long> {
     int deleteByRunId(@Param("runId") Long runId);
 
     @Modifying
-    @Query("delete from TradeEntity t where t.run.id in " +
-           "(select b.id from BacktestRunEntity b where b.strategyName = :name)")
+    @Query("delete from TradeEntity t where t.run.id in "
+            + "(select b.id from BacktestRunEntity b where b.strategyName = :name)")
     int deleteByRunStrategyName(@Param("name") String name);
 
     /** Sum of realised per-trade returns (fraction) for a run — the fixed-notional total return. */

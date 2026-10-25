@@ -3,17 +3,16 @@ package com.quant.finance.decision.data;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.entity.PriceBarEntity;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
 /**
  * Alpaca Market Data bars (needs an Alpaca key pair, paper is fine: application.alpaca.api-key-id / api-secret-key).
@@ -28,7 +27,9 @@ public class AlpacaMarketDataClient implements MarketDataClient {
 
     public AlpacaMarketDataClient(ApplicationProperties properties) {
         this.properties = properties;
-        this.restClient = RestClient.builder().baseUrl(properties.getAlpaca().getDataBaseUrl()).build();
+        this.restClient = RestClient.builder()
+                .baseUrl(properties.getAlpaca().getDataBaseUrl())
+                .build();
     }
 
     @Override
@@ -41,7 +42,8 @@ public class AlpacaMarketDataClient implements MarketDataClient {
     @Override
     public List<PriceBarEntity> fetchHistory(String symbol, Instant since) {
         Instant end = Instant.now();
-        Instant start = since != null ? since
+        Instant start = since != null
+                ? since
                 : end.minusSeconds(Math.round(properties.getDefaultHistoryYears() * 365.25 * 86400));
         return fetch(symbol, start, end);
     }
@@ -50,8 +52,8 @@ public class AlpacaMarketDataClient implements MarketDataClient {
         ApplicationProperties.Alpaca alpaca = properties.getAlpaca();
         if (StringUtils.isBlank(alpaca.getApiKeyId()) || StringUtils.isBlank(alpaca.getApiSecretKey())) {
             throw new IllegalStateException(
-                "Alpaca data source selected but no credentials configured. Set "
-                + "application.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+                    "Alpaca data source selected but no credentials configured. Set "
+                            + "application.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
         }
 
         // keyed by bar time to dedupe: Alpaca can hand back the same bar twice across a page
@@ -62,22 +64,33 @@ public class AlpacaMarketDataClient implements MarketDataClient {
         String pageToken = null;
         do {
             AlpacaBarsResponse page = fetchPage(symbol, start, end, pageToken);
-            if (page == null || page.bars() == null) break;
+            if (page == null || page.bars() == null) {
+                break;
+            }
             for (AlpacaBar b : page.bars()) {
                 Instant barTime = Instant.parse(b.t());
-                byTime.put(barTime, new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca", timeframe));
+                byTime.put(
+                        barTime,
+                        new PriceBarEntity(symbol, barTime, b.o(), b.h(), b.l(), b.c(), b.v(), "alpaca", timeframe));
             }
             pageToken = page.nextPageToken();
         } while (pageToken != null);
 
         List<PriceBarEntity> out = new ArrayList<>(byTime.values());
-        log.info("Fetched {} {} bars for {} from Alpaca ({} feed, since {})", out.size(), timeframe, symbol, alpaca.getFeed(), start);
+        log.info(
+                "Fetched {} {} bars for {} from Alpaca ({} feed, since {})",
+                out.size(),
+                timeframe,
+                symbol,
+                alpaca.getFeed(),
+                start);
         return out;
     }
 
     private AlpacaBarsResponse fetchPage(String symbol, Instant start, Instant end, String pageToken) {
         ApplicationProperties.Alpaca alpaca = properties.getAlpaca();
-        return restClient.get()
+        return restClient
+                .get()
                 .uri(uri -> uri.path("/v2/stocks/{symbol}/bars")
                         .queryParam("timeframe", alpaca.getTimeframe())
                         .queryParam("start", start)
@@ -109,11 +122,9 @@ public class AlpacaMarketDataClient implements MarketDataClient {
             @JsonProperty("h") double h,
             @JsonProperty("l") double l,
             @JsonProperty("c") double c,
-            @JsonProperty("v") double v) {
-    }
+            @JsonProperty("v") double v) {}
 
     private record AlpacaBarsResponse(
             @JsonProperty("bars") List<AlpacaBar> bars,
-            @JsonProperty("next_page_token") String nextPageToken) {
-    }
+            @JsonProperty("next_page_token") String nextPageToken) {}
 }
