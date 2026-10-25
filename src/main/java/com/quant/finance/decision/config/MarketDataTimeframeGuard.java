@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * On boot, drops cached bars whose interval differs from {@code decision.alpaca.timeframe} (legacy rows without one included),
+ * On boot, drops cached bars whose interval differs from {@code application.alpaca.timeframe} (legacy rows without one included),
  * so changing e.g. 1Day to 1Min takes effect instead of serving the old bars. Idempotent.
  */
 @Component

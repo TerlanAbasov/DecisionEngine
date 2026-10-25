@@ -76,10 +76,10 @@ class AutoTradeControllerTest {
 
     @Test
     void enablingWhileNotConfiguredIsABadRequestWithTheReason() throws Exception {
-        when(config.enable()).thenThrow(new IllegalStateException("ExecutionEngine is not configured: set decision.execution-engine.url"));
+        when(config.enable()).thenThrow(new IllegalStateException("ExecutionEngine is not configured: set application.execution-engine.url"));
         mvc.perform(post("/api/autotrade/enable"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("ExecutionEngine is not configured: set decision.execution-engine.url"));
+                .andExpect(jsonPath("$.error").value("ExecutionEngine is not configured: set application.execution-engine.url"));
     }
 
     @Test

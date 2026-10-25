@@ -38,7 +38,7 @@ public final class AlpacaFeign {
     public static RequestInterceptor authInterceptor(AlpacaCredentials creds) {
         return template -> {
             if (!creds.configured())
-                throw new IllegalStateException("Alpaca credentials are not configured: set decision.alpaca.api-key-id / "
+                throw new IllegalStateException("Alpaca credentials are not configured: set application.alpaca.api-key-id / "
                         + "api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
             template.header("APCA-API-KEY-ID", creds.keyId());
             template.header("APCA-API-SECRET-KEY", creds.secret());

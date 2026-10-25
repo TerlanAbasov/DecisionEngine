@@ -1,5 +1,6 @@
 package com.quant.finance.decision.data;
 
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.entity.PriceBarEntity;
 import com.quant.finance.decision.dto.Dtos.BarDto;
 import com.quant.finance.decision.dto.Dtos.PriceSeriesDto;
@@ -9,8 +10,8 @@ import com.quant.finance.decision.engine.Timeframe;
 import com.quant.finance.decision.repository.BarRow;
 import com.quant.finance.decision.repository.PriceBarRepository;
 import com.quant.finance.decision.strategy.BarSeries;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,18 +25,12 @@ import java.util.List;
 /** Loads bars from the DB cache, fetching from the active client on a miss. */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class MarketDataService {
 
     private final PriceBarRepository repo;
     private final MarketDataClient client;
-    private final long freshDays;
-
-    public MarketDataService(PriceBarRepository repo, MarketDataClient client,
-                             @Value("${decision.data.fresh-days:4}") long freshDays) {
-        this.repo = repo;
-        this.client = client;
-        this.freshDays = freshDays;
-    }
+    private final ApplicationProperties properties;
 
     private boolean timeframeMatches(PriceBarEntity newest) {
         String want = client.configuredTimeframe();
@@ -49,7 +44,7 @@ public class MarketDataService {
      */
     @Transactional(readOnly = true)
     public List<SymbolCoverageDto> coverage() {
-        Instant cutoff = Instant.now().minus(Duration.ofDays(freshDays));
+        Instant cutoff = Instant.now().minus(Duration.ofDays(properties.getData().getFreshDays()));
         return repo.findSymbolCoverage().stream()
                 .map(r -> new SymbolCoverageDto(
                         r.getSymbol(), r.getFirstBar(), r.getLastBar(), r.getBars(),

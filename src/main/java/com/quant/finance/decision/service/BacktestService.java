@@ -1,5 +1,6 @@
 package com.quant.finance.decision.service;
 
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.config.ExecutorConfig;
 import com.quant.finance.decision.data.MarketDataService;
 import com.quant.finance.decision.entity.BacktestResultEntity;
@@ -59,8 +60,7 @@ public class BacktestService {
     private final TradeRepository tradeRepo;
     private final ExecutorService executor;
     private final Backtester backtester;
-    /** Cap on how far back a run-all / batch backtest may reach (heap guard on 1-min data). */
-    private final int runAllMaxDays;
+    private final ApplicationProperties properties;
 
     public BacktestService(MarketDataService marketData, StrategyService strategies,
                            UniverseService universe, JsonCodec json,
@@ -68,12 +68,9 @@ public class BacktestService {
                            TradeRepository tradeRepo,
                            @org.springframework.beans.factory.annotation.Qualifier(
                                    ExecutorConfig.BACKTEST_EXECUTOR) ExecutorService executor,
-                           @org.springframework.beans.factory.annotation.Value(
-                                   "${decision.backtest.trace-per-symbol:true}") boolean tracePerSymbol,
-                           @org.springframework.beans.factory.annotation.Value(
-                                   "${decision.backtest.run-all-max-days:400}") int runAllMaxDays) {
-        this.backtester = new Backtester(tracePerSymbol);
-        this.runAllMaxDays = runAllMaxDays > 0 ? runAllMaxDays : 400;
+                           ApplicationProperties properties) {
+        this.backtester = new Backtester(properties.getBacktest().isTracePerSymbol());
+        this.properties = properties;
         this.marketData = marketData;
         this.strategies = strategies;
         this.universe = universe;
@@ -82,6 +79,12 @@ public class BacktestService {
         this.resultRepo = resultRepo;
         this.tradeRepo = tradeRepo;
         this.executor = executor;
+    }
+
+    /** Cap on how far back a run-all / batch backtest may reach (heap guard on 1-min data); 400 when not set. */
+    private int runAllMaxDays() {
+        int days = properties.getBacktest().getRunAllMaxDays();
+        return days > 0 ? days : 400;
     }
 
     /** Resample targets offered by the backtest form. */
@@ -304,10 +307,11 @@ public class BacktestService {
 
         // cap the look-back window — hundreds of strategies over years of 1-min bars is what OOMs the box
         LocalDate start = req.start(), end = req.end();
-        if (start != null && end != null && start.isBefore(end.minusDays(runAllMaxDays))) {
-            LocalDate capped = end.minusDays(runAllMaxDays);
+        int maxDays = runAllMaxDays();
+        if (start != null && end != null && start.isBefore(end.minusDays(maxDays))) {
+            LocalDate capped = end.minusDays(maxDays);
             log.info("Backtest run-all: window {}..{} exceeds the {}-day batch cap — starting from {}",
-                    start, end, runAllMaxDays, capped);
+                    start, end, maxDays, capped);
             start = capped;
         }
 

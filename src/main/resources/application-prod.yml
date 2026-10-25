@@ -34,7 +34,7 @@ spring:
 
 
 
-decision:
+application:
   backtest:
     threads: 50                 # parallel worker threads for run-all / optimiser / ensemble backtests
     trace-per-symbol: true       # log one line per (strategy x stock) during backtests — set false for big sweeps

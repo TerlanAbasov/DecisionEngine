@@ -1,9 +1,10 @@
 package com.quant.finance.decision.data;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.entity.PriceBarEntity;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -15,55 +16,48 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Alpaca Market Data bars (needs an Alpaca key pair, paper is fine: decision.alpaca.api-key-id / api-secret-key).
- * {@code decision.alpaca.timeframe} goes straight to Alpaca's bars API ("1Day" default, "1Week", "1Hour", "1Min" …).
+ * Alpaca Market Data bars (needs an Alpaca key pair, paper is fine: application.alpaca.api-key-id / api-secret-key).
+ * {@code application.alpaca.timeframe} goes straight to Alpaca's bars API ("1Day" default, "1Week", "1Hour", "1Min" …).
  */
 @Component
 @Slf4j
 public class AlpacaMarketDataClient implements MarketDataClient {
 
-    @Value("${decision.alpaca.api-key-id:}")
-    private String apiKeyId;
-    @Value("${decision.alpaca.api-secret-key:}")
-    private String apiSecretKey;
-    @Value("${decision.alpaca.feed:iex}")
-    private String feed;
-    @Value("${decision.alpaca.timeframe:1Day}")
-    private String timeframe;
-    @Value("${decision.default-history-years:6.5}")
-    private double years;
-
+    private final ApplicationProperties properties;
     private final RestClient restClient;
 
-    public AlpacaMarketDataClient(
-            @Value("${decision.alpaca.data-base-url:https://data.alpaca.markets}") String baseUrl) {
-        this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+    public AlpacaMarketDataClient(ApplicationProperties properties) {
+        this.properties = properties;
+        this.restClient = RestClient.builder().baseUrl(properties.getAlpaca().getDataBaseUrl()).build();
     }
 
     @Override
     public List<PriceBarEntity> fetchHistory(String symbol) {
         Instant end = Instant.now();
-        return fetch(symbol, end.minusSeconds(Math.round(years * 365.25 * 86400)), end);
+        return fetch(symbol, end.minusSeconds(Math.round(properties.getDefaultHistoryYears() * 365.25 * 86400)), end);
     }
 
     /** Incremental fetch for polling — only bars from {@code since} to now (one or two requests). */
     @Override
     public List<PriceBarEntity> fetchHistory(String symbol, Instant since) {
         Instant end = Instant.now();
-        Instant start = since != null ? since : end.minusSeconds(Math.round(years * 365.25 * 86400));
+        Instant start = since != null ? since
+                : end.minusSeconds(Math.round(properties.getDefaultHistoryYears() * 365.25 * 86400));
         return fetch(symbol, start, end);
     }
 
     private List<PriceBarEntity> fetch(String symbol, Instant start, Instant end) {
-        if (apiKeyId.isBlank() || apiSecretKey.isBlank()) {
+        ApplicationProperties.Alpaca alpaca = properties.getAlpaca();
+        if (StringUtils.isBlank(alpaca.getApiKeyId()) || StringUtils.isBlank(alpaca.getApiSecretKey())) {
             throw new IllegalStateException(
                 "Alpaca data source selected but no credentials configured. Set "
-                + "decision.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
+                + "application.alpaca.api-key-id / api-secret-key (env ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY).");
         }
 
         // keyed by bar time to dedupe: Alpaca can hand back the same bar twice across a page
         // boundary, and price_bar's (symbol, bar_time) unique constraint turns that into a
         // hard insert failure downstream if it isn't collapsed here first.
+        String timeframe = alpaca.getTimeframe();
         Map<Instant, PriceBarEntity> byTime = new LinkedHashMap<>();
         String pageToken = null;
         do {
@@ -77,23 +71,24 @@ public class AlpacaMarketDataClient implements MarketDataClient {
         } while (pageToken != null);
 
         List<PriceBarEntity> out = new ArrayList<>(byTime.values());
-        log.info("Fetched {} {} bars for {} from Alpaca ({} feed, since {})", out.size(), timeframe, symbol, feed, start);
+        log.info("Fetched {} {} bars for {} from Alpaca ({} feed, since {})", out.size(), timeframe, symbol, alpaca.getFeed(), start);
         return out;
     }
 
     private AlpacaBarsResponse fetchPage(String symbol, Instant start, Instant end, String pageToken) {
+        ApplicationProperties.Alpaca alpaca = properties.getAlpaca();
         return restClient.get()
                 .uri(uri -> uri.path("/v2/stocks/{symbol}/bars")
-                        .queryParam("timeframe", timeframe)
+                        .queryParam("timeframe", alpaca.getTimeframe())
                         .queryParam("start", start)
                         .queryParam("end", end)
                         .queryParam("limit", 10000)
                         .queryParam("adjustment", "raw")
-                        .queryParam("feed", feed)
+                        .queryParam("feed", alpaca.getFeed())
                         .queryParamIfPresent("page_token", Optional.ofNullable(pageToken))
                         .build(symbol))
-                .header("APCA-API-KEY-ID", apiKeyId)
-                .header("APCA-API-SECRET-KEY", apiSecretKey)
+                .header("APCA-API-KEY-ID", alpaca.getApiKeyId())
+                .header("APCA-API-SECRET-KEY", alpaca.getApiSecretKey())
                 .retrieve()
                 .body(AlpacaBarsResponse.class);
     }
@@ -105,7 +100,7 @@ public class AlpacaMarketDataClient implements MarketDataClient {
 
     @Override
     public String configuredTimeframe() {
-        return timeframe;
+        return properties.getAlpaca().getTimeframe();
     }
 
     private record AlpacaBar(

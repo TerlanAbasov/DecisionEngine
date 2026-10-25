@@ -20,7 +20,7 @@ import java.net.URI;
  * come from Alpaca's real data host. Returns JSON (Alpaca sends numbers as strings); errors are {@link AlpacaApiException}.
  */
 @FeignClient(name = "alpaca-data-client",
-    url = "${decision.alpaca.data-base-url:https://data.alpaca.markets}",
+    url = "${application.alpaca.data-base-url:https://data.alpaca.markets}",
     configuration = AlpacaClient.FeignConfiguration.class)
 public interface AlpacaClient {
 

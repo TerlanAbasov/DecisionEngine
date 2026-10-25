@@ -29,7 +29,7 @@ class AlpacaClientTest {
     private final List<Req> requests = new CopyOnWriteArrayList<>();
     private final Map<String, Function<Req, String[]>> routes = new HashMap<>();   // "GET /v2/stocks/MU/bars" -> [status, body]
     private String base;
-    private final AlpacaCredentials creds = new AlpacaCredentials("PKTEST", "secret", "iex");
+    private final AlpacaCredentials creds = new AlpacaCredentials(FeignTestSupport.properties(null, "PKTEST", "secret"));
     private final List<FeignTestSupport> contexts = new ArrayList<>();
 
     @BeforeEach
@@ -72,7 +72,7 @@ class AlpacaClientTest {
 
     private void route(String key, String status, String body) { routes.put(key, r -> new String[] {status, body}); }
 
-    private AlpacaLiveData data() { return new AlpacaLiveData(feign().client(), creds, base); }
+    private AlpacaLiveData data() { return new AlpacaLiveData(feign().client(), creds, FeignTestSupport.properties(base, "PKTEST", "secret")); }
 
     @Test
     void readsTheAccountKeysWithEveryRequest() {
@@ -165,7 +165,8 @@ class AlpacaClientTest {
 
     @Test
     void missingCredentialsFailWithAClearMessage() {
-        AlpacaLiveData d = new AlpacaLiveData(feign(base, "", "").client(), new AlpacaCredentials("", "", "iex"), base);
+        AlpacaLiveData d = new AlpacaLiveData(feign(base, "", "").client(),
+                new AlpacaCredentials(FeignTestSupport.properties(null, "", "")), FeignTestSupport.properties(base, "", ""));
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> d.latestPrices(List.of("MU")));
         assertTrue(e.getMessage().contains("credentials"), e.getMessage());
         assertTrue(requests.isEmpty());

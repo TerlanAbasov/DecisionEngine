@@ -5,6 +5,7 @@ import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.autotrade.CommandForwarder.Outcome;
 import com.quant.finance.decision.autotrade.SignalScanner.Result;
 import com.quant.finance.decision.autotrade.TradeCommand.Side;
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.engine.Timeframe;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,11 +37,17 @@ class AutoTradeJobTest {
         config = mock(AutoTradeConfigService.class);
         scanner = mock(SignalScanner.class);
         forwarder = mock(CommandForwarder.class);
-        job = new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), 30);
+        job = new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), tickSeconds(30));
     }
 
     @AfterEach
     void tearDown() { job.shutdown(); }
+
+    private static ApplicationProperties tickSeconds(int seconds) {
+        ApplicationProperties properties = new ApplicationProperties();
+        properties.getAutotrade().setTickSeconds(seconds);
+        return properties;
+    }
 
     @Test
     void aSwitchedOffJobDoesNothingAtAll() {
@@ -97,7 +104,7 @@ class AutoTradeJobTest {
 
     @Test
     void theTickIntervalHasAFloor() {
-        assertEquals(5, new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), 0).tickSeconds());
+        assertEquals(5, new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), tickSeconds(0)).tickSeconds());
         assertEquals(30, job.tickSeconds());
     }
 }

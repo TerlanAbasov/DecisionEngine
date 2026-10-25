@@ -1,5 +1,6 @@
 package com.quant.finance.decision.client;
 
+import com.quant.finance.decision.config.ApplicationProperties;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
@@ -21,8 +22,8 @@ final class FeignTestSupport implements AutoCloseable {
     static class Config {
         @Bean
         AlpacaCredentials alpacaCredentials(org.springframework.core.env.Environment env) {
-            return new AlpacaCredentials(env.getProperty("decision.alpaca.api-key-id", ""),
-                    env.getProperty("decision.alpaca.api-secret-key", ""), "iex");
+            return new AlpacaCredentials(properties(null, env.getProperty("application.alpaca.api-key-id", ""),
+                    env.getProperty("application.alpaca.api-secret-key", "")));
         }
     }
 
@@ -30,14 +31,23 @@ final class FeignTestSupport implements AutoCloseable {
 
     FeignTestSupport(String dataBase, String keyId, String secret) {
         ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", Map.of(
-                "decision.alpaca.data-base-url", dataBase,
-                "decision.alpaca.api-key-id", keyId,
-                "decision.alpaca.api-secret-key", secret)));
+                "application.alpaca.data-base-url", dataBase,
+                "application.alpaca.api-key-id", keyId,
+                "application.alpaca.api-secret-key", secret)));
         ctx.register(Config.class);
         ctx.refresh();
     }
 
     AlpacaClient client() { return ctx.getBean(AlpacaClient.class); }
+
+    /** Properties as the app would bind them; a null {@code dataBase} keeps the default data URL. */
+    static ApplicationProperties properties(String dataBase, String keyId, String secret) {
+        ApplicationProperties properties = new ApplicationProperties();
+        if (dataBase != null) properties.getAlpaca().setDataBaseUrl(dataBase);
+        properties.getAlpaca().setApiKeyId(keyId);
+        properties.getAlpaca().setApiSecretKey(secret);
+        return properties;
+    }
 
     @Override
     public void close() { ctx.close(); }

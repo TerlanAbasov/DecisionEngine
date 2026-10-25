@@ -1,6 +1,6 @@
 package com.quant.finance.decision.config;
 
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,10 +14,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Only pure compute runs here; persistence stays on the calling transaction thread. Shut down on context close.
  */
 @Configuration
+@RequiredArgsConstructor
 public class ExecutorConfig {
 
     public static final String BACKTEST_EXECUTOR = "backtestExecutor";
     public static final String BACKTEST_JOB_EXECUTOR = "backtestJobExecutor";
+
+    private final ApplicationProperties properties;
 
     /**
      * Runs one backtest job at a time (orchestration, transaction, persistence); the compute fans out onto {@link #BACKTEST_EXECUTOR}.
@@ -33,8 +36,8 @@ public class ExecutorConfig {
     }
 
     @Bean(name = BACKTEST_EXECUTOR, destroyMethod = "shutdown")
-    public ExecutorService backtestExecutor(@Value("${decision.backtest.threads:50}") int threads) {
-        int n = Math.max(1, threads);
+    public ExecutorService backtestExecutor() {
+        int n = Math.max(1, properties.getBacktest().getThreads());
         ThreadFactory tf = new ThreadFactory() {
             private final AtomicInteger seq = new AtomicInteger();
             @Override

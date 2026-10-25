@@ -4,10 +4,11 @@ import com.quant.finance.decision.client.AlpacaCalls;
 import com.quant.finance.decision.client.AlpacaClient;
 import com.quant.finance.decision.client.AlpacaCredentials;
 import com.quant.finance.decision.client.AlpacaJson;
+import com.quant.finance.decision.config.ApplicationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.strategy.BarSeries;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -25,19 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class AlpacaLiveData implements LiveDataSource {
 
     private final AlpacaClient client;
     private final AlpacaCredentials creds;
-    private final URI dataUrl;
+    private final ApplicationProperties properties;
     private final Map<String, BarWindow> windows = new ConcurrentHashMap<>();
-
-    public AlpacaLiveData(AlpacaClient client, AlpacaCredentials creds,
-                          @Value("${decision.alpaca.data-base-url:https://data.alpaca.markets}") String dataBaseUrl) {
-        this.client = client;
-        this.creds = creds;
-        this.dataUrl = URI.create(dataBaseUrl.trim());
-    }
 
     @Override
     public BarSeries bars(String symbol, Base base, int lookbackDays) {
@@ -50,6 +45,7 @@ public class AlpacaLiveData implements LiveDataSource {
 
     private Map<Instant, BarWindow.Bar> fetch(String symbol, Base base, Instant from, Instant to) {
         Map<Instant, BarWindow.Bar> out = new LinkedHashMap<>();
+        URI dataUrl = dataUrl();
         String pageToken = null;
         do {
             String token = pageToken;
@@ -68,7 +64,7 @@ public class AlpacaLiveData implements LiveDataSource {
     public Map<String, Double> latestPrices(Collection<String> symbols) {
         Map<String, Double> out = new HashMap<>();
         if (symbols.isEmpty()) return out;
-        JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl, String.join(",", symbols), creds.feed()));
+        JsonNode root = AlpacaCalls.read(() -> client.snapshots(dataUrl(), String.join(",", symbols), creds.feed()));
         JsonNode snaps = root.has("snapshots") ? root.path("snapshots") : root;   // both response shapes exist
         for (String symbol : symbols) {
             double price = priceOf(snaps.path(symbol));
@@ -84,4 +80,6 @@ public class AlpacaLiveData implements LiveDataSource {
         if (price <= 0) price = snapshot.path("dailyBar").path("c").asDouble(0);
         return price;
     }
+
+    private URI dataUrl() { return URI.create(properties.getAlpaca().getDataBaseUrl().trim()); }
 }

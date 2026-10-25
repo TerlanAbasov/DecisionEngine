@@ -10,7 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "execution-engine", url = "${decision.execution-engine.url:}",
+@FeignClient(name = "execution-engine", url = "${application.execution-engine.url:}",
     configuration = ExecutionEngineClient.FeignConfiguration.class)
 public interface ExecutionEngineClient {
 

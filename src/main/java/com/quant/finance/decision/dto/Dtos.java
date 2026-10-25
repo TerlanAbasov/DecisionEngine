@@ -154,7 +154,7 @@ public final class Dtos {
 
     /**
      * Cache coverage for one symbol in the local {@code price_bar} store; {@code fresh} = the newest cached bar is within
-     * the freshness window ({@code decision.data.fresh-days}).
+     * the freshness window ({@code application.data.fresh-days}).
      */
     public record SymbolCoverageDto(String symbol, Instant firstBar, Instant lastBar,
                                     long bars, boolean fresh, String timeframe) {}
