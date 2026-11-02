@@ -1,6 +1,5 @@
 package com.quant.finance.decision.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quant.finance.decision.engine.PerformanceMetrics;
 import com.quant.finance.decision.entity.BacktestResultEntity;
 import com.quant.finance.decision.entity.BacktestRunEntity;
@@ -17,6 +16,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Boot-time, idempotent repair of legacy backtest runs: fills the denormalised metric columns and rebuilds totals that old multiplicative

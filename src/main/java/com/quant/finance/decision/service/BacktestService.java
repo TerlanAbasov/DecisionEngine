@@ -48,6 +48,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @Slf4j
@@ -1085,7 +1086,7 @@ public class BacktestService {
             return List.of();
         }
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(jsonStr, List.class);
+            return new ObjectMapper().readValue(jsonStr, List.class);
         } catch (Exception e) {
             return List.of();
         }

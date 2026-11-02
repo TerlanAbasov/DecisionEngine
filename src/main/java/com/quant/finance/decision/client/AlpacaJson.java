@@ -1,6 +1,6 @@
 package com.quant.finance.decision.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /** Reads Alpaca's JSON, which leaves fields out or null when they do not apply. */
 public final class AlpacaJson {
@@ -8,7 +8,7 @@ public final class AlpacaJson {
 
     /** The field's text, or null when it is missing, blank or JSON null. */
     public static String text(JsonNode node, String field) {
-        String value = node.path(field).asText("");
+        String value = node.path(field).asString("");
         return value.isBlank() || "null".equals(value) ? null : value;
     }
 }

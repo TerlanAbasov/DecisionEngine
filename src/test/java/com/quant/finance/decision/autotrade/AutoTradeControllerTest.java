@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.OrderType;
 import com.quant.finance.decision.autotrade.AutoTradeSettings.TimeInForce;
 import com.quant.finance.decision.controller.GlobalExceptionHandler;
@@ -20,10 +18,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 class AutoTradeControllerTest {
 
@@ -43,11 +42,12 @@ class AutoTradeControllerTest {
         job = mock(AutoTradeJob.class);
         sender = mock(CommandSender.class);
         commands = mock(CommandLog.class);
-        ObjectMapper bootLike = Jackson2ObjectMapperBuilder.json()
-                .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        JsonMapper bootLike = JsonMapper.builderWithJackson2Defaults()
+                .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
                 .build();
         mvc = MockMvcBuilders.standaloneSetup(new AutoTradeController(config, job, sender, commands))
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(bootLike))
+                // the app's mapper: Jackson 2 defaults (spring.jackson.use-jackson2-defaults) and ISO-8601 dates
+                .setMessageConverters(new JacksonJsonHttpMessageConverter(bootLike))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

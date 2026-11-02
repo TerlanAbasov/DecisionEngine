@@ -1,0 +1,135 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+
+// =============================================================================================================
+// DecisionEngine — KAMA Trend (kama_trend)
+// A line-for-line Pine port of com.quant.finance.decision.strategy.impl.AdaptiveStrategies$KamaTrend, including
+// the backtester's stop-loss handling (com.quant.finance.decision.engine.Backtester#applyRiskExits), so a trade
+// taken here should land on the same bars as a DecisionEngine backtest or auto-trade run of the same strategy.
+//
+// Chart timeframe: the strategy's recommended/tested timeframe is 15 Min — put this on an M15 chart to match
+// the backtest it was validated against (run #6020: 850% return, 10.65 Sharpe, 5363 trades, Aug 2025–Sep 2026,
+// symbols AAOI/MU/MULL/NBIS/RKLB/SNDK). Defaults below (ER 10 / fast 2 / slow 30, 1% stop, no take-profit) are
+// exactly that run's settings — DecisionEngine's own saved defaults for this strategy.
+//
+// What carries over exactly:
+//   - KAMA itself: the efficiency-ratio-weighted smoothing constant, bar for bar.
+//   - The regime rule: long while close > KAMA and KAMA is rising; short while close < KAMA and KAMA is
+//     falling; flat otherwise — re-decided fresh every bar, not "enter on cross, hold until the opposite cross".
+//   - The stop-loss re-arm rule: a stop-out does not just exit — it blocks re-entry in that same direction
+//     until the regime asks for the *other* side first. A plain `strategy.exit(stop=...)` cannot express this
+//     (it would let the strategy re-enter on the very next bar the regime is still true), so it is hand-rolled
+//     below exactly as the Java backtester does it.
+//
+// Fills and sizing:
+//   - process_orders_on_close = true: an order decided at bar N's close fills at bar N's close. DecisionEngine
+//     also enters at the signal bar's close (execLag = 1 holds the position over bar N+1), so entries and regime
+//     exits land on the same bars and prices.
+//   - Fixed notional (100,000 cash per trade, no compounding), like the Java equity curve. Commission 0.03% per
+//     fill = DecisionEngine's 1 bps commission + 2 bps slippage.
+//
+// Known difference — stop-loss results: Backtester#applyRiskExits checks the stop on bar i's close and flattens
+// the position for that same bar i, so the move that hit the stop is never booked (look-ahead). This script
+// cannot look ahead: a stop is detected at a bar's close and the trade exits at that close, losing the full
+// move. With the 1% stop on, expect this script to report clearly worse results than the Java backtest. Set
+// "Stop-loss %" to 0 to compare the pure KAMA logic, which should match bar for bar apart from KAMA seeding:
+// KAMA starts at the chart's first bar here and at the backtest's first loaded bar in Java, and the
+// difference fades over a few hundred bars.
+// =============================================================================================================
+
+strategy("DecisionEngine — KAMA Trend", shorttitle = "DE-KAMA", overlay = true,
+     default_qty_type = strategy.cash, default_qty_value = 100000,
+     commission_type = strategy.commission.percent, commission_value = 0.03,
+     initial_capital = 100000, calc_on_order_fills = false, calc_on_every_tick = false,
+     process_orders_on_close = true)
+
+// ---- inputs (defaults = kama_trend's defaultParams() and its saved risk defaults) -----------------------------
+erLenInput    = input.int(10, "Efficiency ratio length", minval = 2, group = "KAMA")
+fastLenInput  = input.int(2,  "Fast EMA length",         minval = 1, group = "KAMA")
+slowLenInput  = input.int(30, "Slow EMA length",         minval = 1, group = "KAMA")
+allowShort    = input.bool(true, "Allow short", group = "Direction")
+stopLossPct   = input.float(1.0, "Stop-loss %",   minval = 0, step = 0.1, group = "Risk", tooltip = "0 disables it, exactly like the Java side.")
+takeProfitPct = input.float(0.0, "Take-profit %", minval = 0, step = 0.1, group = "Risk", tooltip = "0 disables it, exactly like the Java side.")
+
+erLen = math.max(2, erLenInput)
+scFast = 2.0 / (fastLenInput + 1)
+scSlow = 2.0 / (slowLenInput + 1)
+
+// ---- KAMA: ported bar for bar from KamaTrend.generateSignals --------------------------------------------------
+// math.sum is computed on every bar, outside the if, so its 10-bar window always holds the last 10 bars
+vol = math.sum(math.abs(close - close[1]), erLen)
+var float kama = na
+if bar_index < erLen
+    kama := close                                              // seed, exactly as the first `er` bars do in Java
+else
+    change = math.abs(close - close[erLen])
+    efRatio = vol > 0 ? change / vol : 0.0
+    sc = math.pow(efRatio * (scFast - scSlow) + scSlow, 2)
+    kama := kama[1] + sc * (close - kama[1])
+
+// ---- the regime: re-decided every bar, only once a real (non-seed) KAMA slope exists ---------------------------
+ready = bar_index >= erLen + 1
+longCond  = ready and close > kama and kama > kama[1]
+shortCond = ready and close < kama and kama < kama[1] and allowShort
+wantDir = longCond ? 1 : shortCond ? -1 : 0
+
+// ---- Backtester#applyRiskExits, ported: a stop/target flattens the position and blocks that same direction ----
+// from re-entering until the regime asks for the other side first (or asks for nothing, which also re-arms it).
+var int curDir = 0
+var int blockedDir = 0
+var float entryClose = na
+float finalPos = 0.0
+bool stoppedOutThisBar = false
+
+bothOff = stopLossPct <= 0 and takeProfitPct <= 0
+if bothOff
+    finalPos := wantDir
+else
+    if blockedDir != 0 and wantDir != blockedDir
+        blockedDir := 0
+
+    if blockedDir != 0
+        finalPos := 0
+        curDir := 0
+    else if wantDir != curDir
+        curDir := wantDir
+        entryClose := close
+        finalPos := wantDir
+    else if curDir != 0
+        ret = curDir * (close / entryClose - 1)
+        hitSL = stopLossPct > 0 and ret <= -stopLossPct / 100
+        hitTP = takeProfitPct > 0 and ret >= takeProfitPct / 100
+        if hitSL or hitTP
+            finalPos := 0
+            blockedDir := curDir
+            curDir := 0
+            stoppedOutThisBar := true
+        else
+            finalPos := wantDir
+    else
+        finalPos := 0
+
+// ---- turn the position series into orders; a direct long<->short flip reverses in one order, as in Java -------
+enteredLong  = finalPos == 1  and finalPos[1] != 1
+enteredShort = finalPos == -1 and finalPos[1] != -1
+wentFlat     = finalPos == 0  and finalPos[1] != 0
+
+if enteredLong
+    strategy.entry("Long", strategy.long)
+if enteredShort
+    strategy.entry("Short", strategy.short)
+if wentFlat
+    strategy.close_all(stoppedOutThisBar ? "Stopped out" : "Flat")
+
+// ---- visuals: KAMA coloured by its own slope, background by the held direction, markers on transitions --------
+kamaColor = kama > kama[1] ? color.lime : kama < kama[1] ? color.red : color.gray
+plot(kama, "KAMA", color = kamaColor, linewidth = 2)
+bgcolor(finalPos == 1 ? color.new(color.green, 88) : finalPos == -1 ? color.new(color.red, 88) : na, title = "Position")
+
+plotshape(enteredLong,  "Long entry",  style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.small)
+plotshape(enteredShort, "Short entry", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
+plotshape(wentFlat,     "Exit",        style = shape.xcross,       location = location.abovebar, color = color.gray,  size = size.tiny)
+
+alertcondition(enteredLong,  "KAMA Trend — long entry",  "DE-KAMA: entered LONG on {{ticker}} {{interval}}")
+alertcondition(enteredShort, "KAMA Trend — short entry", "DE-KAMA: entered SHORT on {{ticker}} {{interval}}")
+alertcondition(wentFlat,     "KAMA Trend — exit",        "DE-KAMA: went FLAT on {{ticker}} {{interval}}")

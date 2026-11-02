@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Readability rules the formatter (Spotless) can't fix on its own.
+  Layout - indentation, line wrapping, one-line method bodies - is left to `./gradlew spotlessApply`.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+
+    <module name="TreeWalker">
+        <!-- every if / else / for / while / do body in braces -->
+        <module name="NeedBraces"/>
+
+        <!-- one variable per declaration, one statement per line -->
+        <module name="MultipleVariableDeclarations"/>
+        <module name="OneStatementPerLine"/>
+
+        <!-- descriptive names: no single-letter methods, fields, parameters or locals (loop indices are fine) -->
+        <module name="MethodName">
+            <property name="format" value="^[a-z][a-zA-Z0-9]+$"/>
+        </module>
+        <module name="MemberName">
+            <property name="format" value="^[a-z][a-zA-Z0-9]+$"/>
+        </module>
+        <module name="ParameterName">
+            <property name="format" value="^[a-z][a-zA-Z0-9]+$"/>
+        </module>
+        <module name="LocalVariableName">
+            <property name="format" value="^[a-z][a-zA-Z0-9]+$"/>
+            <property name="allowOneCharVarInForLoop" value="true"/>
+        </module>
+
+        <module name="AvoidStarImport">
+            <property name="allowStaticMemberImports" value="true"/>
+        </module>
+        <module name="UnusedImports"/>
+    </module>
+</module>

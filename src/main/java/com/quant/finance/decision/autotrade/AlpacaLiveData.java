@@ -1,6 +1,5 @@
 package com.quant.finance.decision.autotrade;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.client.AlpacaCalls;
 import com.quant.finance.decision.client.AlpacaClient;
 import com.quant.finance.decision.client.AlpacaJson;
@@ -17,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Alpaca market data for auto trading's signal detection: recent bars (in memory, topped up incrementally) and latest prices. Bars are split-adjusted,
@@ -62,7 +62,7 @@ public class AlpacaLiveData implements LiveDataSource {
                     token));
             for (JsonNode b : page.path("bars")) {
                 out.put(
-                        Instant.parse(b.path("t").asText()),
+                        Instant.parse(b.path("t").asString()),
                         new BarWindow.Bar(
                                 b.path("o").asDouble(),
                                 b.path("h").asDouble(),
