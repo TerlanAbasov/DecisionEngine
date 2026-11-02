@@ -2,7 +2,6 @@ package com.quant.finance.decision.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quant.finance.decision.dto.Dtos.TradeDetailDto;
 import com.quant.finance.decision.dto.Dtos.TradePageDto;
 import com.quant.finance.decision.engine.SymbolResult;
@@ -14,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 class TradeDetailsTest {
 

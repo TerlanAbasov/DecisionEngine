@@ -1,6 +1,5 @@
 package com.quant.finance.decision.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.error.AlpacaApiException;
 import feign.Logger;
@@ -14,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Alpaca's market-data API (bars and latest prices): the base URL is passed per call, so a symbol's data and a strategy's decisions always

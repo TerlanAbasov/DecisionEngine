@@ -3,6 +3,8 @@ package com.quant.finance.decision.autotrade;
 import com.quant.finance.decision.autotrade.CommandForwarder.Outcome;
 import com.quant.finance.decision.autotrade.SignalScanner.Result;
 import com.quant.finance.decision.config.ApplicationProperties;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.annotation.PreDestroy;
 import java.time.Clock;
 import java.time.Duration;
@@ -28,6 +30,7 @@ public class AutoTradeJob {
     private final CommandForwarder forwarder;
     private final Clock clock;
     private final ApplicationProperties properties;
+    private final ObservationRegistry observations;
     private final ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
     private volatile boolean running;
     private volatile RunSummary lastRun;
@@ -37,12 +40,14 @@ public class AutoTradeJob {
             SignalScanner scanner,
             CommandForwarder forwarder,
             Clock clock,
-            ApplicationProperties properties) {
+            ApplicationProperties properties,
+            ObservationRegistry observations) {
         this.config = config;
         this.scanner = scanner;
         this.forwarder = forwarder;
         this.clock = clock;
         this.properties = properties;
+        this.observations = observations;
         scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("auto-trade-");
         scheduler.setDaemon(true);
@@ -62,8 +67,15 @@ public class AutoTradeJob {
         scheduler.shutdown();
     }
 
-    /** One pass; never throws, since a scheduled task that throws is never run again. */
+    /**
+     * One pass in its own trace: the scan, every command and ExecutionEngine's handling of it log under one trace id.
+     */
     void tick() {
+        Observation.createNotStarted("autotrade.tick", observations).observe(this::runOnce);
+    }
+
+    /** One pass; never throws, since a scheduled task that throws is never run again. */
+    private void runOnce() {
         try {
             AutoTradeSettings settings = config.current();
             if (!settings.enabled()) {

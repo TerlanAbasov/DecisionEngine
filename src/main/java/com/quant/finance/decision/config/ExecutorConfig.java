@@ -1,5 +1,7 @@
 package com.quant.finance.decision.config;
 
+import io.micrometer.context.ContextExecutorService;
+import io.micrometer.context.ContextSnapshotFactory;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -19,6 +21,10 @@ public class ExecutorConfig {
     public static final String BACKTEST_EXECUTOR = "backtestExecutor";
     public static final String BACKTEST_JOB_EXECUTOR = "backtestJobExecutor";
 
+    /** Captures the submitting thread's context (trace id, span) so pool threads log under the same trace. */
+    private static final ContextSnapshotFactory CONTEXT_SNAPSHOTS =
+            ContextSnapshotFactory.builder().build();
+
     private final ApplicationProperties properties;
 
     /**
@@ -27,11 +33,12 @@ public class ExecutorConfig {
      */
     @Bean(name = BACKTEST_JOB_EXECUTOR, destroyMethod = "shutdownNow")
     public ExecutorService backtestJobExecutor() {
-        return Executors.newSingleThreadExecutor(r -> {
+        ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "bt-job");
             thread.setDaemon(true);
             return thread;
         });
+        return ContextExecutorService.wrap(executor, CONTEXT_SNAPSHOTS);
     }
 
     @Bean(name = BACKTEST_EXECUTOR, destroyMethod = "shutdown")
@@ -47,6 +54,7 @@ public class ExecutorConfig {
                 return thread;
             }
         };
-        return Executors.newFixedThreadPool(threadCount, threadFactory);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount, threadFactory);
+        return ContextExecutorService.wrap(executor, CONTEXT_SNAPSHOTS);
     }
 }

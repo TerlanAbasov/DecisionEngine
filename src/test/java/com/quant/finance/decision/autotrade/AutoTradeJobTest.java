@@ -11,6 +11,7 @@ import com.quant.finance.decision.autotrade.SignalScanner.Result;
 import com.quant.finance.decision.autotrade.TradeCommand.Side;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.engine.Timeframe;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -37,7 +38,13 @@ class AutoTradeJobTest {
         config = mock(AutoTradeConfigService.class);
         scanner = mock(SignalScanner.class);
         forwarder = mock(CommandForwarder.class);
-        job = new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), tickSeconds(30));
+        job = new AutoTradeJob(
+                config,
+                scanner,
+                forwarder,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                tickSeconds(30),
+                ObservationRegistry.NOOP);
     }
 
     @AfterEach
@@ -110,7 +117,13 @@ class AutoTradeJobTest {
     void theTickIntervalHasAFloor() {
         assertEquals(
                 5,
-                new AutoTradeJob(config, scanner, forwarder, Clock.fixed(NOW, ZoneOffset.UTC), tickSeconds(0))
+                new AutoTradeJob(
+                                config,
+                                scanner,
+                                forwarder,
+                                Clock.fixed(NOW, ZoneOffset.UTC),
+                                tickSeconds(0),
+                                ObservationRegistry.NOOP)
                         .tickSeconds());
         assertEquals(30, job.tickSeconds());
     }

@@ -3,3 +3,5 @@ spring:
     name: DecisionEngine
   profiles:
     default: local        # no --spring.profiles.active given -> real Postgres (application-local.yml)
+  jackson:
+    use-jackson2-defaults: true   # Jackson 3 (Boot 4) rejects e.g. a missing boolean; keep Boot 3's JSON behaviour

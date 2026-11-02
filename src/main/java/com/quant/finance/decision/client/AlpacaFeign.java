@@ -1,7 +1,5 @@
 package com.quant.finance.decision.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quant.finance.decision.config.ApplicationProperties;
 import com.quant.finance.decision.error.AlpacaApiException;
 import feign.Request;
@@ -15,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.StringUtils;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** What the Alpaca Feign client needs: authentication, the data-host guard, error decoding and timeouts. */
 public final class AlpacaFeign {
@@ -92,7 +92,7 @@ public final class AlpacaFeign {
     static String errorText(int status, String body) {
         try {
             JsonNode root = MAPPER.readTree(body == null ? "" : body);
-            String message = root.path("message").asText("");
+            String message = root.path("message").asString("");
             if (!message.isBlank()) {
                 return message;
             }

@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quant.finance.decision.domain.JobKind;
 import com.quant.finance.decision.domain.JobStatus;
 import com.quant.finance.decision.dto.Dtos.JobDto;
@@ -26,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
 
 class BacktestJobServiceTest {
 
