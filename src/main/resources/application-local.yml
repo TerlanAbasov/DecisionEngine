@@ -9,9 +9,9 @@ spring:
   application:
     name: DecisionEngine
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/quant
-    username: ${QUANT_ENGINE_USER}
-    password: ${QUANT_ENGINE_PASSWORD}
+    url: jdbc:postgresql://127.0.0.1:5432/decision_engine
+    username: ${DECISION_ENGINE_USER}
+    password: ${DECISION_ENGINE_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate        # schema is owned by Liquibase (see changelog/master.yaml)

@@ -10,7 +10,7 @@ spring:
   application:
     name: DecisionEngine
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/quant
+    url: jdbc:postgresql://127.0.0.1:5432/decision_engine
     username: 'engine'
     password: 'engine2026'
   jpa:
